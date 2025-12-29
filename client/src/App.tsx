@@ -1,8 +1,10 @@
+import { useState } from "react";
 import { Switch, Route, useLocation, Link } from "wouter";
-import { queryClient } from "./lib/queryClient";
-import { QueryClientProvider } from "@tanstack/react-query";
+import { queryClient, apiRequest } from "./lib/queryClient";
+import { QueryClientProvider, useQuery, useMutation } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { useToast } from "@/hooks/use-toast";
 import NotFound from "@/pages/not-found";
 import Home from "@/pages/home";
 import Bets from "@/pages/bets";
@@ -18,8 +20,10 @@ import {
   SidebarMenuItem,
   SidebarMenuButton,
   SidebarHeader,
+  SidebarFooter,
 } from "@/components/ui/sidebar";
-import { Users, Target, TrendingUp } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Users, Target, TrendingUp, RefreshCw, CloudDownload, AlertCircle } from "lucide-react";
 
 function Router() {
   return (
@@ -46,6 +50,33 @@ const navItems = [
 
 function AppSidebar() {
   const [location] = useLocation();
+  const { toast } = useToast();
+  
+  const { data: syncStatus } = useQuery<{ apiConfigured: boolean; message: string }>({
+    queryKey: ["/api/sync/status"],
+  });
+
+  const syncMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/sync/players");
+      return res.json();
+    },
+    onSuccess: (data) => {
+      toast({
+        title: "Sync Complete",
+        description: data.message,
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/players"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/bets"] });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Sync Failed",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
   
   return (
     <Sidebar>
@@ -77,6 +108,29 @@ function AppSidebar() {
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>
+      <SidebarFooter className="p-4 border-t border-sidebar-border">
+        {syncStatus?.apiConfigured ? (
+          <Button 
+            variant="outline" 
+            className="w-full"
+            onClick={() => syncMutation.mutate()}
+            disabled={syncMutation.isPending}
+            data-testid="button-sync-players"
+          >
+            {syncMutation.isPending ? (
+              <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+            ) : (
+              <CloudDownload className="w-4 h-4 mr-2" />
+            )}
+            {syncMutation.isPending ? "Syncing..." : "Sync NBA Data"}
+          </Button>
+        ) : (
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <AlertCircle className="w-4 h-4 text-amber-500" />
+            <span>Add BALLDONTLIE_API_KEY to sync live data</span>
+          </div>
+        )}
+      </SidebarFooter>
     </Sidebar>
   );
 }

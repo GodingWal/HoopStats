@@ -11,6 +11,7 @@ export interface IStorage {
   getPotentialBets(): Promise<PotentialBet[]>;
   createPotentialBet(bet: InsertPotentialBet): Promise<PotentialBet>;
   clearPotentialBets(): Promise<void>;
+  clearPlayers(): Promise<void>;
   seedPlayers(data: Player[]): Promise<void>;
 }
 
@@ -91,6 +92,10 @@ export class DatabaseStorage implements IStorage {
 
   async clearPotentialBets(): Promise<void> {
     await db.delete(potentialBets);
+  }
+
+  async clearPlayers(): Promise<void> {
+    await db.delete(players);
   }
 
   async seedPlayers(data: Player[]): Promise<void> {

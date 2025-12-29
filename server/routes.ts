@@ -2,6 +2,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import type { Player } from "@shared/schema";
+import { fetchAndBuildAllPlayers, isApiConfigured } from "./nba-api";
 
 const SAMPLE_PLAYERS: Player[] = [
   {
@@ -492,6 +493,60 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error refreshing bets:", error);
       res.status(500).json({ error: "Failed to refresh bets" });
+    }
+  });
+
+  app.get("/api/sync/status", async (req, res) => {
+    res.json({ 
+      apiConfigured: isApiConfigured(),
+      message: isApiConfigured() 
+        ? "API is configured. You can sync NBA data." 
+        : "Please add BALLDONTLIE_API_KEY to secrets to sync real NBA data."
+    });
+  });
+
+  app.post("/api/sync/players", async (req, res) => {
+    if (!isApiConfigured()) {
+      return res.status(400).json({ 
+        error: "API not configured", 
+        message: "Please add BALLDONTLIE_API_KEY to secrets to sync real NBA data." 
+      });
+    }
+    
+    try {
+      console.log("Starting NBA player sync...");
+      
+      const players = await fetchAndBuildAllPlayers((current, total) => {
+        if (current % 50 === 0) {
+          console.log(`Progress: ${current}/${total} players processed`);
+        }
+      });
+      
+      console.log(`Syncing ${players.length} players to database...`);
+      
+      await storage.clearPlayers();
+      await storage.seedPlayers(players as Player[]);
+      
+      const generatedBets = generatePotentialBets(players as Player[]);
+      await storage.clearPotentialBets();
+      for (const bet of generatedBets) {
+        await storage.createPotentialBet(bet);
+      }
+      
+      console.log("Sync complete!");
+      
+      res.json({ 
+        success: true, 
+        playersCount: players.length,
+        betsCount: generatedBets.length,
+        message: `Successfully synced ${players.length} NBA players and generated ${generatedBets.length} betting opportunities.`
+      });
+    } catch (error) {
+      console.error("Error syncing players:", error);
+      res.status(500).json({ 
+        error: "Failed to sync players", 
+        message: error instanceof Error ? error.message : "Unknown error" 
+      });
     }
   });
 
