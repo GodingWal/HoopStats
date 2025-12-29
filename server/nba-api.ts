@@ -56,11 +56,16 @@ export async function fetchAllNBAPlayers(): Promise<NBAPlayer[]> {
   const bdlApi = getApi();
   const allPlayers: NBAPlayer[] = [];
   let cursor: number | undefined = undefined;
+  let isFirstRequest = true;
   
-  console.log("Fetching all NBA players (free tier)...");
+  console.log("Fetching all NBA players (free tier - 5 req/min limit)...");
   
   do {
-    await delay(12500);
+    if (!isFirstRequest) {
+      console.log("Waiting 15 seconds for rate limit...");
+      await delay(15000);
+    }
+    isFirstRequest = false;
     
     const response = await bdlApi.nba.getPlayers({ 
       per_page: 100,
