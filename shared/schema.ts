@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { pgTable, serial, text, integer, real, jsonb } from "drizzle-orm/pg-core";
+import { createInsertSchema } from "drizzle-zod";
 
 // Player game log entry
 export const gameLogSchema = z.object({
@@ -56,7 +58,7 @@ export const splitAveragesSchema = z.object({
 
 export type SplitAverages = z.infer<typeof splitAveragesSchema>;
 
-// Complete player profile
+// Complete player profile (Zod schema for validation)
 export const playerSchema = z.object({
   player_id: z.number(),
   player_name: z.string(),
@@ -74,6 +76,64 @@ export const playerSchema = z.object({
 });
 
 export type Player = z.infer<typeof playerSchema>;
+
+// Drizzle database table for players
+export const players = pgTable("players", {
+  id: serial("id").primaryKey(),
+  player_id: integer("player_id").notNull().unique(),
+  player_name: text("player_name").notNull(),
+  team: text("team").notNull(),
+  team_id: integer("team_id"),
+  games_played: integer("games_played"),
+  season_averages: jsonb("season_averages").notNull().$type<SeasonAverages>(),
+  last_10_averages: jsonb("last_10_averages").notNull().$type<Partial<SeasonAverages>>(),
+  last_5_averages: jsonb("last_5_averages").notNull().$type<Partial<SeasonAverages>>(),
+  hit_rates: jsonb("hit_rates").notNull().$type<HitRates>(),
+  vs_team: jsonb("vs_team").notNull().$type<Record<string, VsTeamStats>>(),
+  recent_games: jsonb("recent_games").notNull().$type<GameLog[]>(),
+  home_averages: jsonb("home_averages").notNull().$type<SplitAverages>(),
+  away_averages: jsonb("away_averages").notNull().$type<SplitAverages>(),
+});
+
+export const insertPlayerSchema = createInsertSchema(players).omit({ id: true });
+export type InsertPlayer = z.infer<typeof insertPlayerSchema>;
+export type DbPlayer = typeof players.$inferSelect;
+
+// Potential bet schema
+export const potentialBetSchema = z.object({
+  id: z.number().optional(),
+  player_id: z.number(),
+  player_name: z.string(),
+  team: z.string(),
+  stat_type: z.string(),
+  line: z.number(),
+  hit_rate: z.number(),
+  season_avg: z.number(),
+  last_5_avg: z.number().optional(),
+  recommendation: z.enum(["OVER", "UNDER"]),
+  confidence: z.enum(["HIGH", "MEDIUM", "LOW"]),
+});
+
+export type PotentialBet = z.infer<typeof potentialBetSchema>;
+
+// Drizzle table for potential bets
+export const potentialBets = pgTable("potential_bets", {
+  id: serial("id").primaryKey(),
+  player_id: integer("player_id").notNull(),
+  player_name: text("player_name").notNull(),
+  team: text("team").notNull(),
+  stat_type: text("stat_type").notNull(),
+  line: real("line").notNull(),
+  hit_rate: real("hit_rate").notNull(),
+  season_avg: real("season_avg").notNull(),
+  last_5_avg: real("last_5_avg"),
+  recommendation: text("recommendation").notNull(),
+  confidence: text("confidence").notNull(),
+});
+
+export const insertPotentialBetSchema = createInsertSchema(potentialBets).omit({ id: true });
+export type InsertPotentialBet = z.infer<typeof insertPotentialBetSchema>;
+export type DbPotentialBet = typeof potentialBets.$inferSelect;
 
 // Teammate impact data
 export const teammateImpactSchema = z.object({

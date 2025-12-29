@@ -1,360 +1,120 @@
-import type { Player } from "@shared/schema";
-
-const SAMPLE_PLAYERS: Player[] = [
-  {
-    player_id: 1629029,
-    player_name: "Luka Dončić",
-    team: "DAL",
-    games_played: 42,
-    season_averages: { PTS: 33.9, REB: 9.2, AST: 9.8, FG3M: 4.1, STL: 1.4, BLK: 0.5, PRA: 52.9, MIN: 37.2, TOV: 4.1 },
-    last_10_averages: { PTS: 35.2, REB: 8.8, AST: 10.1, FG3M: 4.3, PRA: 54.1, MIN: 38.1 },
-    last_5_averages: { PTS: 37.8, REB: 9.4, AST: 9.2, FG3M: 4.8, PRA: 56.4, MIN: 38.5 },
-    hit_rates: {
-      PTS: { "20.5": 100, "25.5": 95.2, "30.5": 78.6, "35.5": 52.4 },
-      REB: { "5.5": 97.6, "7.5": 83.3, "9.5": 50.0 },
-      AST: { "6.5": 95.2, "8.5": 76.2, "10.5": 42.9 },
-      FG3M: { "1.5": 97.6, "2.5": 88.1, "3.5": 71.4, "4.5": 45.2 },
-      PRA: { "40.5": 97.6, "45.5": 88.1, "50.5": 66.7, "55.5": 35.7 },
-      STOCKS: { "1.5": 78.6, "2.5": 45.2 }
-    },
-    vs_team: {
-      LAL: { games: 3, PTS: 38.3, REB: 10.0, AST: 8.7, PRA: 57.0, FG3M: 4.7 },
-      PHX: { games: 4, PTS: 32.5, REB: 8.5, AST: 11.2, PRA: 52.2, FG3M: 3.8 },
-      DEN: { games: 3, PTS: 29.7, REB: 9.3, AST: 9.0, PRA: 48.0, FG3M: 3.0 },
-      GSW: { games: 3, PTS: 36.0, REB: 8.7, AST: 10.3, PRA: 55.0, FG3M: 5.0 },
-      LAC: { games: 4, PTS: 34.5, REB: 9.5, AST: 9.0, PRA: 53.0, FG3M: 4.2 }
-    },
-    recent_games: [
-      { GAME_DATE: "DEC 26, 2024", OPPONENT: "LAL", PTS: 41, REB: 12, AST: 9, FG3M: 6, WL: "W", MIN: 39 },
-      { GAME_DATE: "DEC 23, 2024", OPPONENT: "POR", PTS: 38, REB: 8, AST: 11, FG3M: 5, WL: "W", MIN: 36 },
-      { GAME_DATE: "DEC 21, 2024", OPPONENT: "MIN", PTS: 33, REB: 9, AST: 8, FG3M: 4, WL: "L", MIN: 38 },
-      { GAME_DATE: "DEC 19, 2024", OPPONENT: "HOU", PTS: 42, REB: 10, AST: 12, FG3M: 5, WL: "W", MIN: 40 },
-      { GAME_DATE: "DEC 17, 2024", OPPONENT: "SAC", PTS: 35, REB: 7, AST: 9, FG3M: 4, WL: "W", MIN: 37 }
-    ],
-    home_averages: { PTS: 35.2, REB: 9.5, AST: 10.1, PRA: 54.8 },
-    away_averages: { PTS: 32.6, REB: 8.9, AST: 9.5, PRA: 51.0 }
-  },
-  {
-    player_id: 1628369,
-    player_name: "Jayson Tatum",
-    team: "BOS",
-    games_played: 40,
-    season_averages: { PTS: 27.8, REB: 8.4, AST: 5.2, FG3M: 2.8, STL: 1.1, BLK: 0.6, PRA: 41.4, MIN: 36.1, TOV: 2.8 },
-    last_10_averages: { PTS: 29.1, REB: 8.8, AST: 5.5, FG3M: 3.1, PRA: 43.4, MIN: 36.8 },
-    last_5_averages: { PTS: 31.2, REB: 9.2, AST: 4.8, FG3M: 3.4, PRA: 45.2, MIN: 37.2 },
-    hit_rates: {
-      PTS: { "20.5": 92.9, "25.5": 73.8, "30.5": 42.9 },
-      REB: { "5.5": 92.9, "7.5": 71.4, "9.5": 35.7 },
-      AST: { "4.5": 66.7, "6.5": 33.3 },
-      FG3M: { "1.5": 85.7, "2.5": 64.3, "3.5": 38.1 },
-      PRA: { "35.5": 92.9, "40.5": 71.4, "45.5": 42.9 },
-      STOCKS: { "1.5": 66.7, "2.5": 28.6 }
-    },
-    vs_team: {
-      MIA: { games: 3, PTS: 32.0, REB: 9.3, AST: 4.7, PRA: 46.0, FG3M: 3.3 },
-      NYK: { games: 4, PTS: 29.5, REB: 8.0, AST: 5.5, PRA: 43.0, FG3M: 2.8 },
-      PHI: { games: 3, PTS: 26.3, REB: 7.7, AST: 6.0, PRA: 40.0, FG3M: 2.3 },
-      MIL: { games: 3, PTS: 30.7, REB: 9.0, AST: 5.0, PRA: 44.7, FG3M: 3.0 }
-    },
-    recent_games: [
-      { GAME_DATE: "DEC 26, 2024", OPPONENT: "IND", PTS: 32, REB: 10, AST: 4, FG3M: 4, WL: "W", MIN: 38 },
-      { GAME_DATE: "DEC 23, 2024", OPPONENT: "PHI", PTS: 28, REB: 8, AST: 6, FG3M: 3, WL: "W", MIN: 36 },
-      { GAME_DATE: "DEC 21, 2024", OPPONENT: "CHI", PTS: 35, REB: 11, AST: 5, FG3M: 4, WL: "W", MIN: 37 },
-      { GAME_DATE: "DEC 19, 2024", OPPONENT: "ORL", PTS: 24, REB: 7, AST: 4, FG3M: 2, WL: "L", MIN: 35 },
-      { GAME_DATE: "DEC 17, 2024", OPPONENT: "MIL", PTS: 29, REB: 9, AST: 6, FG3M: 3, WL: "W", MIN: 38 }
-    ],
-    home_averages: { PTS: 28.5, REB: 8.8, AST: 5.5, PRA: 42.8 },
-    away_averages: { PTS: 27.1, REB: 8.0, AST: 4.9, PRA: 40.0 }
-  },
-  {
-    player_id: 1628983,
-    player_name: "Shai Gilgeous-Alexander",
-    team: "OKC",
-    games_played: 41,
-    season_averages: { PTS: 31.4, REB: 5.5, AST: 6.2, FG3M: 2.1, STL: 2.0, BLK: 0.9, PRA: 43.1, MIN: 34.5, TOV: 2.5 },
-    last_10_averages: { PTS: 33.8, REB: 5.2, AST: 6.8, FG3M: 2.4, PRA: 45.8, MIN: 35.2 },
-    last_5_averages: { PTS: 35.4, REB: 5.8, AST: 7.2, FG3M: 2.6, PRA: 48.4, MIN: 35.8 },
-    hit_rates: {
-      PTS: { "25.5": 90.5, "30.5": 69.0, "35.5": 40.5 },
-      REB: { "3.5": 90.5, "5.5": 57.1, "7.5": 23.8 },
-      AST: { "4.5": 85.7, "6.5": 54.8, "8.5": 21.4 },
-      FG3M: { "1.5": 73.8, "2.5": 47.6, "3.5": 21.4 },
-      PRA: { "35.5": 95.2, "40.5": 76.2, "45.5": 47.6 },
-      STOCKS: { "2.5": 71.4, "3.5": 38.1 }
-    },
-    vs_team: {
-      LAL: { games: 3, PTS: 35.0, REB: 6.0, AST: 7.0, PRA: 48.0, FG3M: 2.7 },
-      PHX: { games: 3, PTS: 28.7, REB: 4.7, AST: 5.3, PRA: 38.7, FG3M: 1.7 },
-      DEN: { games: 4, PTS: 33.5, REB: 5.5, AST: 6.5, PRA: 45.5, FG3M: 2.5 },
-      MIN: { games: 3, PTS: 29.0, REB: 5.0, AST: 6.7, PRA: 40.7, FG3M: 2.0 }
-    },
-    recent_games: [
-      { GAME_DATE: "DEC 26, 2024", OPPONENT: "MEM", PTS: 38, REB: 6, AST: 8, FG3M: 3, WL: "W", MIN: 36 },
-      { GAME_DATE: "DEC 23, 2024", OPPONENT: "NOP", PTS: 32, REB: 5, AST: 7, FG3M: 2, WL: "W", MIN: 34 },
-      { GAME_DATE: "DEC 21, 2024", OPPONENT: "UTA", PTS: 36, REB: 7, AST: 6, FG3M: 3, WL: "W", MIN: 35 },
-      { GAME_DATE: "DEC 19, 2024", OPPONENT: "SAS", PTS: 34, REB: 4, AST: 9, FG3M: 2, WL: "W", MIN: 37 },
-      { GAME_DATE: "DEC 17, 2024", OPPONENT: "GSW", PTS: 37, REB: 6, AST: 6, FG3M: 3, WL: "L", MIN: 36 }
-    ],
-    home_averages: { PTS: 32.8, REB: 5.8, AST: 6.5, PRA: 45.1 },
-    away_averages: { PTS: 30.0, REB: 5.2, AST: 5.9, PRA: 41.1 }
-  },
-  {
-    player_id: 203507,
-    player_name: "Giannis Antetokounmpo",
-    team: "MIL",
-    games_played: 38,
-    season_averages: { PTS: 31.5, REB: 12.0, AST: 6.1, FG3M: 0.6, STL: 1.2, BLK: 1.5, PRA: 49.6, MIN: 35.8, TOV: 3.5 },
-    last_10_averages: { PTS: 33.2, REB: 11.5, AST: 6.5, FG3M: 0.8, PRA: 51.2, MIN: 36.5 },
-    last_5_averages: { PTS: 34.8, REB: 12.4, AST: 5.8, FG3M: 0.6, PRA: 53.0, MIN: 37.2 },
-    hit_rates: {
-      PTS: { "25.5": 90.5, "30.5": 66.7, "35.5": 40.5 },
-      REB: { "9.5": 85.7, "11.5": 59.5, "13.5": 33.3 },
-      AST: { "4.5": 78.6, "6.5": 47.6, "8.5": 19.0 },
-      FG3M: { "0.5": 52.4, "1.5": 19.0 },
-      PRA: { "40.5": 95.2, "45.5": 78.6, "50.5": 52.4, "55.5": 28.6 },
-      STOCKS: { "2.5": 66.7, "3.5": 35.7 }
-    },
-    vs_team: {
-      CHI: { games: 4, PTS: 34.0, REB: 13.5, AST: 6.0, PRA: 53.5, FG3M: 0.5 },
-      CLE: { games: 3, PTS: 28.7, REB: 11.0, AST: 5.7, PRA: 45.3, FG3M: 0.7 },
-      IND: { games: 4, PTS: 35.5, REB: 12.5, AST: 7.0, PRA: 55.0, FG3M: 0.8 },
-      DET: { games: 3, PTS: 32.3, REB: 14.0, AST: 5.3, PRA: 51.7, FG3M: 0.3 }
-    },
-    recent_games: [
-      { GAME_DATE: "DEC 26, 2024", OPPONENT: "BKN", PTS: 36, REB: 14, AST: 5, FG3M: 1, WL: "W", MIN: 38 },
-      { GAME_DATE: "DEC 23, 2024", OPPONENT: "CHI", PTS: 33, REB: 12, AST: 7, FG3M: 0, WL: "W", MIN: 36 },
-      { GAME_DATE: "DEC 21, 2024", OPPONENT: "TOR", PTS: 38, REB: 10, AST: 6, FG3M: 1, WL: "W", MIN: 37 },
-      { GAME_DATE: "DEC 19, 2024", OPPONENT: "ATL", PTS: 32, REB: 13, AST: 5, FG3M: 0, WL: "W", MIN: 36 },
-      { GAME_DATE: "DEC 17, 2024", OPPONENT: "DET", PTS: 29, REB: 11, AST: 8, FG3M: 1, WL: "L", MIN: 38 }
-    ],
-    home_averages: { PTS: 32.5, REB: 12.8, AST: 6.4, PRA: 51.7 },
-    away_averages: { PTS: 30.5, REB: 11.2, AST: 5.8, PRA: 47.5 }
-  },
-  {
-    player_id: 203999,
-    player_name: "Nikola Jokić",
-    team: "DEN",
-    games_played: 39,
-    season_averages: { PTS: 29.7, REB: 13.0, AST: 10.2, FG3M: 1.5, STL: 1.5, BLK: 0.8, PRA: 52.9, MIN: 37.0, TOV: 3.2 },
-    last_10_averages: { PTS: 31.4, REB: 14.2, AST: 11.1, FG3M: 1.8, PRA: 56.7, MIN: 38.2 },
-    last_5_averages: { PTS: 28.6, REB: 15.0, AST: 12.4, FG3M: 1.4, PRA: 56.0, MIN: 38.0 },
-    hit_rates: {
-      PTS: { "20.5": 97.6, "25.5": 81.0, "30.5": 52.4 },
-      REB: { "9.5": 97.6, "11.5": 85.7, "13.5": 59.5, "15.5": 33.3 },
-      AST: { "6.5": 97.6, "8.5": 85.7, "10.5": 59.5, "12.5": 28.6 },
-      FG3M: { "0.5": 90.5, "1.5": 59.5, "2.5": 28.6 },
-      PRA: { "45.5": 95.2, "50.5": 78.6, "55.5": 52.4, "60.5": 23.8 },
-      STOCKS: { "1.5": 81.0, "2.5": 47.6 }
-    },
-    vs_team: {
-      LAL: { games: 4, PTS: 27.5, REB: 14.5, AST: 11.0, PRA: 53.0, FG3M: 1.3 },
-      PHX: { games: 3, PTS: 32.3, REB: 12.0, AST: 9.3, PRA: 53.7, FG3M: 1.7 },
-      MIN: { games: 4, PTS: 28.0, REB: 13.5, AST: 10.5, PRA: 52.0, FG3M: 1.5 },
-      OKC: { games: 3, PTS: 25.0, REB: 12.7, AST: 11.3, PRA: 49.0, FG3M: 1.0 }
-    },
-    recent_games: [
-      { GAME_DATE: "DEC 26, 2024", OPPONENT: "PHX", PTS: 27, REB: 16, AST: 14, FG3M: 1, WL: "W", MIN: 39 },
-      { GAME_DATE: "DEC 23, 2024", OPPONENT: "LAC", PTS: 31, REB: 14, AST: 11, FG3M: 2, WL: "W", MIN: 38 },
-      { GAME_DATE: "DEC 21, 2024", OPPONENT: "POR", PTS: 25, REB: 13, AST: 15, FG3M: 1, WL: "W", MIN: 36 },
-      { GAME_DATE: "DEC 19, 2024", OPPONENT: "GSW", PTS: 33, REB: 15, AST: 10, FG3M: 2, WL: "W", MIN: 40 },
-      { GAME_DATE: "DEC 17, 2024", OPPONENT: "OKC", PTS: 28, REB: 17, AST: 12, FG3M: 1, WL: "L", MIN: 38 }
-    ],
-    home_averages: { PTS: 30.5, REB: 13.8, AST: 10.8, PRA: 55.1 },
-    away_averages: { PTS: 28.9, REB: 12.2, AST: 9.6, PRA: 50.7 }
-  },
-  {
-    player_id: 1628378,
-    player_name: "Donovan Mitchell",
-    team: "CLE",
-    games_played: 40,
-    season_averages: { PTS: 24.1, REB: 4.5, AST: 4.8, FG3M: 3.2, STL: 1.3, BLK: 0.3, PRA: 33.4, MIN: 33.5, TOV: 2.4 },
-    last_10_averages: { PTS: 26.3, REB: 4.2, AST: 5.1, FG3M: 3.5, PRA: 35.6, MIN: 34.2 },
-    last_5_averages: { PTS: 28.8, REB: 4.8, AST: 4.6, FG3M: 4.0, PRA: 38.2, MIN: 35.0 },
-    hit_rates: {
-      PTS: { "20.5": 85.7, "25.5": 54.8, "30.5": 26.2 },
-      REB: { "3.5": 76.2, "5.5": 38.1 },
-      AST: { "3.5": 78.6, "5.5": 40.5 },
-      FG3M: { "2.5": 71.4, "3.5": 47.6, "4.5": 23.8 },
-      PRA: { "30.5": 78.6, "35.5": 52.4, "40.5": 23.8 },
-      STOCKS: { "1.5": 59.5, "2.5": 26.2 }
-    },
-    vs_team: {
-      MIA: { games: 3, PTS: 28.0, REB: 5.0, AST: 5.3, PRA: 38.3, FG3M: 3.7 },
-      BOS: { games: 3, PTS: 22.3, REB: 4.0, AST: 4.3, PRA: 30.7, FG3M: 2.7 },
-      NYK: { games: 4, PTS: 26.5, REB: 4.8, AST: 5.0, PRA: 36.3, FG3M: 3.5 }
-    },
-    recent_games: [
-      { GAME_DATE: "DEC 26, 2024", OPPONENT: "MIA", PTS: 31, REB: 5, AST: 4, FG3M: 5, WL: "W", MIN: 36 },
-      { GAME_DATE: "DEC 23, 2024", OPPONENT: "WAS", PTS: 28, REB: 4, AST: 6, FG3M: 4, WL: "W", MIN: 34 },
-      { GAME_DATE: "DEC 21, 2024", OPPONENT: "CHI", PTS: 26, REB: 6, AST: 5, FG3M: 3, WL: "W", MIN: 35 },
-      { GAME_DATE: "DEC 19, 2024", OPPONENT: "ORL", PTS: 30, REB: 4, AST: 4, FG3M: 4, WL: "W", MIN: 36 },
-      { GAME_DATE: "DEC 17, 2024", OPPONENT: "BKN", PTS: 24, REB: 5, AST: 5, FG3M: 3, WL: "W", MIN: 33 }
-    ],
-    home_averages: { PTS: 25.2, REB: 4.8, AST: 5.0, PRA: 35.0 },
-    away_averages: { PTS: 23.0, REB: 4.2, AST: 4.6, PRA: 31.8 }
-  },
-  {
-    player_id: 201142,
-    player_name: "Kevin Durant",
-    team: "PHX",
-    games_played: 35,
-    season_averages: { PTS: 27.2, REB: 6.5, AST: 5.0, FG3M: 2.0, STL: 0.9, BLK: 1.2, PRA: 38.7, MIN: 36.5, TOV: 3.1 },
-    last_10_averages: { PTS: 28.8, REB: 6.8, AST: 5.4, FG3M: 2.2, PRA: 41.0, MIN: 37.0 },
-    last_5_averages: { PTS: 30.2, REB: 7.0, AST: 5.2, FG3M: 2.4, PRA: 42.4, MIN: 37.4 },
-    hit_rates: {
-      PTS: { "22.5": 88.6, "27.5": 62.9, "32.5": 34.3 },
-      REB: { "4.5": 85.7, "6.5": 54.3, "8.5": 22.9 },
-      AST: { "3.5": 80.0, "5.5": 45.7, "7.5": 17.1 },
-      FG3M: { "1.5": 71.4, "2.5": 42.9, "3.5": 17.1 },
-      PRA: { "33.5": 88.6, "38.5": 65.7, "43.5": 37.1 },
-      STOCKS: { "1.5": 60.0, "2.5": 28.6 }
-    },
-    vs_team: {
-      LAL: { games: 3, PTS: 29.3, REB: 7.0, AST: 4.3, PRA: 40.7, FG3M: 2.0 },
-      DEN: { games: 3, PTS: 25.7, REB: 6.0, AST: 5.7, PRA: 37.3, FG3M: 1.7 },
-      DAL: { games: 4, PTS: 31.0, REB: 7.5, AST: 5.5, PRA: 44.0, FG3M: 2.5 }
-    },
-    recent_games: [
-      { GAME_DATE: "DEC 26, 2024", OPPONENT: "DEN", PTS: 28, REB: 7, AST: 6, FG3M: 2, WL: "L", MIN: 38 },
-      { GAME_DATE: "DEC 23, 2024", OPPONENT: "SAS", PTS: 32, REB: 8, AST: 4, FG3M: 3, WL: "W", MIN: 36 },
-      { GAME_DATE: "DEC 21, 2024", OPPONENT: "HOU", PTS: 29, REB: 6, AST: 5, FG3M: 2, WL: "W", MIN: 37 },
-      { GAME_DATE: "DEC 19, 2024", OPPONENT: "LAL", PTS: 33, REB: 7, AST: 6, FG3M: 3, WL: "W", MIN: 39 },
-      { GAME_DATE: "DEC 17, 2024", OPPONENT: "OKC", PTS: 25, REB: 5, AST: 5, FG3M: 2, WL: "L", MIN: 36 }
-    ],
-    home_averages: { PTS: 28.0, REB: 6.8, AST: 5.2, PRA: 40.0 },
-    away_averages: { PTS: 26.4, REB: 6.2, AST: 4.8, PRA: 37.4 }
-  },
-  {
-    player_id: 203954,
-    player_name: "Joel Embiid",
-    team: "PHI",
-    games_played: 25,
-    season_averages: { PTS: 28.5, REB: 10.8, AST: 4.2, FG3M: 1.2, STL: 0.8, BLK: 1.8, PRA: 43.5, MIN: 33.2, TOV: 3.8 },
-    last_10_averages: { PTS: 30.2, REB: 11.4, AST: 4.5, FG3M: 1.4, PRA: 46.1, MIN: 34.0 },
-    last_5_averages: { PTS: 32.0, REB: 12.0, AST: 4.0, FG3M: 1.6, PRA: 48.0, MIN: 34.5 },
-    hit_rates: {
-      PTS: { "24.5": 84.0, "29.5": 56.0, "34.5": 32.0 },
-      REB: { "8.5": 88.0, "10.5": 64.0, "12.5": 36.0 },
-      AST: { "3.5": 72.0, "5.5": 32.0 },
-      FG3M: { "0.5": 80.0, "1.5": 44.0, "2.5": 16.0 },
-      PRA: { "38.5": 88.0, "43.5": 64.0, "48.5": 36.0 },
-      STOCKS: { "2.5": 56.0, "3.5": 28.0 }
-    },
-    vs_team: {
-      BOS: { games: 2, PTS: 26.5, REB: 11.5, AST: 4.5, PRA: 42.5, FG3M: 1.0 },
-      NYK: { games: 3, PTS: 31.3, REB: 12.0, AST: 3.7, PRA: 47.0, FG3M: 1.3 },
-      MIA: { games: 2, PTS: 29.0, REB: 10.0, AST: 5.0, PRA: 44.0, FG3M: 1.5 }
-    },
-    recent_games: [
-      { GAME_DATE: "DEC 26, 2024", OPPONENT: "NYK", PTS: 34, REB: 13, AST: 4, FG3M: 2, WL: "L", MIN: 35 },
-      { GAME_DATE: "DEC 23, 2024", OPPONENT: "BOS", PTS: 30, REB: 11, AST: 5, FG3M: 1, WL: "L", MIN: 34 },
-      { GAME_DATE: "DEC 21, 2024", OPPONENT: "CLE", PTS: 32, REB: 12, AST: 3, FG3M: 2, WL: "L", MIN: 36 },
-      { GAME_DATE: "DEC 19, 2024", OPPONENT: "MIA", PTS: 28, REB: 10, AST: 4, FG3M: 1, WL: "W", MIN: 33 },
-      { GAME_DATE: "DEC 17, 2024", OPPONENT: "ORL", PTS: 31, REB: 14, AST: 4, FG3M: 2, WL: "W", MIN: 35 }
-    ],
-    home_averages: { PTS: 29.5, REB: 11.2, AST: 4.4, PRA: 45.1 },
-    away_averages: { PTS: 27.5, REB: 10.4, AST: 4.0, PRA: 41.9 }
-  },
-  {
-    player_id: 1629627,
-    player_name: "Anthony Edwards",
-    team: "MIN",
-    games_played: 41,
-    season_averages: { PTS: 26.8, REB: 5.6, AST: 4.2, FG3M: 3.0, STL: 1.5, BLK: 0.6, PRA: 36.6, MIN: 35.2, TOV: 2.8 },
-    last_10_averages: { PTS: 28.5, REB: 5.8, AST: 4.6, FG3M: 3.2, PRA: 38.9, MIN: 36.0 },
-    last_5_averages: { PTS: 30.2, REB: 6.0, AST: 4.8, FG3M: 3.4, PRA: 41.0, MIN: 36.5 },
-    hit_rates: {
-      PTS: { "22.5": 82.9, "27.5": 58.5, "32.5": 29.3 },
-      REB: { "4.5": 73.2, "6.5": 41.5, "8.5": 14.6 },
-      AST: { "3.5": 68.3, "5.5": 34.1 },
-      FG3M: { "2.5": 68.3, "3.5": 43.9, "4.5": 19.5 },
-      PRA: { "32.5": 80.5, "37.5": 56.1, "42.5": 29.3 },
-      STOCKS: { "1.5": 68.3, "2.5": 34.1 }
-    },
-    vs_team: {
-      DEN: { games: 4, PTS: 28.5, REB: 6.0, AST: 4.5, PRA: 39.0, FG3M: 3.3 },
-      OKC: { games: 3, PTS: 24.0, REB: 5.0, AST: 3.7, PRA: 32.7, FG3M: 2.7 },
-      DAL: { games: 3, PTS: 29.7, REB: 6.3, AST: 4.7, PRA: 40.7, FG3M: 3.7 }
-    },
-    recent_games: [
-      { GAME_DATE: "DEC 26, 2024", OPPONENT: "MEM", PTS: 32, REB: 6, AST: 5, FG3M: 4, WL: "W", MIN: 37 },
-      { GAME_DATE: "DEC 23, 2024", OPPONENT: "DAL", PTS: 28, REB: 7, AST: 4, FG3M: 3, WL: "W", MIN: 36 },
-      { GAME_DATE: "DEC 21, 2024", OPPONENT: "LAL", PTS: 31, REB: 5, AST: 6, FG3M: 4, WL: "W", MIN: 37 },
-      { GAME_DATE: "DEC 19, 2024", OPPONENT: "POR", PTS: 29, REB: 6, AST: 4, FG3M: 3, WL: "W", MIN: 35 },
-      { GAME_DATE: "DEC 17, 2024", OPPONENT: "UTA", PTS: 26, REB: 5, AST: 5, FG3M: 3, WL: "W", MIN: 34 }
-    ],
-    home_averages: { PTS: 27.5, REB: 5.8, AST: 4.4, PRA: 37.7 },
-    away_averages: { PTS: 26.1, REB: 5.4, AST: 4.0, PRA: 35.5 }
-  },
-  {
-    player_id: 1630162,
-    player_name: "LaMelo Ball",
-    team: "CHA",
-    games_played: 36,
-    season_averages: { PTS: 22.5, REB: 5.8, AST: 8.2, FG3M: 3.5, STL: 1.2, BLK: 0.3, PRA: 36.5, MIN: 34.0, TOV: 3.5 },
-    last_10_averages: { PTS: 24.2, REB: 6.0, AST: 8.8, FG3M: 3.8, PRA: 39.0, MIN: 35.2 },
-    last_5_averages: { PTS: 26.0, REB: 6.4, AST: 9.2, FG3M: 4.0, PRA: 41.6, MIN: 36.0 },
-    hit_rates: {
-      PTS: { "18.5": 83.3, "22.5": 58.3, "27.5": 30.6 },
-      REB: { "4.5": 77.8, "6.5": 44.4, "8.5": 16.7 },
-      AST: { "6.5": 80.6, "8.5": 52.8, "10.5": 25.0 },
-      FG3M: { "2.5": 75.0, "3.5": 52.8, "4.5": 27.8 },
-      PRA: { "32.5": 77.8, "37.5": 52.8, "42.5": 27.8 },
-      STOCKS: { "1.5": 55.6, "2.5": 25.0 }
-    },
-    vs_team: {
-      ATL: { games: 3, PTS: 25.0, REB: 6.3, AST: 9.0, PRA: 40.3, FG3M: 4.0 },
-      MIA: { games: 3, PTS: 21.3, REB: 5.3, AST: 7.7, PRA: 34.3, FG3M: 3.0 },
-      ORL: { games: 4, PTS: 23.5, REB: 6.0, AST: 8.5, PRA: 38.0, FG3M: 3.8 }
-    },
-    recent_games: [
-      { GAME_DATE: "DEC 26, 2024", OPPONENT: "ATL", PTS: 28, REB: 7, AST: 10, FG3M: 5, WL: "W", MIN: 37 },
-      { GAME_DATE: "DEC 23, 2024", OPPONENT: "WAS", PTS: 25, REB: 6, AST: 9, FG3M: 4, WL: "W", MIN: 35 },
-      { GAME_DATE: "DEC 21, 2024", OPPONENT: "ORL", PTS: 24, REB: 5, AST: 8, FG3M: 3, WL: "L", MIN: 36 },
-      { GAME_DATE: "DEC 19, 2024", OPPONENT: "CHI", PTS: 26, REB: 7, AST: 10, FG3M: 4, WL: "W", MIN: 37 },
-      { GAME_DATE: "DEC 17, 2024", OPPONENT: "IND", PTS: 22, REB: 6, AST: 8, FG3M: 3, WL: "L", MIN: 34 }
-    ],
-    home_averages: { PTS: 23.5, REB: 6.0, AST: 8.5, PRA: 38.0 },
-    away_averages: { PTS: 21.5, REB: 5.6, AST: 7.9, PRA: 35.0 }
-  }
-];
+import type { Player, PotentialBet, InsertPlayer, InsertPotentialBet, SeasonAverages, HitRates, VsTeamStats, GameLog, SplitAverages } from "@shared/schema";
+import { players, potentialBets } from "@shared/schema";
+import { db } from "./db";
+import { eq, ilike, or, desc } from "drizzle-orm";
 
 export interface IStorage {
   getPlayers(): Promise<Player[]>;
   getPlayer(id: number): Promise<Player | undefined>;
   searchPlayers(query: string): Promise<Player[]>;
+  createPlayer(player: InsertPlayer): Promise<Player>;
+  getPotentialBets(): Promise<PotentialBet[]>;
+  createPotentialBet(bet: InsertPotentialBet): Promise<PotentialBet>;
+  clearPotentialBets(): Promise<void>;
+  seedPlayers(data: Player[]): Promise<void>;
 }
 
-export class MemStorage implements IStorage {
-  private players: Map<number, Player>;
+function dbPlayerToPlayer(dbPlayer: typeof players.$inferSelect): Player {
+  return {
+    player_id: dbPlayer.player_id,
+    player_name: dbPlayer.player_name,
+    team: dbPlayer.team,
+    team_id: dbPlayer.team_id ?? undefined,
+    games_played: dbPlayer.games_played ?? undefined,
+    season_averages: dbPlayer.season_averages as SeasonAverages,
+    last_10_averages: dbPlayer.last_10_averages as Partial<SeasonAverages>,
+    last_5_averages: dbPlayer.last_5_averages as Partial<SeasonAverages>,
+    hit_rates: dbPlayer.hit_rates as HitRates,
+    vs_team: dbPlayer.vs_team as Record<string, VsTeamStats>,
+    recent_games: dbPlayer.recent_games as GameLog[],
+    home_averages: dbPlayer.home_averages as SplitAverages,
+    away_averages: dbPlayer.away_averages as SplitAverages,
+  };
+}
 
-  constructor() {
-    this.players = new Map();
-    SAMPLE_PLAYERS.forEach((player) => {
-      this.players.set(player.player_id, player);
-    });
-  }
+function dbBetToPotentialBet(dbBet: typeof potentialBets.$inferSelect): PotentialBet {
+  return {
+    id: dbBet.id,
+    player_id: dbBet.player_id,
+    player_name: dbBet.player_name,
+    team: dbBet.team,
+    stat_type: dbBet.stat_type,
+    line: dbBet.line,
+    hit_rate: dbBet.hit_rate,
+    season_avg: dbBet.season_avg,
+    last_5_avg: dbBet.last_5_avg ?? undefined,
+    recommendation: dbBet.recommendation as "OVER" | "UNDER",
+    confidence: dbBet.confidence as "HIGH" | "MEDIUM" | "LOW",
+  };
+}
 
+export class DatabaseStorage implements IStorage {
   async getPlayers(): Promise<Player[]> {
-    return Array.from(this.players.values()).sort(
-      (a, b) => b.season_averages.PTS - a.season_averages.PTS
+    const result = await db.select().from(players);
+    return result.map(dbPlayerToPlayer).sort(
+      (a, b) => (b.season_averages?.PTS ?? 0) - (a.season_averages?.PTS ?? 0)
     );
   }
 
   async getPlayer(id: number): Promise<Player | undefined> {
-    return this.players.get(id);
+    const [result] = await db.select().from(players).where(eq(players.player_id, id));
+    return result ? dbPlayerToPlayer(result) : undefined;
   }
 
   async searchPlayers(query: string): Promise<Player[]> {
-    const q = query.toLowerCase();
-    return Array.from(this.players.values())
-      .filter(
-        (p) =>
-          p.player_name.toLowerCase().includes(q) ||
-          p.team.toLowerCase().includes(q)
+    const searchPattern = `%${query}%`;
+    const result = await db.select().from(players).where(
+      or(
+        ilike(players.player_name, searchPattern),
+        ilike(players.team, searchPattern)
       )
-      .sort((a, b) => b.season_averages.PTS - a.season_averages.PTS);
+    );
+    return result.map(dbPlayerToPlayer).sort(
+      (a, b) => (b.season_averages?.PTS ?? 0) - (a.season_averages?.PTS ?? 0)
+    );
+  }
+
+  async createPlayer(player: InsertPlayer): Promise<Player> {
+    const [result] = await db.insert(players).values(player).returning();
+    return dbPlayerToPlayer(result);
+  }
+
+  async getPotentialBets(): Promise<PotentialBet[]> {
+    const result = await db.select().from(potentialBets).orderBy(desc(potentialBets.hit_rate));
+    return result.map(dbBetToPotentialBet);
+  }
+
+  async createPotentialBet(bet: InsertPotentialBet): Promise<PotentialBet> {
+    const [result] = await db.insert(potentialBets).values(bet).returning();
+    return dbBetToPotentialBet(result);
+  }
+
+  async clearPotentialBets(): Promise<void> {
+    await db.delete(potentialBets);
+  }
+
+  async seedPlayers(data: Player[]): Promise<void> {
+    for (const player of data) {
+      const existing = await db.select().from(players).where(eq(players.player_id, player.player_id));
+      if (existing.length === 0) {
+        await db.insert(players).values({
+          player_id: player.player_id,
+          player_name: player.player_name,
+          team: player.team,
+          team_id: player.team_id ?? null,
+          games_played: player.games_played ?? null,
+          season_averages: player.season_averages,
+          last_10_averages: player.last_10_averages,
+          last_5_averages: player.last_5_averages,
+          hit_rates: player.hit_rates,
+          vs_team: player.vs_team,
+          recent_games: player.recent_games,
+          home_averages: player.home_averages,
+          away_averages: player.away_averages,
+        });
+      }
+    }
   }
 }
 
-export const storage = new MemStorage();
+export const storage = new DatabaseStorage();
