@@ -16,6 +16,48 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const samplePlayersPath = path.join(__dirname, "data", "sample-players.json");
 const SAMPLE_PLAYERS: Player[] = JSON.parse(readFileSync(samplePlayersPath, "utf-8"));
 
+// ========================================
+// PROBABILITY HELPER FUNCTIONS
+// ========================================
+
+// Normal CDF approximation (error function based)
+function normalCDF(x: number, mean: number, std: number): number {
+  const z = (x - mean) / std;
+  return 0.5 * (1 + erf(z / Math.sqrt(2)));
+}
+
+// Error function approximation
+function erf(x: number): number {
+  const sign = x >= 0 ? 1 : -1;
+  x = Math.abs(x);
+
+  const a1 =  0.254829592;
+  const a2 = -0.284496736;
+  const a3 =  1.421413741;
+  const a4 = -1.453152027;
+  const a5 =  1.061405429;
+  const p  =  0.3275911;
+
+  const t = 1.0 / (1.0 + p * x);
+  const y = 1.0 - (((((a5 * t + a4) * t) + a3) * t + a2) * t + a1) * t * Math.exp(-x * x);
+
+  return sign * y;
+}
+
+// Convert probability to American odds
+function probToAmericanOdds(prob: number): string {
+  if (prob >= 1) return "+100";
+  if (prob <= 0) return "+10000";
+
+  if (prob >= 0.5) {
+    const odds = -(prob / (1 - prob)) * 100;
+    return Math.round(odds).toString();
+  } else {
+    const odds = ((1 - prob) / prob) * 100;
+    return "+" + Math.round(odds).toString();
+  }
+}
+
 function generatePotentialBets(players: Player[]) {
   const bets: Array<{
     player_id: number;
@@ -351,6 +393,192 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error generating projections:", error);
       res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  // =============== ENHANCED PROJECTIONS & ANALYTICS ROUTES ===============
+
+  // Get best betting recommendations for today
+  app.get("/api/recommendations/today", async (req, res) => {
+    try {
+      const minEdge = parseFloat(req.query.minEdge as string) || 0.03;
+      const recommendations = await storage.getTodaysRecommendations();
+      const filtered = recommendations.filter(r => r.edge >= minEdge);
+      res.json(filtered);
+    } catch (error) {
+      console.error("Error fetching today's recommendations:", error);
+      res.status(500).json({ error: "Failed to fetch recommendations" });
+    }
+  });
+
+  // Get projection and edge for specific player/prop
+  app.get("/api/projections/player/:playerId", async (req, res) => {
+    try {
+      const playerId = parseInt(req.params.playerId);
+      const line = parseFloat(req.query.line as string);
+      const stat = req.query.stat as string;
+
+      if (isNaN(playerId) || isNaN(line) || !stat) {
+        return res.status(400).json({ error: "Invalid parameters" });
+      }
+
+      // Get player data
+      const player = await storage.getPlayer(playerId);
+      if (!player) {
+        return res.status(404).json({ error: "Player not found" });
+      }
+
+      // Call Python model to get projection with distribution
+      const scriptPath = path.join(process.cwd(), "server", "nba-prop-model", "api.py");
+      const pythonProcess = spawn("python", [scriptPath, "--players", player.player_name]);
+
+      let dataString = "";
+      let errorString = "";
+
+      pythonProcess.stdout.on("data", (data) => {
+        dataString += data.toString();
+      });
+
+      pythonProcess.stderr.on("data", (data) => {
+        errorString += data.toString();
+      });
+
+      pythonProcess.on("close", (code) => {
+        if (code !== 0) {
+          console.error("Python script failed:", errorString);
+          return res.status(500).json({ error: "Projection failed", details: errorString });
+        }
+        try {
+          const projectionData = JSON.parse(dataString);
+          const playerProj = projectionData.projections[0];
+
+          if (!playerProj || !playerProj.distributions[stat]) {
+            return res.status(400).json({ error: `No projection available for stat: ${stat}` });
+          }
+
+          const dist = playerProj.distributions[stat];
+          const mean = dist.mean;
+          const std = dist.std;
+
+          // Calculate probabilities (assuming normal distribution)
+          const probOver = 1 - normalCDF(line, mean, std);
+          const probUnder = normalCDF(line, mean, std);
+
+          // Calculate edge (assuming -110 odds, break-even = 52.4%)
+          const breakEven = 0.524;
+          const edgeOver = probOver - breakEven;
+          const edgeUnder = probUnder - breakEven;
+
+          const edge = Math.max(edgeOver, edgeUnder);
+          const recommendedSide = edgeOver > edgeUnder ? 'over' : 'under';
+          const confidence = edge > 0.06 ? 'high' : edge > 0.03 ? 'medium' : 'low';
+
+          res.json({
+            playerId,
+            playerName: player.player_name,
+            stat,
+            line,
+            projectedMean: mean,
+            projectedStd: std,
+            probOver,
+            probUnder,
+            edge: Math.abs(edge),
+            recommendedSide: edge >= 0.03 ? recommendedSide : 'no_bet',
+            confidence,
+          });
+        } catch (e) {
+          console.error("Failed to parse Python output:", dataString);
+          res.status(500).json({ error: "Invalid response from model" });
+        }
+      });
+    } catch (error) {
+      console.error("Error generating projection:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  // Evaluate a parlay
+  app.post("/api/projections/parlay", async (req, res) => {
+    try {
+      const { legs } = req.body;
+
+      if (!legs || !Array.isArray(legs) || legs.length === 0) {
+        return res.status(400).json({ error: "Invalid legs array" });
+      }
+
+      // Get projections for each leg
+      const probabilities: number[] = [];
+
+      for (const leg of legs) {
+        const player = await storage.getPlayer(leg.playerId);
+        if (!player) {
+          return res.status(404).json({ error: `Player not found: ${leg.playerId}` });
+        }
+
+        // Call Python model for this player
+        const scriptPath = path.join(process.cwd(), "server", "nba-prop-model", "api.py");
+        const pythonProcess = spawn("python", [scriptPath, "--players", player.player_name]);
+
+        const projection = await new Promise<number>((resolve, reject) => {
+          let dataString = "";
+
+          pythonProcess.stdout.on("data", (data) => {
+            dataString += data.toString();
+          });
+
+          pythonProcess.on("close", (code) => {
+            if (code !== 0) {
+              reject(new Error("Python script failed"));
+              return;
+            }
+            try {
+              const projectionData = JSON.parse(dataString);
+              const playerProj = projectionData.projections[0];
+              const dist = playerProj.distributions[leg.stat];
+              const mean = dist.mean;
+              const std = dist.std;
+
+              const prob = leg.side === 'over'
+                ? 1 - normalCDF(leg.line, mean, std)
+                : normalCDF(leg.line, mean, std);
+
+              resolve(prob);
+            } catch (e) {
+              reject(e);
+            }
+          });
+        });
+
+        probabilities.push(projection);
+      }
+
+      // Calculate parlay probability (product of individual probabilities)
+      const parlayProb = probabilities.reduce((acc, p) => acc * p, 1);
+
+      // Convert to American odds
+      const fairOdds = probToAmericanOdds(parlayProb);
+
+      res.json({
+        probability: parlayProb,
+        fairOdds,
+        legs: legs.length,
+        individualProbs: probabilities,
+      });
+    } catch (error) {
+      console.error("Error evaluating parlay:", error);
+      res.status(500).json({ error: "Failed to evaluate parlay" });
+    }
+  });
+
+  // Get track record
+  app.get("/api/track-record", async (req, res) => {
+    try {
+      const days = parseInt(req.query.days as string) || 30;
+      const record = await storage.getTrackRecord(days);
+      res.json(record);
+    } catch (error) {
+      console.error("Error fetching track record:", error);
+      res.status(500).json({ error: "Failed to fetch track record" });
     }
   });
 
