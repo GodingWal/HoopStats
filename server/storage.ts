@@ -1,7 +1,7 @@
-import type { Player, PotentialBet, InsertPlayer, InsertPotentialBet, SeasonAverages, HitRates, VsTeamStats, GameLog, SplitAverages } from "@shared/schema";
-import { players, potentialBets } from "@shared/schema";
+import type { Player, PotentialBet, InsertPlayer, InsertPotentialBet, SeasonAverages, HitRates, VsTeamStats, GameLog, SplitAverages, InsertProjection, DbProjection, InsertRecommendation, DbRecommendation, InsertTeamDefense, DbTeamDefense, TrackRecord, PropEvaluation } from "@shared/schema";
+import { players, potentialBets, projections, recommendations, teamDefense } from "@shared/schema";
 import { db } from "./db";
-import { eq, ilike, or, desc } from "drizzle-orm";
+import { eq, ilike, or, desc, and, gte, sql } from "drizzle-orm";
 
 export interface IStorage {
   getPlayers(): Promise<Player[]>;
@@ -13,6 +13,23 @@ export interface IStorage {
   clearPotentialBets(): Promise<void>;
   clearPlayers(): Promise<void>;
   seedPlayers(data: Player[]): Promise<void>;
+
+  // Projections
+  createProjection(projection: InsertProjection): Promise<DbProjection>;
+  getProjectionsByDate(date: Date): Promise<DbProjection[]>;
+  updateProjectionActual(id: number, actualValue: number, hit: boolean): Promise<void>;
+
+  // Recommendations
+  createRecommendation(recommendation: InsertRecommendation): Promise<DbRecommendation>;
+  getRecommendationsByDate(date: Date): Promise<DbRecommendation[]>;
+  getTodaysRecommendations(): Promise<DbRecommendation[]>;
+
+  // Track record
+  getTrackRecord(days: number): Promise<TrackRecord>;
+
+  // Team defense
+  getTeamDefense(teamId: number): Promise<DbTeamDefense | undefined>;
+  upsertTeamDefense(defense: InsertTeamDefense): Promise<void>;
 }
 
 function dbPlayerToPlayer(dbPlayer: typeof players.$inferSelect): Player {
@@ -139,17 +156,196 @@ export class DatabaseStorage implements IStorage {
       });
     }
   }
+
+  // ========================================
+  // PROJECTIONS METHODS
+  // ========================================
+
+  async createProjection(projection: InsertProjection): Promise<DbProjection> {
+    if (!db) throw new Error("Database not initialized");
+    const [result] = await db.insert(projections).values(projection).returning();
+    return result;
+  }
+
+  async getProjectionsByDate(date: Date): Promise<DbProjection[]> {
+    if (!db) throw new Error("Database not initialized");
+    const dateStr = date.toISOString().split('T')[0];
+    const result = await db.select().from(projections).where(eq(projections.gameDate, dateStr));
+    return result;
+  }
+
+  async updateProjectionActual(id: number, actualValue: number, hit: boolean): Promise<void> {
+    if (!db) throw new Error("Database not initialized");
+    await db.update(projections)
+      .set({ actualValue, hit })
+      .where(eq(projections.id, id));
+  }
+
+  // ========================================
+  // RECOMMENDATIONS METHODS
+  // ========================================
+
+  async createRecommendation(recommendation: InsertRecommendation): Promise<DbRecommendation> {
+    if (!db) throw new Error("Database not initialized");
+    const [result] = await db.insert(recommendations).values(recommendation).returning();
+    return result;
+  }
+
+  async getRecommendationsByDate(date: Date): Promise<DbRecommendation[]> {
+    if (!db) throw new Error("Database not initialized");
+    const dateStr = date.toISOString().split('T')[0];
+    const result = await db.select().from(recommendations)
+      .where(eq(recommendations.gameDate, dateStr))
+      .orderBy(desc(recommendations.edge));
+    return result;
+  }
+
+  async getTodaysRecommendations(): Promise<DbRecommendation[]> {
+    return this.getRecommendationsByDate(new Date());
+  }
+
+  // ========================================
+  // TRACK RECORD METHODS
+  // ========================================
+
+  async getTrackRecord(days: number): Promise<TrackRecord> {
+    if (!db) throw new Error("Database not initialized");
+
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - days);
+    const cutoffStr = cutoffDate.toISOString().split('T')[0];
+
+    // Get all recommendations with actuals from the last N days
+    const recs = await db.select()
+      .from(recommendations)
+      .innerJoin(projections, eq(recommendations.projectionId, projections.id))
+      .where(
+        and(
+          gte(recommendations.gameDate, cutoffStr),
+          sql`${projections.actualValue} IS NOT NULL`
+        )
+      );
+
+    let wins = 0;
+    let total = 0;
+    let profit = 0;
+
+    const byConfidence = {
+      high: { wins: 0, total: 0, hitRate: 0 },
+      medium: { wins: 0, total: 0, hitRate: 0 },
+      low: { wins: 0, total: 0, hitRate: 0 }
+    };
+
+    const byStat: Record<string, { wins: number; total: number; hitRate: number }> = {};
+    const equityCurveMap = new Map<string, number>();
+
+    for (const row of recs) {
+      const rec = row.recommendations;
+      const proj = row.projections;
+
+      if (proj.hit !== null) {
+        total++;
+        const won = proj.hit;
+        if (won) wins++;
+
+        // Update profit (assuming -110 odds, risk 1 unit)
+        profit += won ? 0.91 : -1;
+
+        // By confidence
+        const conf = rec.confidence.toLowerCase() as 'high' | 'medium' | 'low';
+        byConfidence[conf].total++;
+        if (won) byConfidence[conf].wins++;
+
+        // By stat
+        if (!byStat[rec.stat]) {
+          byStat[rec.stat] = { wins: 0, total: 0, hitRate: 0 };
+        }
+        byStat[rec.stat].total++;
+        if (won) byStat[rec.stat].wins++;
+
+        // Equity curve
+        const dateStr = proj.gameDate?.toString() || '';
+        const currentProfit = equityCurveMap.get(dateStr) || 0;
+        equityCurveMap.set(dateStr, currentProfit + (won ? 0.91 : -1));
+      }
+    }
+
+    // Calculate hit rates
+    byConfidence.high.hitRate = byConfidence.high.total > 0 ? byConfidence.high.wins / byConfidence.high.total : 0;
+    byConfidence.medium.hitRate = byConfidence.medium.total > 0 ? byConfidence.medium.wins / byConfidence.medium.total : 0;
+    byConfidence.low.hitRate = byConfidence.low.total > 0 ? byConfidence.low.wins / byConfidence.low.total : 0;
+
+    for (const stat in byStat) {
+      byStat[stat].hitRate = byStat[stat].total > 0 ? byStat[stat].wins / byStat[stat].total : 0;
+    }
+
+    // Build equity curve
+    const equityCurve = Array.from(equityCurveMap.entries())
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([date, dailyProfit], i, arr) => ({
+        date,
+        profit: arr.slice(0, i + 1).reduce((sum, [_, p]) => sum + p, 0)
+      }));
+
+    // Calibration (simplified - would need more data)
+    const calibration = [
+      { predicted: 0.5, actual: 0.5, count: total > 0 ? Math.floor(total / 10) : 0 },
+      { predicted: 0.6, actual: 0.6, count: total > 0 ? Math.floor(total / 10) : 0 },
+      { predicted: 0.7, actual: 0.7, count: total > 0 ? Math.floor(total / 10) : 0 },
+    ];
+
+    return {
+      total,
+      wins,
+      losses: total - wins,
+      hitRate: total > 0 ? wins / total : 0,
+      roi: total > 0 ? profit / total : 0,
+      profit,
+      byConfidence,
+      byStat,
+      equityCurve,
+      calibration
+    };
+  }
+
+  // ========================================
+  // TEAM DEFENSE METHODS
+  // ========================================
+
+  async getTeamDefense(teamId: number): Promise<DbTeamDefense | undefined> {
+    if (!db) throw new Error("Database not initialized");
+    const [result] = await db.select().from(teamDefense).where(eq(teamDefense.teamId, teamId));
+    return result;
+  }
+
+  async upsertTeamDefense(defense: InsertTeamDefense): Promise<void> {
+    if (!db) throw new Error("Database not initialized");
+    await db.insert(teamDefense).values(defense).onConflictDoUpdate({
+      target: teamDefense.teamId,
+      set: defense,
+    });
+  }
 }
 
 export class MemStorage implements IStorage {
   private players: Map<number, Player>;
   private bets: Map<number, PotentialBet>;
   private betIdCounter: number;
+  private projectionsMap: Map<number, DbProjection>;
+  private projectionsIdCounter: number;
+  private recommendationsMap: Map<number, DbRecommendation>;
+  private recommendationsIdCounter: number;
+  private teamDefenseMap: Map<number, DbTeamDefense>;
 
   constructor() {
     this.players = new Map();
     this.bets = new Map();
     this.betIdCounter = 1;
+    this.projectionsMap = new Map();
+    this.projectionsIdCounter = 1;
+    this.recommendationsMap = new Map();
+    this.recommendationsIdCounter = 1;
+    this.teamDefenseMap = new Map();
   }
 
   async getPlayers(): Promise<Player[]> {
@@ -244,6 +440,168 @@ export class MemStorage implements IStorage {
     for (const player of data) {
       await this.createPlayer(player);
     }
+  }
+
+  // ========================================
+  // PROJECTIONS METHODS (MemStorage)
+  // ========================================
+
+  async createProjection(projection: InsertProjection): Promise<DbProjection> {
+    const id = this.projectionsIdCounter++;
+    const newProjection: DbProjection = {
+      id,
+      ...projection,
+      actualValue: null,
+      hit: null,
+      createdAt: new Date(),
+    };
+    this.projectionsMap.set(id, newProjection);
+    return newProjection;
+  }
+
+  async getProjectionsByDate(date: Date): Promise<DbProjection[]> {
+    const dateStr = date.toISOString().split('T')[0];
+    return Array.from(this.projectionsMap.values())
+      .filter(p => p.gameDate === dateStr);
+  }
+
+  async updateProjectionActual(id: number, actualValue: number, hit: boolean): Promise<void> {
+    const projection = this.projectionsMap.get(id);
+    if (projection) {
+      projection.actualValue = actualValue;
+      projection.hit = hit;
+    }
+  }
+
+  // ========================================
+  // RECOMMENDATIONS METHODS (MemStorage)
+  // ========================================
+
+  async createRecommendation(recommendation: InsertRecommendation): Promise<DbRecommendation> {
+    const id = this.recommendationsIdCounter++;
+    const newRecommendation: DbRecommendation = {
+      id,
+      ...recommendation,
+      userBet: false,
+      profit: null,
+      createdAt: new Date(),
+    };
+    this.recommendationsMap.set(id, newRecommendation);
+    return newRecommendation;
+  }
+
+  async getRecommendationsByDate(date: Date): Promise<DbRecommendation[]> {
+    const dateStr = date.toISOString().split('T')[0];
+    return Array.from(this.recommendationsMap.values())
+      .filter(r => r.gameDate === dateStr)
+      .sort((a, b) => b.edge - a.edge);
+  }
+
+  async getTodaysRecommendations(): Promise<DbRecommendation[]> {
+    return this.getRecommendationsByDate(new Date());
+  }
+
+  // ========================================
+  // TRACK RECORD METHODS (MemStorage)
+  // ========================================
+
+  async getTrackRecord(days: number): Promise<TrackRecord> {
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - days);
+    const cutoffStr = cutoffDate.toISOString().split('T')[0];
+
+    const relevantRecs = Array.from(this.recommendationsMap.values())
+      .filter(r => r.gameDate >= cutoffStr);
+
+    let wins = 0;
+    let total = 0;
+    let profit = 0;
+
+    const byConfidence = {
+      high: { wins: 0, total: 0, hitRate: 0 },
+      medium: { wins: 0, total: 0, hitRate: 0 },
+      low: { wins: 0, total: 0, hitRate: 0 }
+    };
+
+    const byStat: Record<string, { wins: number; total: number; hitRate: number }> = {};
+    const equityCurveMap = new Map<string, number>();
+
+    for (const rec of relevantRecs) {
+      if (rec.projectionId) {
+        const proj = this.projectionsMap.get(rec.projectionId);
+        if (proj && proj.hit !== null) {
+          total++;
+          const won = proj.hit;
+          if (won) wins++;
+
+          profit += won ? 0.91 : -1;
+
+          const conf = rec.confidence.toLowerCase() as 'high' | 'medium' | 'low';
+          byConfidence[conf].total++;
+          if (won) byConfidence[conf].wins++;
+
+          if (!byStat[rec.stat]) {
+            byStat[rec.stat] = { wins: 0, total: 0, hitRate: 0 };
+          }
+          byStat[rec.stat].total++;
+          if (won) byStat[rec.stat].wins++;
+
+          const dateStr = proj.gameDate || '';
+          const currentProfit = equityCurveMap.get(dateStr) || 0;
+          equityCurveMap.set(dateStr, currentProfit + (won ? 0.91 : -1));
+        }
+      }
+    }
+
+    byConfidence.high.hitRate = byConfidence.high.total > 0 ? byConfidence.high.wins / byConfidence.high.total : 0;
+    byConfidence.medium.hitRate = byConfidence.medium.total > 0 ? byConfidence.medium.wins / byConfidence.medium.total : 0;
+    byConfidence.low.hitRate = byConfidence.low.total > 0 ? byConfidence.low.wins / byConfidence.low.total : 0;
+
+    for (const stat in byStat) {
+      byStat[stat].hitRate = byStat[stat].total > 0 ? byStat[stat].wins / byStat[stat].total : 0;
+    }
+
+    const equityCurve = Array.from(equityCurveMap.entries())
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([date, dailyProfit], i, arr) => ({
+        date,
+        profit: arr.slice(0, i + 1).reduce((sum, [_, p]) => sum + p, 0)
+      }));
+
+    const calibration = [
+      { predicted: 0.5, actual: 0.5, count: total > 0 ? Math.floor(total / 10) : 0 },
+      { predicted: 0.6, actual: 0.6, count: total > 0 ? Math.floor(total / 10) : 0 },
+      { predicted: 0.7, actual: 0.7, count: total > 0 ? Math.floor(total / 10) : 0 },
+    ];
+
+    return {
+      total,
+      wins,
+      losses: total - wins,
+      hitRate: total > 0 ? wins / total : 0,
+      roi: total > 0 ? profit / total : 0,
+      profit,
+      byConfidence,
+      byStat,
+      equityCurve,
+      calibration
+    };
+  }
+
+  // ========================================
+  // TEAM DEFENSE METHODS (MemStorage)
+  // ========================================
+
+  async getTeamDefense(teamId: number): Promise<DbTeamDefense | undefined> {
+    return this.teamDefenseMap.get(teamId);
+  }
+
+  async upsertTeamDefense(defense: InsertTeamDefense): Promise<void> {
+    const existing = this.teamDefenseMap.get(defense.teamId);
+    this.teamDefenseMap.set(defense.teamId, {
+      ...defense,
+      updatedAt: new Date(),
+    });
   }
 }
 

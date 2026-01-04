@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { pgTable, serial, text, integer, real, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, integer, real, jsonb, timestamp, date, boolean, varchar } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 
 // Player game log entry
@@ -169,3 +169,132 @@ export const NBA_TEAMS = [
 ] as const;
 
 export type NBATeam = typeof NBA_TEAMS[number];
+
+// ========================================
+// ANALYTICS & PROJECTIONS TABLES
+// ========================================
+
+// Track projections vs actuals (builds track record)
+export const projections = pgTable("projections", {
+  id: serial("id").primaryKey(),
+  playerId: integer("player_id").notNull(),
+  playerName: text("player_name").notNull(),
+  gameId: varchar("game_id", { length: 20 }).notNull(),
+  stat: varchar("stat", { length: 20 }).notNull(), // 'points', 'rebounds', 'assists', etc.
+
+  // Projection data
+  projectedMean: real("projected_mean").notNull(),
+  projectedStd: real("projected_std").notNull(),
+  probOver: real("prob_over").notNull(),
+  line: real("line").notNull(),
+
+  // Actuals (filled after game)
+  actualValue: real("actual_value"),
+  hit: boolean("hit"),
+
+  // Metadata
+  createdAt: timestamp("created_at").defaultNow(),
+  gameDate: date("game_date").notNull(),
+});
+
+export const insertProjectionSchema = createInsertSchema(projections).omit({ id: true, createdAt: true });
+export type InsertProjection = z.infer<typeof insertProjectionSchema>;
+export type DbProjection = typeof projections.$inferSelect;
+
+// Track betting recommendations
+export const recommendations = pgTable("recommendations", {
+  id: serial("id").primaryKey(),
+  projectionId: integer("projection_id").references(() => projections.id),
+  playerId: integer("player_id").notNull(),
+  playerName: text("player_name").notNull(),
+  stat: varchar("stat", { length: 20 }).notNull(),
+  side: varchar("side", { length: 10 }).notNull(), // 'over' or 'under'
+  line: real("line").notNull(),
+  edge: real("edge").notNull(),
+  confidence: varchar("confidence", { length: 10 }).notNull(), // 'high', 'medium', 'low'
+  recommendedBetSize: real("recommended_bet_size"),
+
+  // Track if user followed
+  userBet: boolean("user_bet").default(false),
+  profit: real("profit"),
+
+  // Metadata
+  createdAt: timestamp("created_at").defaultNow(),
+  gameDate: date("game_date").notNull(),
+});
+
+export const insertRecommendationSchema = createInsertSchema(recommendations).omit({ id: true, createdAt: true });
+export type InsertRecommendation = z.infer<typeof insertRecommendationSchema>;
+export type DbRecommendation = typeof recommendations.$inferSelect;
+
+// Opponent defensive ratings (cache these)
+export const teamDefense = pgTable("team_defense", {
+  teamId: integer("team_id").primaryKey(),
+  teamAbbr: varchar("team_abbr", { length: 3 }).notNull(),
+  season: varchar("season", { length: 10 }).notNull(),
+  defRating: real("def_rating"),
+  pace: real("pace"),
+  oppPtsAllowed: real("opp_pts_allowed"),
+  oppRebAllowed: real("opp_reb_allowed"),
+  oppAstAllowed: real("opp_ast_allowed"),
+  opp3PtPctAllowed: real("opp_3pt_pct_allowed"),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertTeamDefenseSchema = createInsertSchema(teamDefense).omit({ updatedAt: true });
+export type InsertTeamDefense = z.infer<typeof insertTeamDefenseSchema>;
+export type DbTeamDefense = typeof teamDefense.$inferSelect;
+
+// Prop evaluation request/response schemas
+export const propEvaluationSchema = z.object({
+  playerId: z.number(),
+  playerName: z.string(),
+  stat: z.string(),
+  line: z.number(),
+
+  // Projection data
+  projectedMean: z.number(),
+  projectedStd: z.number(),
+
+  // Probabilities
+  probOver: z.number(),
+  probUnder: z.number(),
+
+  // Betting signal
+  edge: z.number(),
+  recommendedSide: z.enum(['over', 'under', 'no_bet']),
+  confidence: z.enum(['high', 'medium', 'low']),
+});
+
+export type PropEvaluation = z.infer<typeof propEvaluationSchema>;
+
+// Parlay leg schema
+export const parlayLegSchema = z.object({
+  playerId: z.number(),
+  playerName: z.string(),
+  stat: z.string(),
+  line: z.number(),
+  side: z.enum(['over', 'under']),
+});
+
+export type ParlayLeg = z.infer<typeof parlayLegSchema>;
+
+// Track record summary schema
+export const trackRecordSchema = z.object({
+  total: z.number(),
+  wins: z.number(),
+  losses: z.number(),
+  hitRate: z.number(),
+  roi: z.number(),
+  profit: z.number(),
+  byConfidence: z.object({
+    high: z.object({ wins: z.number(), total: z.number(), hitRate: z.number() }),
+    medium: z.object({ wins: z.number(), total: z.number(), hitRate: z.number() }),
+    low: z.object({ wins: z.number(), total: z.number(), hitRate: z.number() }),
+  }),
+  byStat: z.record(z.string(), z.object({ wins: z.number(), total: z.number(), hitRate: z.number() })),
+  equityCurve: z.array(z.object({ date: z.string(), profit: z.number() })),
+  calibration: z.array(z.object({ predicted: z.number(), actual: z.number(), count: z.number() })),
+});
+
+export type TrackRecord = z.infer<typeof trackRecordSchema>;
