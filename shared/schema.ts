@@ -298,3 +298,248 @@ export const trackRecordSchema = z.object({
 });
 
 export type TrackRecord = z.infer<typeof trackRecordSchema>;
+
+// ========================================
+// BETTING LINES TRACKING
+// ========================================
+
+// Sportsbooks we track
+export const sportsbooks = pgTable("sportsbooks", {
+  id: serial("id").primaryKey(),
+  key: varchar("key", { length: 50 }).notNull().unique(), // 'fanduel', 'draftkings', etc.
+  name: text("name").notNull(),
+  active: boolean("active").default(true),
+  lastSync: timestamp("last_sync"),
+});
+
+export const insertSportsbookSchema = createInsertSchema(sportsbooks).omit({ id: true });
+export type InsertSportsbook = z.infer<typeof insertSportsbookSchema>;
+export type DbSportsbook = typeof sportsbooks.$inferSelect;
+
+// Player prop lines from sportsbooks
+export const playerPropLines = pgTable("player_prop_lines", {
+  id: serial("id").primaryKey(),
+
+  // Player & game info
+  playerId: integer("player_id").notNull(),
+  playerName: text("player_name").notNull(),
+  team: text("team").notNull(),
+  gameId: varchar("game_id", { length: 20 }).notNull(),
+  gameDate: date("game_date").notNull(),
+  opponent: text("opponent").notNull(),
+
+  // Prop details
+  stat: varchar("stat", { length: 20 }).notNull(), // 'points', 'rebounds', 'assists', etc.
+  line: real("line").notNull(),
+
+  // Sportsbook & odds
+  sportsbookId: integer("sportsbook_id").references(() => sportsbooks.id).notNull(),
+  sportsbookKey: varchar("sportsbook_key", { length: 50 }).notNull(),
+
+  // Over/Under odds
+  overOdds: integer("over_odds").notNull(), // American odds format (-110, +105, etc.)
+  underOdds: integer("under_odds").notNull(),
+
+  // Implied probabilities (calculated from odds)
+  overProb: real("over_prob").notNull(),
+  underProb: real("under_prob").notNull(),
+
+  // Vig calculation
+  totalProb: real("total_prob").notNull(), // over_prob + under_prob (should be >1, difference is vig)
+  vig: real("vig").notNull(), // (total_prob - 1) / 2
+
+  // Metadata
+  capturedAt: timestamp("captured_at").defaultNow().notNull(),
+  isActive: boolean("is_active").default(true), // False if line is removed/suspended
+});
+
+export const insertPlayerPropLineSchema = createInsertSchema(playerPropLines).omit({ id: true, capturedAt: true });
+export type InsertPlayerPropLine = z.infer<typeof insertPlayerPropLineSchema>;
+export type DbPlayerPropLine = typeof playerPropLines.$inferSelect;
+
+// Line movement tracking (denormalized for quick queries)
+export const lineMovements = pgTable("line_movements", {
+  id: serial("id").primaryKey(),
+
+  // Reference to the player/game/stat
+  playerId: integer("player_id").notNull(),
+  playerName: text("player_name").notNull(),
+  gameId: varchar("game_id", { length: 20 }).notNull(),
+  stat: varchar("stat", { length: 20 }).notNull(),
+  sportsbookKey: varchar("sportsbook_key", { length: 50 }).notNull(),
+
+  // Line movement
+  oldLine: real("old_line").notNull(),
+  newLine: real("new_line").notNull(),
+  lineChange: real("line_change").notNull(), // newLine - oldLine
+
+  // Odds movement
+  oldOverOdds: integer("old_over_odds").notNull(),
+  newOverOdds: integer("new_over_odds").notNull(),
+  oldUnderOdds: integer("old_under_odds").notNull(),
+  newUnderOdds: integer("new_under_odds").notNull(),
+
+  // Movement metadata
+  direction: varchar("direction", { length: 10 }).notNull(), // 'up', 'down', 'odds_only'
+  magnitude: real("magnitude").notNull(), // Absolute value of line change
+  isSignificant: boolean("is_significant").notNull(), // True if movement >= 0.5 or odds shift >= 20
+
+  // Timestamps
+  detectedAt: timestamp("detected_at").defaultNow().notNull(),
+  gameDate: date("game_date").notNull(),
+});
+
+export const insertLineMovementSchema = createInsertSchema(lineMovements).omit({ id: true, detectedAt: true });
+export type InsertLineMovement = z.infer<typeof insertLineMovementSchema>;
+export type DbLineMovement = typeof lineMovements.$inferSelect;
+
+// Best available lines (aggregated view)
+export const bestLines = pgTable("best_lines", {
+  id: serial("id").primaryKey(),
+
+  // Player & game info
+  playerId: integer("player_id").notNull(),
+  playerName: text("player_name").notNull(),
+  gameId: varchar("game_id", { length: 20 }).notNull(),
+  gameDate: date("game_date").notNull(),
+  stat: varchar("stat", { length: 20 }).notNull(),
+
+  // Best over line
+  bestOverLine: real("best_over_line"),
+  bestOverOdds: integer("best_over_odds"),
+  bestOverBook: varchar("best_over_book", { length: 50 }),
+
+  // Best under line
+  bestUnderLine: real("best_under_line"),
+  bestUnderOdds: integer("best_under_odds"),
+  bestUnderBook: varchar("best_under_book", { length: 50 }),
+
+  // Market consensus
+  consensusLine: real("consensus_line"), // Average across all books
+  numBooks: integer("num_books").notNull(), // How many books have this prop
+  lineSpread: real("line_spread"), // Max line - min line
+
+  // Last updated
+  lastUpdated: timestamp("last_updated").defaultNow().notNull(),
+});
+
+export const insertBestLineSchema = createInsertSchema(bestLines).omit({ id: true, lastUpdated: true });
+export type InsertBestLine = z.infer<typeof insertBestLineSchema>;
+export type DbBestLine = typeof bestLines.$inferSelect;
+
+// User bet tracking
+export const userBets = pgTable("user_bets", {
+  id: serial("id").primaryKey(),
+
+  // Bet details
+  playerId: integer("player_id").notNull(),
+  playerName: text("player_name").notNull(),
+  gameId: varchar("game_id", { length: 20 }).notNull(),
+  gameDate: date("game_date").notNull(),
+
+  stat: varchar("stat", { length: 20 }).notNull(),
+  line: real("line").notNull(),
+  side: varchar("side", { length: 10 }).notNull(), // 'over' or 'under'
+
+  // Bet placement
+  sportsbookKey: varchar("sportsbook_key", { length: 50 }).notNull(),
+  odds: integer("odds").notNull(),
+  stake: real("stake").notNull(), // Amount wagered (in units)
+
+  // Outcome
+  result: varchar("result", { length: 10 }), // 'win', 'loss', 'push', 'pending'
+  actualValue: real("actual_value"), // Player's actual stat value
+  profit: real("profit"), // Net profit/loss in units
+
+  // Edge tracking
+  projectedProb: real("projected_prob"), // Our model's probability
+  impliedProb: real("implied_prob"), // Odds implied probability
+  edge: real("edge"), // projectedProb - impliedProb
+
+  // Metadata
+  placedAt: timestamp("placed_at").defaultNow().notNull(),
+  settledAt: timestamp("settled_at"),
+  notes: text("notes"),
+});
+
+export const insertUserBetSchema = createInsertSchema(userBets).omit({ id: true, placedAt: true });
+export type InsertUserBet = z.infer<typeof insertUserBetSchema>;
+export type DbUserBet = typeof userBets.$inferSelect;
+
+// Line alert configurations
+export const lineAlerts = pgTable("line_alerts", {
+  id: serial("id").primaryKey(),
+
+  // Alert criteria
+  playerId: integer("player_id"),
+  playerName: text("player_name"),
+  stat: varchar("stat", { length: 20 }),
+
+  // Trigger conditions
+  triggerType: varchar("trigger_type", { length: 20 }).notNull(), // 'line_move', 'odds_change', 'edge_threshold'
+  threshold: real("threshold").notNull(), // e.g., 0.5 for line movement, 0.05 for edge
+
+  // Alert settings
+  enabled: boolean("enabled").default(true),
+  sportsbookKeys: jsonb("sportsbook_keys").$type<string[]>(), // null = all books
+
+  // Metadata
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  lastTriggered: timestamp("last_triggered"),
+  triggerCount: integer("trigger_count").default(0),
+});
+
+export const insertLineAlertSchema = createInsertSchema(lineAlerts).omit({ id: true, createdAt: true });
+export type InsertLineAlert = z.infer<typeof lineAlertSchema>;
+export type DbLineAlert = typeof lineAlerts.$inferSelect;
+
+// Validation schemas
+export const lineDataSchema = z.object({
+  playerId: z.number(),
+  playerName: z.string(),
+  gameId: z.string(),
+  gameDate: z.string(),
+  stat: z.string(),
+  lines: z.array(z.object({
+    sportsbookKey: z.string(),
+    sportsbookName: z.string(),
+    line: z.number(),
+    overOdds: z.number(),
+    underOdds: z.number(),
+    capturedAt: z.string(),
+  })),
+});
+
+export type LineData = z.infer<typeof lineDataSchema>;
+
+export const lineComparisonSchema = z.object({
+  playerId: z.number(),
+  playerName: z.string(),
+  stat: z.string(),
+  gameDate: z.string(),
+  lines: z.array(z.object({
+    sportsbook: z.string(),
+    line: z.number(),
+    overOdds: z.number(),
+    underOdds: z.number(),
+    overImpliedProb: z.number(),
+    underImpliedProb: z.number(),
+    vig: z.number(),
+  })),
+  bestOver: z.object({
+    sportsbook: z.string(),
+    line: z.number(),
+    odds: z.number(),
+  }),
+  bestUnder: z.object({
+    sportsbook: z.string(),
+    line: z.number(),
+    odds: z.number(),
+  }),
+  consensus: z.object({
+    line: z.number(),
+    spread: z.number(),
+  }),
+});
+
+export type LineComparison = z.infer<typeof lineComparisonSchema>;

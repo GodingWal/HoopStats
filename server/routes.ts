@@ -582,6 +582,180 @@ export async function registerRoutes(
     }
   });
 
+  // =============== LINE TRACKING ROUTES ===============
+
+  // Get all sportsbooks
+  app.get("/api/sportsbooks", async (req, res) => {
+    try {
+      const books = await storage.getSportsbooks();
+      res.json(books);
+    } catch (error) {
+      console.error("Error fetching sportsbooks:", error);
+      res.status(500).json({ error: "Failed to fetch sportsbooks" });
+    }
+  });
+
+  // Get player prop lines
+  app.get("/api/lines/player/:playerId", async (req, res) => {
+    try {
+      const playerId = parseInt(req.params.playerId);
+      const stat = req.query.stat as string;
+      const gameDate = req.query.gameDate as string | undefined;
+
+      if (isNaN(playerId) || !stat) {
+        return res.status(400).json({ error: "Invalid parameters" });
+      }
+
+      const lines = await storage.getPlayerPropLines(playerId, stat, gameDate);
+      res.json(lines);
+    } catch (error) {
+      console.error("Error fetching player lines:", error);
+      res.status(500).json({ error: "Failed to fetch player lines" });
+    }
+  });
+
+  // Get latest lines for a player/stat
+  app.get("/api/lines/latest/:playerId", async (req, res) => {
+    try {
+      const playerId = parseInt(req.params.playerId);
+      const stat = req.query.stat as string;
+
+      if (isNaN(playerId) || !stat) {
+        return res.status(400).json({ error: "Invalid parameters" });
+      }
+
+      const lines = await storage.getLatestLines(playerId, stat);
+      res.json(lines);
+    } catch (error) {
+      console.error("Error fetching latest lines:", error);
+      res.status(500).json({ error: "Failed to fetch latest lines" });
+    }
+  });
+
+  // Get line comparison for a player (all sportsbooks)
+  app.get("/api/lines/compare/:playerId", async (req, res) => {
+    try {
+      const playerId = parseInt(req.params.playerId);
+      const stat = req.query.stat as string;
+      const gameDate = req.query.gameDate as string;
+
+      if (isNaN(playerId) || !stat || !gameDate) {
+        return res.status(400).json({ error: "Invalid parameters" });
+      }
+
+      const comparison = await storage.compareLines(playerId, stat, gameDate);
+      res.json(comparison);
+    } catch (error) {
+      console.error("Error comparing lines:", error);
+      res.status(500).json({ error: "Failed to compare lines" });
+    }
+  });
+
+  // Get line movements for a player
+  app.get("/api/lines/movements/:playerId", async (req, res) => {
+    try {
+      const playerId = parseInt(req.params.playerId);
+      const stat = req.query.stat as string;
+      const gameDate = req.query.gameDate as string | undefined;
+
+      if (isNaN(playerId) || !stat) {
+        return res.status(400).json({ error: "Invalid parameters" });
+      }
+
+      const movements = await storage.getLineMovements(playerId, stat, gameDate);
+      res.json(movements);
+    } catch (error) {
+      console.error("Error fetching line movements:", error);
+      res.status(500).json({ error: "Failed to fetch line movements" });
+    }
+  });
+
+  // Get recent line movements (all players)
+  app.get("/api/lines/movements/recent", async (req, res) => {
+    try {
+      const hours = parseInt(req.query.hours as string) || 24;
+      const movements = await storage.getRecentLineMovements(hours);
+      res.json(movements);
+    } catch (error) {
+      console.error("Error fetching recent movements:", error);
+      res.status(500).json({ error: "Failed to fetch recent movements" });
+    }
+  });
+
+  // Get best available lines
+  app.get("/api/lines/best/:playerId", async (req, res) => {
+    try {
+      const playerId = parseInt(req.params.playerId);
+      const stat = req.query.stat as string;
+
+      if (isNaN(playerId) || !stat) {
+        return res.status(400).json({ error: "Invalid parameters" });
+      }
+
+      const bestLines = await storage.getBestLines(playerId, stat);
+      res.json(bestLines);
+    } catch (error) {
+      console.error("Error fetching best lines:", error);
+      res.status(500).json({ error: "Failed to fetch best lines" });
+    }
+  });
+
+  // Get best lines for a specific date
+  app.get("/api/lines/best/date/:gameDate", async (req, res) => {
+    try {
+      const { gameDate } = req.params;
+      const bestLines = await storage.getBestLinesForDate(gameDate);
+      res.json(bestLines);
+    } catch (error) {
+      console.error("Error fetching best lines for date:", error);
+      res.status(500).json({ error: "Failed to fetch best lines" });
+    }
+  });
+
+  // Save a user bet
+  app.post("/api/bets/user", async (req, res) => {
+    try {
+      const bet = req.body;
+      const savedBet = await storage.saveUserBet(bet);
+      res.json(savedBet);
+    } catch (error) {
+      console.error("Error saving user bet:", error);
+      res.status(500).json({ error: "Failed to save bet" });
+    }
+  });
+
+  // Get user bets
+  app.get("/api/bets/user", async (req, res) => {
+    try {
+      const pending = req.query.pending === 'true';
+      const gameDate = req.query.gameDate as string | undefined;
+
+      const bets = await storage.getUserBets({ pending, gameDate });
+      res.json(bets);
+    } catch (error) {
+      console.error("Error fetching user bets:", error);
+      res.status(500).json({ error: "Failed to fetch user bets" });
+    }
+  });
+
+  // Update user bet result
+  app.patch("/api/bets/user/:betId", async (req, res) => {
+    try {
+      const betId = parseInt(req.params.betId);
+      const { result, actualValue, profit } = req.body;
+
+      if (isNaN(betId) || !result || actualValue === undefined || profit === undefined) {
+        return res.status(400).json({ error: "Invalid parameters" });
+      }
+
+      await storage.updateUserBetResult(betId, result, actualValue, profit);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error updating bet result:", error);
+      res.status(500).json({ error: "Failed to update bet result" });
+    }
+  });
+
   // =============== ODDS API ROUTES ===============
 
   // Check if odds API is configured
