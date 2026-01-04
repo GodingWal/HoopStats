@@ -1,12 +1,27 @@
+import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { PotentialBet } from "@shared/schema";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
-import { TrendingUp, TrendingDown, RefreshCw, Target, Flame } from "lucide-react";
+import { TrendingUp, TrendingDown, RefreshCw, Target, Flame, ArrowLeft, Swords } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useMutation } from "@tanstack/react-query";
+
+interface LiveGame {
+  id: string;
+  competitors: {
+    homeAway: string;
+    team: {
+      abbreviation: string;
+      displayName: string;
+      logo: string;
+    };
+  }[];
+  status: {
+    type: { shortDetail: string; state: string; completed: boolean };
+  };
+}
 
 function getConfidenceColor(confidence: string) {
   switch (confidence) {
@@ -26,91 +41,97 @@ function getStatLabel(stat: string) {
     case "AST": return "Assists";
     case "PRA": return "PTS+REB+AST";
     case "FG3M": return "3-Pointers";
-    case "STOCKS": return "Steals+Blocks";
     default: return stat;
   }
 }
 
-function BetCard({ bet }: { bet: PotentialBet }) {
+function BetRow({ bet }: { bet: PotentialBet }) {
   const isOver = bet.recommendation === "OVER";
-  
+
   return (
-    <Card 
-      className="hover-elevate transition-all"
-      data-testid={`card-bet-${bet.player_id}-${bet.stat_type}-${bet.line}`}
+    <div className="p-3 rounded-lg bg-muted/30 hover:bg-muted/50 transition-all flex items-center justify-between gap-3">
+      <div className="flex-1 min-w-0">
+        <div className="font-medium text-sm">{bet.player_name}</div>
+        <div className="text-xs text-muted-foreground flex items-center gap-1">
+          {getStatLabel(bet.stat_type)} <span className="font-mono font-bold text-foreground">{bet.line}</span>
+        </div>
+      </div>
+
+      <div className="flex items-center gap-2">
+        <div className={`font-mono text-sm font-bold ${bet.hit_rate >= 70 ? 'text-emerald-400' : bet.hit_rate >= 50 ? 'text-foreground' : 'text-rose-400'
+          }`}>{bet.hit_rate.toFixed(0)}%</div>
+
+        {bet.confidence === "HIGH" && (
+          <Badge className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30 text-xs px-1.5">
+            <Flame className="w-3 h-3" />
+          </Badge>
+        )}
+
+        <div className={`flex items-center gap-0.5 px-1.5 py-0.5 rounded text-xs font-bold ${isOver ? "text-emerald-400 bg-emerald-500/10" : "text-rose-400 bg-rose-500/10"
+          }`}>
+          {isOver ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
+          {bet.recommendation}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+interface GameCardProps {
+  homeTeam: string;
+  awayTeam: string;
+  homeLogo?: string;
+  awayLogo?: string;
+  bets: PotentialBet[];
+  status?: string;
+  onClick: () => void;
+}
+
+function GameCard({ homeTeam, awayTeam, homeLogo, awayLogo, bets, status, onClick }: GameCardProps) {
+  const highCount = bets.filter(b => b.confidence === "HIGH").length;
+
+  return (
+    <Card
+      className="premium-card rounded-xl overflow-hidden cursor-pointer hover:border-primary/40 hover:shadow-lg hover:shadow-primary/10 transition-all duration-300"
+      onClick={onClick}
     >
       <CardContent className="p-4">
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 mb-1">
-              <span 
-                className="font-semibold text-foreground truncate"
-                data-testid={`text-player-${bet.player_id}`}
-              >
-                {bet.player_name}
-              </span>
-              <Badge variant="secondary" className="text-xs shrink-0">
-                {bet.team}
-              </Badge>
-            </div>
-            
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <span>{getStatLabel(bet.stat_type)}</span>
-              <span className="font-mono">{bet.line}</span>
-            </div>
+        <div className="flex items-center justify-between">
+          {/* Away Team */}
+          <div className="flex flex-col items-center gap-1 flex-1">
+            {awayLogo ? (
+              <img src={awayLogo} alt={awayTeam} className="w-10 h-10 object-contain" />
+            ) : (
+              <div className="w-10 h-10 rounded-lg bg-muted flex items-center justify-center text-xs font-bold">{awayTeam}</div>
+            )}
+            <span className="text-sm font-bold">{awayTeam}</span>
           </div>
-          
-          <div className="flex flex-col items-end gap-1">
-            <Badge 
-              className={`${getConfidenceColor(bet.confidence)} flex items-center gap-1`}
-              data-testid={`badge-confidence-${bet.id}`}
-            >
-              {bet.confidence === "HIGH" && <Flame className="w-3 h-3" />}
-              {bet.confidence}
-            </Badge>
-            
-            <div 
-              className={`flex items-center gap-1 text-sm font-medium ${
-                isOver ? "text-emerald-400" : "text-rose-400"
-              }`}
-              data-testid={`text-recommendation-${bet.id}`}
-            >
-              {isOver ? (
-                <TrendingUp className="w-4 h-4" />
-              ) : (
-                <TrendingDown className="w-4 h-4" />
-              )}
-              {bet.recommendation}
-            </div>
+
+          {/* VS */}
+          <div className="px-3">
+            <div className="text-xs text-muted-foreground font-bold">VS</div>
+            {status && <div className="text-[10px] text-muted-foreground text-center mt-0.5">{status}</div>}
+          </div>
+
+          {/* Home Team */}
+          <div className="flex flex-col items-center gap-1 flex-1">
+            {homeLogo ? (
+              <img src={homeLogo} alt={homeTeam} className="w-10 h-10 object-contain" />
+            ) : (
+              <div className="w-10 h-10 rounded-lg bg-muted flex items-center justify-center text-xs font-bold">{homeTeam}</div>
+            )}
+            <span className="text-sm font-bold">{homeTeam}</span>
           </div>
         </div>
-        
-        <div className="mt-3 pt-3 border-t border-border">
-          <div className="grid grid-cols-3 gap-3 text-xs">
-            <div>
-              <div className="text-muted-foreground">Hit Rate</div>
-              <div 
-                className="font-mono font-semibold text-foreground"
-                data-testid={`text-hitrate-${bet.id}`}
-              >
-                {bet.hit_rate.toFixed(1)}%
-              </div>
-            </div>
-            <div>
-              <div className="text-muted-foreground">Season Avg</div>
-              <div className="font-mono font-semibold text-foreground">
-                {bet.season_avg.toFixed(1)}
-              </div>
-            </div>
-            {bet.last_5_avg !== undefined && (
-              <div>
-                <div className="text-muted-foreground">L5 Avg</div>
-                <div className="font-mono font-semibold text-foreground">
-                  {bet.last_5_avg.toFixed(1)}
-                </div>
-              </div>
-            )}
-          </div>
+
+        <div className="mt-3 pt-3 border-t border-border/50 flex items-center justify-between">
+          <span className="text-sm text-muted-foreground">{bets.length} bets</span>
+          {highCount > 0 && (
+            <Badge className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30 text-xs">
+              <Flame className="w-3 h-3 mr-1" />
+              {highCount} HIGH
+            </Badge>
+          )}
         </div>
       </CardContent>
     </Card>
@@ -119,26 +140,18 @@ function BetCard({ bet }: { bet: PotentialBet }) {
 
 function BetsSkeleton() {
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-      {Array.from({ length: 9 }).map((_, i) => (
-        <Card key={i}>
+    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+      {[1, 2, 3, 4, 5, 6].map((i) => (
+        <Card key={i} className="rounded-xl border border-border/50">
           <CardContent className="p-4">
-            <div className="flex items-start justify-between gap-3">
-              <div className="flex-1">
-                <Skeleton className="h-5 w-32 mb-2" />
-                <Skeleton className="h-4 w-24" />
-              </div>
-              <div className="flex flex-col items-end gap-2">
-                <Skeleton className="h-5 w-16" />
-                <Skeleton className="h-4 w-12" />
-              </div>
+            <div className="flex items-center justify-between">
+              <div className="w-10 h-10 rounded-lg shimmer" />
+              <div className="w-8 h-4 rounded shimmer" />
+              <div className="w-10 h-10 rounded-lg shimmer" />
             </div>
-            <div className="mt-3 pt-3 border-t border-border">
-              <div className="grid grid-cols-3 gap-3">
-                <Skeleton className="h-8 w-full" />
-                <Skeleton className="h-8 w-full" />
-                <Skeleton className="h-8 w-full" />
-              </div>
+            <div className="mt-3 pt-3 border-t border-border/50 flex justify-between">
+              <div className="w-16 h-4 rounded shimmer" />
+              <div className="w-14 h-5 rounded shimmer" />
             </div>
           </CardContent>
         </Card>
@@ -148,8 +161,14 @@ function BetsSkeleton() {
 }
 
 export default function Bets() {
-  const { data: bets, isLoading } = useQuery<PotentialBet[]>({
+  const [selectedGame, setSelectedGame] = useState<{ home: string; away: string } | null>(null);
+
+  const { data: bets, isLoading: betsLoading } = useQuery<PotentialBet[]>({
     queryKey: ["/api/bets"],
+  });
+
+  const { data: games } = useQuery<LiveGame[]>({
+    queryKey: ["/api/live-games"],
   });
 
   const refreshMutation = useMutation({
@@ -162,103 +181,157 @@ export default function Bets() {
     },
   });
 
-  const highConfidenceBets = bets?.filter((b) => b.confidence === "HIGH") || [];
-  const mediumConfidenceBets = bets?.filter((b) => b.confidence === "MEDIUM") || [];
+  // Create game matchups from bets (group by unique team pairs)
+  const gameMatchups = useMemo(() => {
+    if (!bets) return [];
 
+    const teamSet = new Set(bets.map(b => b.team));
+    const teams = Array.from(teamSet);
+
+    // If we have live games data, use actual matchups
+    if (games && games.length > 0) {
+      return games.map(game => {
+        const home = game.competitors.find(c => c.homeAway === "home");
+        const away = game.competitors.find(c => c.homeAway === "away");
+        if (!home || !away) return null;
+
+        const gameBets = bets.filter(b =>
+          b.team === home.team.abbreviation || b.team === away.team.abbreviation
+        );
+
+        return {
+          homeTeam: home.team.abbreviation,
+          awayTeam: away.team.abbreviation,
+          homeLogo: home.team.logo,
+          awayLogo: away.team.logo,
+          status: game.status.type.shortDetail,
+          bets: gameBets,
+        };
+      }).filter(Boolean).filter(g => g!.bets.length > 0);
+    }
+
+    // Fallback: show each team as a "matchup" with TBD opponent
+    return teams.map(team => ({
+      homeTeam: team,
+      awayTeam: "TBD",
+      bets: bets.filter(b => b.team === team),
+    })).filter(g => g.bets.length > 0);
+  }, [bets, games]);
+
+  const selectedBets = useMemo(() => {
+    if (!selectedGame || !bets) return [];
+    return bets.filter(b =>
+      b.team === selectedGame.home || b.team === selectedGame.away
+    ).sort((a, b) => {
+      if (a.confidence === "HIGH" && b.confidence !== "HIGH") return -1;
+      if (a.confidence !== "HIGH" && b.confidence === "HIGH") return 1;
+      return b.hit_rate - a.hit_rate;
+    });
+  }, [selectedGame, bets]);
+
+  const totalBets = bets?.length || 0;
+  const highConfidenceBets = bets?.filter(b => b.confidence === "HIGH").length || 0;
+
+  // Detail view when a game is selected
+  if (selectedGame) {
+    return (
+      <div className="min-h-screen bg-background">
+        <div className="container mx-auto px-4 py-8 max-w-3xl fade-in">
+          <Button
+            variant="ghost"
+            onClick={() => setSelectedGame(null)}
+            className="mb-6 hover:bg-primary/10"
+          >
+            <ArrowLeft className="w-4 h-4 mr-2" />
+            Back to Games
+          </Button>
+
+          <div className="text-center mb-8">
+            <div className="flex items-center justify-center gap-4 mb-2">
+              <span className="text-2xl font-bold">{selectedGame.away}</span>
+              <Swords className="w-6 h-6 text-muted-foreground" />
+              <span className="text-2xl font-bold">{selectedGame.home}</span>
+            </div>
+            <div className="text-muted-foreground">{selectedBets.length} betting opportunities</div>
+          </div>
+
+          <div className="space-y-2">
+            {selectedBets.map((bet) => (
+              <BetRow key={`${bet.player_id}-${bet.stat_type}-${bet.line}`} bet={bet} />
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Main grid view
   return (
     <div className="min-h-screen bg-background">
-      <div className="container mx-auto px-4 py-6 max-w-7xl">
-        <div className="flex items-center justify-between gap-4 mb-6 flex-wrap">
-          <div>
-            <h1 
-              className="text-2xl font-bold text-foreground flex items-center gap-2"
-              data-testid="heading-bets"
-            >
-              <Target className="w-6 h-6 text-primary" />
-              Potential Bets
-            </h1>
-            <p className="text-muted-foreground text-sm mt-1">
-              High-confidence betting opportunities based on hit rate analysis
-            </p>
+      <div className="container mx-auto px-4 py-8 max-w-5xl fade-in">
+        <div className="flex items-center justify-between gap-4 mb-8 flex-wrap">
+          <div className="flex items-center gap-3">
+            <div className="p-2 rounded-xl bg-primary/10">
+              <Target className="w-7 h-7 text-primary" />
+            </div>
+            <div>
+              <h1 className="text-3xl font-bold">Potential Bets</h1>
+              <p className="text-muted-foreground">Select a game to view bets</p>
+            </div>
           </div>
-          
-          <Button
-            variant="outline"
-            onClick={() => refreshMutation.mutate()}
-            disabled={refreshMutation.isPending}
-            data-testid="button-refresh-bets"
-          >
-            <RefreshCw className={`w-4 h-4 mr-2 ${refreshMutation.isPending ? "animate-spin" : ""}`} />
-            Refresh
-          </Button>
+
+          <div className="flex items-center gap-3">
+            {totalBets > 0 && (
+              <div className="text-right text-sm">
+                <div className="text-muted-foreground">{totalBets} bets</div>
+                {highConfidenceBets > 0 && (
+                  <div className="text-emerald-400 flex items-center gap-1 justify-end">
+                    <Flame className="w-3 h-3" />
+                    {highConfidenceBets} high
+                  </div>
+                )}
+              </div>
+            )}
+            <Button
+              variant="outline"
+              onClick={() => refreshMutation.mutate()}
+              disabled={refreshMutation.isPending}
+              className="hover:border-primary/50"
+            >
+              <RefreshCw className={`w-4 h-4 mr-2 ${refreshMutation.isPending ? "animate-spin" : ""}`} />
+              Refresh
+            </Button>
+          </div>
         </div>
 
-        {isLoading ? (
+        {betsLoading ? (
           <BetsSkeleton />
+        ) : gameMatchups.length > 0 ? (
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 stagger-fade">
+            {gameMatchups.map((matchup: any) => (
+              <GameCard
+                key={`${matchup.awayTeam}-${matchup.homeTeam}`}
+                homeTeam={matchup.homeTeam}
+                awayTeam={matchup.awayTeam}
+                homeLogo={matchup.homeLogo}
+                awayLogo={matchup.awayLogo}
+                status={matchup.status}
+                bets={matchup.bets}
+                onClick={() => setSelectedGame({ home: matchup.homeTeam, away: matchup.awayTeam })}
+              />
+            ))}
+          </div>
         ) : (
-          <>
-            {highConfidenceBets.length > 0 && (
-              <section className="mb-8">
-                <Card className="mb-4 bg-emerald-500/5 border-emerald-500/20">
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-lg flex items-center gap-2 text-emerald-400">
-                      <Flame className="w-5 h-5" />
-                      High Confidence ({highConfidenceBets.length})
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <p className="text-sm text-muted-foreground">
-                      These picks have hit rates above 80% or below 25% this season
-                    </p>
-                  </CardContent>
-                </Card>
-                
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {highConfidenceBets.map((bet) => (
-                    <BetCard key={`${bet.player_id}-${bet.stat_type}-${bet.line}`} bet={bet} />
-                  ))}
-                </div>
-              </section>
-            )}
-
-            {mediumConfidenceBets.length > 0 && (
-              <section>
-                <Card className="mb-4 bg-amber-500/5 border-amber-500/20">
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-lg flex items-center gap-2 text-amber-400">
-                      <Target className="w-5 h-5" />
-                      Medium Confidence ({mediumConfidenceBets.length})
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <p className="text-sm text-muted-foreground">
-                      These picks have hit rates between 65-80% or 25-35% this season
-                    </p>
-                  </CardContent>
-                </Card>
-                
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {mediumConfidenceBets.map((bet) => (
-                    <BetCard key={`${bet.player_id}-${bet.stat_type}-${bet.line}`} bet={bet} />
-                  ))}
-                </div>
-              </section>
-            )}
-
-            {bets?.length === 0 && (
-              <Card>
-                <CardContent className="py-12 text-center">
-                  <Target className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
-                  <h3 className="text-lg font-semibold text-foreground mb-2">
-                    No Bets Found
-                  </h3>
-                  <p className="text-muted-foreground">
-                    Try refreshing to generate new betting opportunities
-                  </p>
-                </CardContent>
-              </Card>
-            )}
-          </>
+          <Card className="rounded-xl border-border/50">
+            <CardContent className="py-16 text-center">
+              <div className="relative w-20 h-20 mx-auto mb-6">
+                <div className="absolute inset-0 rounded-full bg-gradient-to-br from-primary/20 to-primary/5 animate-pulse" />
+                <Target className="w-10 h-10 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-primary/60" />
+              </div>
+              <h3 className="text-xl font-bold mb-2">No Games Found</h3>
+              <p className="text-muted-foreground">Try refreshing to load betting opportunities</p>
+            </CardContent>
+          </Card>
         )}
       </div>
     </div>

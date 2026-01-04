@@ -1,0 +1,33 @@
+# NBA Player Prop Model Dependencies
+
+# Data fetching
+nba_api>=1.4.1
+requests>=2.31.0
+
+# Data processing
+pandas>=2.0.0
+numpy>=1.24.0
+
+# Statistical modeling
+scipy>=1.10.0
+scikit-learn>=1.3.0
+
+# Bayesian modeling (optional, for advanced models)
+pymc>=5.10.0
+arviz>=0.17.0
+
+# Database
+
+
+# Visualization (optional)
+matplotlib>=3.7.0
+seaborn>=0.12.0
+plotly>=5.18.0
+
+# API (for serving predictions)
+fastapi>=0.109.0
+uvicorn>=0.25.0
+
+# Utilities
+python-dateutil>=2.8.0
+tqdm>=4.66.0

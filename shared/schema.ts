@@ -95,7 +95,16 @@ export const players = pgTable("players", {
   away_averages: jsonb("away_averages").notNull().$type<SplitAverages>(),
 });
 
-export const insertPlayerSchema = createInsertSchema(players).omit({ id: true });
+export const insertPlayerSchema = createInsertSchema(players, {
+  season_averages: seasonAveragesSchema,
+  last_10_averages: seasonAveragesSchema.partial(),
+  last_5_averages: seasonAveragesSchema.partial(),
+  hit_rates: hitRatesSchema,
+  vs_team: z.record(z.string(), vsTeamStatsSchema),
+  recent_games: z.array(gameLogSchema),
+  home_averages: splitAveragesSchema,
+  away_averages: splitAveragesSchema,
+}).omit({ id: true });
 export type InsertPlayer = z.infer<typeof insertPlayerSchema>;
 export type DbPlayer = typeof players.$inferSelect;
 

@@ -51,6 +51,7 @@ function dbBetToPotentialBet(dbBet: typeof potentialBets.$inferSelect): Potentia
 
 export class DatabaseStorage implements IStorage {
   async getPlayers(): Promise<Player[]> {
+    if (!db) throw new Error("Database not initialized");
     const result = await db.select().from(players);
     return result.map(dbPlayerToPlayer).sort(
       (a, b) => (b.season_averages?.PTS ?? 0) - (a.season_averages?.PTS ?? 0)
@@ -58,11 +59,13 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getPlayer(id: number): Promise<Player | undefined> {
+    if (!db) throw new Error("Database not initialized");
     const [result] = await db.select().from(players).where(eq(players.player_id, id));
     return result ? dbPlayerToPlayer(result) : undefined;
   }
 
   async searchPlayers(query: string): Promise<Player[]> {
+    if (!db) throw new Error("Database not initialized");
     const searchPattern = `%${query}%`;
     const result = await db.select().from(players).where(
       or(
@@ -76,29 +79,35 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createPlayer(player: InsertPlayer): Promise<Player> {
-    const [result] = await db.insert(players).values(player).returning();
+    if (!db) throw new Error("Database not initialized");
+    const [result] = await db.insert(players).values(player as any).returning();
     return dbPlayerToPlayer(result);
   }
 
   async getPotentialBets(): Promise<PotentialBet[]> {
+    if (!db) throw new Error("Database not initialized");
     const result = await db.select().from(potentialBets).orderBy(desc(potentialBets.hit_rate));
     return result.map(dbBetToPotentialBet);
   }
 
   async createPotentialBet(bet: InsertPotentialBet): Promise<PotentialBet> {
+    if (!db) throw new Error("Database not initialized");
     const [result] = await db.insert(potentialBets).values(bet).returning();
     return dbBetToPotentialBet(result);
   }
 
   async clearPotentialBets(): Promise<void> {
+    if (!db) throw new Error("Database not initialized");
     await db.delete(potentialBets);
   }
 
   async clearPlayers(): Promise<void> {
+    if (!db) throw new Error("Database not initialized");
     await db.delete(players);
   }
 
   async seedPlayers(data: Player[]): Promise<void> {
+    if (!db) throw new Error("Database not initialized");
     for (const player of data) {
       const existing = await db.select().from(players).where(eq(players.player_id, player.player_id));
       if (existing.length === 0) {
@@ -120,6 +129,123 @@ export class DatabaseStorage implements IStorage {
       }
     }
   }
+
+  async syncPlayers(data: InsertPlayer[]): Promise<void> {
+    if (!db) throw new Error("Database not initialized");
+    for (const player of data) {
+      await db.insert(players).values(player).onConflictDoUpdate({
+        target: players.player_id,
+        set: player,
+      });
+    }
+  }
 }
 
-export const storage = new DatabaseStorage();
+export class MemStorage implements IStorage {
+  private players: Map<number, Player>;
+  private bets: Map<number, PotentialBet>;
+  private betIdCounter: number;
+
+  constructor() {
+    this.players = new Map();
+    this.bets = new Map();
+    this.betIdCounter = 1;
+  }
+
+  async getPlayers(): Promise<Player[]> {
+    return Array.from(this.players.values()).sort(
+      (a, b) => (b.season_averages?.PTS ?? 0) - (a.season_averages?.PTS ?? 0)
+    );
+  }
+
+  async getPlayer(id: number): Promise<Player | undefined> {
+    return this.players.get(id);
+  }
+
+  async searchPlayers(query: string): Promise<Player[]> {
+    const lowerQuery = query.toLowerCase();
+    return Array.from(this.players.values())
+      .filter(
+        (p) =>
+          p.player_name.toLowerCase().includes(lowerQuery) ||
+          p.team.toLowerCase().includes(lowerQuery)
+      )
+      .sort(
+        (a, b) => (b.season_averages?.PTS ?? 0) - (a.season_averages?.PTS ?? 0)
+      );
+  }
+
+  async createPlayer(insertPlayer: InsertPlayer): Promise<Player> {
+    const player: Player = {
+      ...insertPlayer,
+      games_played: insertPlayer.games_played ?? undefined,
+      team_id: insertPlayer.team_id ?? undefined,
+      season_averages: {
+        ...insertPlayer.season_averages,
+        STL: insertPlayer.season_averages.STL as number | undefined,
+        BLK: insertPlayer.season_averages.BLK as number | undefined,
+        TOV: insertPlayer.season_averages.TOV as number | undefined,
+      },
+      last_10_averages: insertPlayer.last_10_averages as Partial<SeasonAverages>,
+      last_5_averages: insertPlayer.last_5_averages as Partial<SeasonAverages>,
+      vs_team: Object.entries(insertPlayer.vs_team).reduce(
+        (acc, [key, val]) => ({
+          ...acc,
+          [key]: {
+            ...val,
+            FG3M: val.FG3M as number | undefined
+          }
+        }),
+        {} as Record<string, VsTeamStats>
+      ),
+      recent_games: insertPlayer.recent_games as GameLog[],
+      hit_rates: insertPlayer.hit_rates as HitRates,
+      home_averages: insertPlayer.home_averages as SplitAverages,
+      away_averages: insertPlayer.away_averages as SplitAverages,
+    };
+    this.players.set(player.player_id, player);
+    return player;
+  }
+
+  async getPotentialBets(): Promise<PotentialBet[]> {
+    return Array.from(this.bets.values()).sort((a, b) => b.hit_rate - a.hit_rate);
+  }
+
+  async createPotentialBet(bet: InsertPotentialBet): Promise<PotentialBet> {
+    const id = this.betIdCounter++;
+    const newBet: PotentialBet = {
+      ...bet,
+      id,
+      last_5_avg: bet.last_5_avg ?? undefined,
+      recommendation: bet.recommendation as "OVER" | "UNDER",
+      confidence: bet.confidence as "HIGH" | "MEDIUM" | "LOW"
+    };
+    this.bets.set(id, newBet);
+    return newBet;
+  }
+
+  async clearPotentialBets(): Promise<void> {
+    this.bets.clear();
+  }
+
+  async clearPlayers(): Promise<void> {
+    this.players.clear();
+  }
+
+  async seedPlayers(data: Player[]): Promise<void> {
+    for (const player of data) {
+      if (!this.players.has(player.player_id)) {
+        this.players.set(player.player_id, player);
+      }
+    }
+  }
+
+  async syncPlayers(data: InsertPlayer[]): Promise<void> {
+    for (const player of data) {
+      await this.createPlayer(player);
+    }
+  }
+}
+
+
+export const storage = process.env.DATABASE_URL ? new DatabaseStorage() : new MemStorage();

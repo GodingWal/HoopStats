@@ -1,90 +1,193 @@
 import type { Player } from "@shared/schema";
+import { useQuery } from "@tanstack/react-query";
 import { StatBadge } from "./stat-badge";
 import { Sparkline } from "./sparkline";
 import { RecentGamesTable } from "./recent-games-table";
 import { HitRateGrid } from "./hit-rate-grid";
 import { VsTeamStats } from "./vs-team-stats";
 import { HomeAwaySplits } from "./home-away-splits";
+import { TrendChart } from "./trend-chart";
+import { AlertManager, AlertBadge } from "./alert-manager";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { TrendingUp, Target, Users, BarChart3 } from "lucide-react";
+import { TrendingUp, Target, Users, BarChart3, Loader2, LineChart, Bell } from "lucide-react";
 
 interface PlayerDetailProps {
   player: Player;
 }
 
-export function PlayerDetail({ player }: PlayerDetailProps) {
-  const recentPts = player.recent_games.map((g) => g.PTS).reverse();
-  const recentReb = player.recent_games.map((g) => g.REB).reverse();
-  const recentAst = player.recent_games.map((g) => g.AST).reverse();
+interface ESPNGamelogEntry {
+  season: string;
+  stats: { [key: string]: string };
+  game: {
+    id: string;
+    date: string;
+    opponent: {
+      id: string;
+      displayName: string;
+      abbreviation: string;
+      logo: string;
+    };
+    result: string;
+    score: string;
+    isHome: boolean;
+  };
+}
 
-  const ptsTrend = (player.last_5_averages.PTS ?? player.season_averages.PTS) - player.season_averages.PTS;
-  const rebTrend = (player.last_5_averages.REB ?? player.season_averages.REB) - player.season_averages.REB;
-  const astTrend = (player.last_5_averages.AST ?? player.season_averages.AST) - player.season_averages.AST;
+export function PlayerDetail({ player }: PlayerDetailProps) {
+  // Fetch live gamelog from ESPN
+  const { data: liveGamelog, isLoading: isLoadingGamelog } = useQuery<ESPNGamelogEntry[]>({
+    queryKey: [`/api/players/${player.player_id}/gamelog`],
+    staleTime: 1000 * 60 * 5, // Cache for 5 minutes
+  });
+
+  // Transform ESPN gamelog to the format expected by RecentGamesTable
+  const recentGames = liveGamelog?.slice(0, 10).map((entry) => ({
+    WL: entry.game.result?.charAt(0) || "?",
+    PTS: parseInt(entry.stats.PTS || "0", 10),
+    REB: parseInt(entry.stats.REB || "0", 10),
+    AST: parseInt(entry.stats.AST || "0", 10),
+    FG3M: parseInt(entry.stats["3PM"] || entry.stats.FG3M || "0", 10),
+    MIN: parseInt(entry.stats.MIN?.split(":")[0] || "0", 10),
+    OPPONENT: entry.game.opponent?.abbreviation || "?",
+    GAME_DATE: entry.game.date ? new Date(entry.game.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).toUpperCase() : "",
+  })) || player.recent_games;
+
+  // Helper to calculate averages from a subset of games
+  const calcAvg = <T extends Record<string, number>>(games: T[], key: keyof T): number => {
+    if (!games.length) return 0;
+    const sum = games.reduce((acc, g) => acc + (g[key] as number), 0);
+    return Math.round((sum / games.length) * 10) / 10;
+  };
+
+
+  // Calculate LIVE averages from ESPN data (or fallback to stored)
+  const allGames = liveGamelog?.map((entry) => ({
+    PTS: parseInt(entry.stats.PTS || "0", 10),
+    REB: parseInt(entry.stats.REB || "0", 10),
+    AST: parseInt(entry.stats.AST || "0", 10),
+    FG3M: parseInt(entry.stats["3PM"] || entry.stats.FG3M || "0", 10),
+    MIN: parseInt(entry.stats.MIN?.split(":")[0] || "0", 10),
+  })) || [];
+
+  const seasonAverages = allGames.length > 0 ? {
+    PTS: calcAvg(allGames, 'PTS'),
+    REB: calcAvg(allGames, 'REB'),
+    AST: calcAvg(allGames, 'AST'),
+    FG3M: calcAvg(allGames, 'FG3M'),
+    PRA: calcAvg(allGames, 'PTS') + calcAvg(allGames, 'REB') + calcAvg(allGames, 'AST'),
+    MIN: calcAvg(allGames, 'MIN'),
+  } : player.season_averages;
+
+  const last10Games = allGames.slice(0, 10);
+  const last10Averages = last10Games.length > 0 ? {
+    PTS: calcAvg(last10Games, 'PTS'),
+    REB: calcAvg(last10Games, 'REB'),
+    AST: calcAvg(last10Games, 'AST'),
+    FG3M: calcAvg(last10Games, 'FG3M'),
+    PRA: calcAvg(last10Games, 'PTS') + calcAvg(last10Games, 'REB') + calcAvg(last10Games, 'AST'),
+    MIN: calcAvg(last10Games, 'MIN'),
+  } : player.last_10_averages;
+
+  const last5Games = allGames.slice(0, 5);
+  const last5Averages = last5Games.length > 0 ? {
+    PTS: calcAvg(last5Games, 'PTS'),
+    REB: calcAvg(last5Games, 'REB'),
+    AST: calcAvg(last5Games, 'AST'),
+    FG3M: calcAvg(last5Games, 'FG3M'),
+    PRA: calcAvg(last5Games, 'PTS') + calcAvg(last5Games, 'REB') + calcAvg(last5Games, 'AST'),
+    MIN: calcAvg(last5Games, 'MIN'),
+  } : player.last_5_averages;
+
+  const gamesPlayed = allGames.length || player.games_played;
+
+  const recentPts = recentGames.map((g) => g.PTS).reverse();
+  const recentReb = recentGames.map((g) => g.REB).reverse();
+  const recentAst = recentGames.map((g) => g.AST).reverse();
+
+  const ptsTrend = (last5Averages.PTS ?? seasonAverages.PTS) - seasonAverages.PTS;
+  const rebTrend = (last5Averages.REB ?? seasonAverages.REB) - seasonAverages.REB;
+  const astTrend = (last5Averages.AST ?? seasonAverages.AST) - seasonAverages.AST;
 
   return (
-    <div className="space-y-6" data-testid="player-detail">
-      <div className="flex items-start gap-6">
-        <div className="w-20 h-20 rounded-full bg-muted flex items-center justify-center text-2xl font-bold text-muted-foreground flex-shrink-0">
-          {player.player_name.split(" ").map(n => n[0]).join("")}
-        </div>
-        <div className="flex-1">
-          <div className="flex items-center gap-3 flex-wrap">
-            <h1 className="text-2xl font-semibold" data-testid="player-name">{player.player_name}</h1>
-            <Badge variant="secondary" className="text-sm">
-              {player.team}
-            </Badge>
-            {player.games_played && (
-              <span className="text-sm text-muted-foreground">
-                {player.games_played} GP
-              </span>
-            )}
+    <div className="space-y-6 fade-in" data-testid="player-detail">
+      {/* Hero Section */}
+      <div className="p-6 rounded-2xl bg-gradient-to-br from-card via-card to-accent/30 border border-border/50">
+        <div className="flex items-start gap-6">
+          {/* Large gradient avatar */}
+          <div className="relative w-24 h-24 rounded-2xl bg-gradient-to-br from-primary via-primary/80 to-emerald-400 p-[3px] flex-shrink-0 glow-effect">
+            <div className="w-full h-full rounded-2xl bg-card flex items-center justify-center text-3xl font-bold text-foreground">
+              {player.player_name.split(" ").map(n => n[0]).join("")}
+            </div>
           </div>
-          <div className="flex items-center gap-6 mt-4">
-            <div className="flex items-end gap-2">
-              <div>
-                <div className="text-xs text-muted-foreground uppercase tracking-wider">PTS</div>
-                <div className="text-2xl font-mono font-bold">{player.season_averages.PTS.toFixed(1)}</div>
-              </div>
-              <Sparkline data={recentPts} width={50} height={24} />
+
+          <div className="flex-1">
+            <div className="flex items-center gap-3 flex-wrap">
+              <h1 className="text-3xl font-bold" data-testid="player-name">{player.player_name}</h1>
+              <Badge variant="secondary" className="text-sm px-3 py-1 bg-primary/10 text-primary border-0">
+                {player.team}
+              </Badge>
+              {gamesPlayed > 0 && (
+                <span className="text-sm text-muted-foreground bg-muted/50 px-2 py-0.5 rounded-full">
+                  {gamesPlayed} GP
+                </span>
+              )}
             </div>
-            <div className="flex items-end gap-2">
-              <div>
-                <div className="text-xs text-muted-foreground uppercase tracking-wider">REB</div>
-                <div className="text-2xl font-mono font-bold">{player.season_averages.REB.toFixed(1)}</div>
+
+            {/* Hero Stats Row */}
+            <div className="flex items-center gap-8 mt-6">
+              <div className="flex items-end gap-3 group">
+                <div>
+                  <div className="text-xs text-muted-foreground uppercase tracking-wider mb-1">PTS</div>
+                  <div className="text-4xl font-mono font-bold stat-gradient">{seasonAverages.PTS.toFixed(1)}</div>
+                </div>
+                <div className="opacity-70 group-hover:opacity-100 transition-opacity">
+                  <Sparkline data={recentPts} width={60} height={28} />
+                </div>
               </div>
-              <Sparkline data={recentReb} width={50} height={24} />
-            </div>
-            <div className="flex items-end gap-2">
-              <div>
-                <div className="text-xs text-muted-foreground uppercase tracking-wider">AST</div>
-                <div className="text-2xl font-mono font-bold">{player.season_averages.AST.toFixed(1)}</div>
+              <div className="flex items-end gap-3 group">
+                <div>
+                  <div className="text-xs text-muted-foreground uppercase tracking-wider mb-1">REB</div>
+                  <div className="text-4xl font-mono font-bold">{seasonAverages.REB.toFixed(1)}</div>
+                </div>
+                <div className="opacity-70 group-hover:opacity-100 transition-opacity">
+                  <Sparkline data={recentReb} width={60} height={28} />
+                </div>
               </div>
-              <Sparkline data={recentAst} width={50} height={24} />
-            </div>
-            <div>
-              <div className="text-xs text-muted-foreground uppercase tracking-wider">PRA</div>
-              <div className="text-2xl font-mono font-bold text-primary">{player.season_averages.PRA.toFixed(1)}</div>
+              <div className="flex items-end gap-3 group">
+                <div>
+                  <div className="text-xs text-muted-foreground uppercase tracking-wider mb-1">AST</div>
+                  <div className="text-4xl font-mono font-bold">{seasonAverages.AST.toFixed(1)}</div>
+                </div>
+                <div className="opacity-70 group-hover:opacity-100 transition-opacity">
+                  <Sparkline data={recentAst} width={60} height={28} />
+                </div>
+              </div>
+              <div className="ml-auto">
+                <div className="text-xs text-muted-foreground uppercase tracking-wider mb-1">PRA</div>
+                <div className="text-4xl font-mono font-bold text-primary">{seasonAverages.PRA.toFixed(1)}</div>
+              </div>
             </div>
           </div>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card>
-          <CardHeader className="pb-2">
+      {/* Stat Cards Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 stagger-fade">
+        <Card className="premium-card rounded-xl overflow-hidden">
+          <CardHeader className="pb-2 bg-gradient-to-br from-transparent to-primary/5">
             <CardTitle className="text-sm font-medium flex items-center gap-2">
-              <BarChart3 className="w-4 h-4 text-muted-foreground" />
+              <BarChart3 className="w-4 h-4 text-primary" />
               Season Averages
             </CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent className="pt-3">
             <div className="grid grid-cols-2 gap-2">
-              <StatBadge label="PTS" value={player.season_averages.PTS} size="sm" />
-              <StatBadge label="REB" value={player.season_averages.REB} size="sm" />
-              <StatBadge label="AST" value={player.season_averages.AST} size="sm" />
-              <StatBadge label="3PM" value={player.season_averages.FG3M} size="sm" />
+              <StatBadge label="PTS" value={seasonAverages.PTS} size="sm" />
+              <StatBadge label="REB" value={seasonAverages.REB} size="sm" />
+              <StatBadge label="AST" value={seasonAverages.AST} size="sm" />
+              <StatBadge label="3PM" value={seasonAverages.FG3M} size="sm" />
             </div>
           </CardContent>
         </Card>
@@ -98,28 +201,28 @@ export function PlayerDetail({ player }: PlayerDetailProps) {
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-2 gap-2">
-              <StatBadge 
-                label="PTS" 
-                value={player.last_10_averages.PTS ?? 0} 
+              <StatBadge
+                label="PTS"
+                value={last10Averages.PTS ?? 0}
                 trend={ptsTrend}
-                size="sm" 
+                size="sm"
               />
-              <StatBadge 
-                label="REB" 
-                value={player.last_10_averages.REB ?? 0} 
+              <StatBadge
+                label="REB"
+                value={last10Averages.REB ?? 0}
                 trend={rebTrend}
-                size="sm" 
+                size="sm"
               />
-              <StatBadge 
-                label="AST" 
-                value={player.last_10_averages.AST ?? 0} 
+              <StatBadge
+                label="AST"
+                value={last10Averages.AST ?? 0}
                 trend={astTrend}
-                size="sm" 
+                size="sm"
               />
-              <StatBadge 
-                label="3PM" 
-                value={player.last_10_averages.FG3M ?? 0} 
-                size="sm" 
+              <StatBadge
+                label="3PM"
+                value={last10Averages.FG3M ?? 0}
+                size="sm"
               />
             </div>
           </CardContent>
@@ -134,25 +237,25 @@ export function PlayerDetail({ player }: PlayerDetailProps) {
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-2 gap-2">
-              <StatBadge 
-                label="PTS" 
-                value={player.last_5_averages.PTS ?? 0} 
-                size="sm" 
+              <StatBadge
+                label="PTS"
+                value={last5Averages.PTS ?? 0}
+                size="sm"
               />
-              <StatBadge 
-                label="REB" 
-                value={player.last_5_averages.REB ?? 0} 
-                size="sm" 
+              <StatBadge
+                label="REB"
+                value={last5Averages.REB ?? 0}
+                size="sm"
               />
-              <StatBadge 
-                label="AST" 
-                value={player.last_5_averages.AST ?? 0} 
-                size="sm" 
+              <StatBadge
+                label="AST"
+                value={last5Averages.AST ?? 0}
+                size="sm"
               />
-              <StatBadge 
-                label="PRA" 
-                value={player.last_5_averages.PRA ?? 0} 
-                size="sm" 
+              <StatBadge
+                label="PRA"
+                value={last5Averages.PRA ?? 0}
+                size="sm"
               />
             </div>
           </CardContent>
@@ -166,7 +269,7 @@ export function PlayerDetail({ player }: PlayerDetailProps) {
             </CardTitle>
           </CardHeader>
           <CardContent className="pt-0">
-            <HomeAwaySplits 
+            <HomeAwaySplits
               homeAverages={player.home_averages}
               awayAverages={player.away_averages}
             />
@@ -175,19 +278,87 @@ export function PlayerDetail({ player }: PlayerDetailProps) {
       </div>
 
       <Tabs defaultValue="games" className="w-full">
-        <TabsList className="w-full justify-start bg-muted/30">
+        <TabsList className="w-full justify-start bg-muted/30 flex-wrap">
           <TabsTrigger value="games" data-testid="tab-games">Recent Games</TabsTrigger>
+          <TabsTrigger value="trends" data-testid="tab-trends">
+            <LineChart className="w-4 h-4 mr-1" />
+            Trends
+          </TabsTrigger>
           <TabsTrigger value="hitrates" data-testid="tab-hitrates">Hit Rates</TabsTrigger>
           <TabsTrigger value="matchups" data-testid="tab-matchups">Matchups</TabsTrigger>
+          <TabsTrigger value="alerts" data-testid="tab-alerts">
+            <Bell className="w-4 h-4 mr-1" />
+            Alerts
+          </TabsTrigger>
         </TabsList>
-        
+
         <TabsContent value="games" className="mt-4">
-          <RecentGamesTable 
-            games={player.recent_games}
-            seasonAvg={player.season_averages}
-          />
+          {isLoadingGamelog ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+              <span className="ml-2 text-muted-foreground">Loading live game data...</span>
+            </div>
+          ) : (
+            <RecentGamesTable
+              games={recentGames}
+              seasonAvg={player.season_averages}
+            />
+          )}
         </TabsContent>
-        
+
+        <TabsContent value="trends" className="mt-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium">Points Trend</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <TrendChart
+                  games={recentGames}
+                  stat="PTS"
+                  seasonAvg={seasonAverages.PTS}
+                />
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium">Rebounds Trend</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <TrendChart
+                  games={recentGames}
+                  stat="REB"
+                  seasonAvg={seasonAverages.REB}
+                />
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium">Assists Trend</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <TrendChart
+                  games={recentGames}
+                  stat="AST"
+                  seasonAvg={seasonAverages.AST}
+                />
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium">PTS+REB+AST Trend</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <TrendChart
+                  games={recentGames}
+                  stat="PRA"
+                  seasonAvg={seasonAverages.PRA}
+                />
+              </CardContent>
+            </Card>
+          </div>
+        </TabsContent>
+
         <TabsContent value="hitrates" className="mt-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <Card>
@@ -224,12 +395,33 @@ export function PlayerDetail({ player }: PlayerDetailProps) {
             </Card>
           </div>
         </TabsContent>
-        
+
         <TabsContent value="matchups" className="mt-4">
-          <VsTeamStats 
+          <VsTeamStats
             vsTeam={player.vs_team}
             seasonAvg={player.season_averages}
           />
+        </TabsContent>
+
+        <TabsContent value="alerts" className="mt-4">
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium flex items-center gap-2">
+                <Bell className="w-4 h-4 text-primary" />
+                Stat Alerts for {player.player_name}
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm text-muted-foreground mb-4">
+                Set up alerts to track when this player hits specific stat thresholds.
+              </p>
+              <AlertManager
+                playerId={player.player_id}
+                playerName={player.player_name}
+                seasonAvg={seasonAverages}
+              />
+            </CardContent>
+          </Card>
         </TabsContent>
       </Tabs>
     </div>
