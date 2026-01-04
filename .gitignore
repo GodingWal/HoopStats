@@ -4,3 +4,26 @@ dist
 server/public
 vite.config.ts.*
 *.tar.gz
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Temporary/debug files
+response.json
+temp_gamelog.json
+verify_luka.ts
+inspect_*.cjs
+
+# Replit local state
+.local/
+
+# Binary files
+*.bin
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
