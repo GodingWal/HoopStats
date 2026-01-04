@@ -1,7 +1,7 @@
-import type { Player, PotentialBet, InsertPlayer, InsertPotentialBet, SeasonAverages, HitRates, VsTeamStats, GameLog, SplitAverages, InsertProjection, DbProjection, InsertRecommendation, DbRecommendation, InsertTeamDefense, DbTeamDefense, TrackRecord, PropEvaluation } from "@shared/schema";
-import { players, potentialBets, projections, recommendations, teamDefense } from "@shared/schema";
+import type { Player, PotentialBet, InsertPlayer, InsertPotentialBet, SeasonAverages, HitRates, VsTeamStats, GameLog, SplitAverages, InsertProjection, DbProjection, InsertRecommendation, DbRecommendation, InsertTeamDefense, DbTeamDefense, TrackRecord, PropEvaluation, InsertSportsbook, DbSportsbook, InsertPlayerPropLine, DbPlayerPropLine, InsertLineMovement, DbLineMovement, InsertBestLine, DbBestLine, InsertUserBet, DbUserBet, LineComparison } from "@shared/schema";
+import { players, potentialBets, projections, recommendations, teamDefense, sportsbooks, playerPropLines, lineMovements, bestLines, userBets } from "@shared/schema";
 import { db } from "./db";
-import { eq, ilike, or, desc, and, gte, sql } from "drizzle-orm";
+import { eq, ilike, or, desc, and, gte, sql, inArray, avg, max, min, count } from "drizzle-orm";
 
 export interface IStorage {
   getPlayers(): Promise<Player[]>;
@@ -30,6 +30,34 @@ export interface IStorage {
   // Team defense
   getTeamDefense(teamId: number): Promise<DbTeamDefense | undefined>;
   upsertTeamDefense(defense: InsertTeamDefense): Promise<void>;
+
+  // Sportsbooks
+  getSportsbooks(): Promise<DbSportsbook[]>;
+  upsertSportsbook(sportsbook: InsertSportsbook): Promise<DbSportsbook>;
+
+  // Player prop lines
+  savePlayerPropLine(line: InsertPlayerPropLine): Promise<DbPlayerPropLine>;
+  getPlayerPropLines(playerId: number, stat: string, gameDate?: string): Promise<DbPlayerPropLine[]>;
+  getLatestLines(playerId: number, stat: string): Promise<DbPlayerPropLine[]>;
+  getAllLinesForGame(gameId: string): Promise<DbPlayerPropLine[]>;
+
+  // Line movements
+  saveLineMovement(movement: InsertLineMovement): Promise<DbLineMovement>;
+  getLineMovements(playerId: number, stat: string, gameDate?: string): Promise<DbLineMovement[]>;
+  getRecentLineMovements(hours?: number): Promise<DbLineMovement[]>;
+
+  // Best lines
+  updateBestLines(playerId: number, stat: string, gameDate: string): Promise<void>;
+  getBestLines(playerId: number, stat: string): Promise<DbBestLine | undefined>;
+  getBestLinesForDate(gameDate: string): Promise<DbBestLine[]>;
+
+  // User bets
+  saveUserBet(bet: InsertUserBet): Promise<DbUserBet>;
+  getUserBets(filters?: { pending?: boolean; gameDate?: string }): Promise<DbUserBet[]>;
+  updateUserBetResult(betId: number, result: 'win' | 'loss' | 'push', actualValue: number, profit: number): Promise<void>;
+
+  // Line comparison
+  compareLines(playerId: number, stat: string, gameDate: string): Promise<LineComparison>;
 }
 
 function dbPlayerToPlayer(dbPlayer: typeof players.$inferSelect): Player {
@@ -324,6 +352,346 @@ export class DatabaseStorage implements IStorage {
       target: teamDefense.teamId,
       set: defense,
     });
+  }
+
+  // ========================================
+  // SPORTSBOOKS METHODS
+  // ========================================
+
+  async getSportsbooks(): Promise<DbSportsbook[]> {
+    if (!db) throw new Error("Database not initialized");
+    return await db.select().from(sportsbooks).where(eq(sportsbooks.active, true));
+  }
+
+  async upsertSportsbook(sportsbook: InsertSportsbook): Promise<DbSportsbook> {
+    if (!db) throw new Error("Database not initialized");
+    const [result] = await db.insert(sportsbooks).values(sportsbook)
+      .onConflictDoUpdate({
+        target: sportsbooks.key,
+        set: { name: sportsbook.name, active: sportsbook.active, lastSync: sportsbook.lastSync },
+      })
+      .returning();
+    return result;
+  }
+
+  // ========================================
+  // PLAYER PROP LINES METHODS
+  // ========================================
+
+  async savePlayerPropLine(line: InsertPlayerPropLine): Promise<DbPlayerPropLine> {
+    if (!db) throw new Error("Database not initialized");
+    const [result] = await db.insert(playerPropLines).values(line).returning();
+    return result;
+  }
+
+  async getPlayerPropLines(playerId: number, stat: string, gameDate?: string): Promise<DbPlayerPropLine[]> {
+    if (!db) throw new Error("Database not initialized");
+
+    const conditions = [
+      eq(playerPropLines.playerId, playerId),
+      eq(playerPropLines.stat, stat),
+      eq(playerPropLines.isActive, true),
+    ];
+
+    if (gameDate) {
+      conditions.push(eq(playerPropLines.gameDate, gameDate));
+    }
+
+    return await db.select().from(playerPropLines)
+      .where(and(...conditions))
+      .orderBy(desc(playerPropLines.capturedAt));
+  }
+
+  async getLatestLines(playerId: number, stat: string): Promise<DbPlayerPropLine[]> {
+    if (!db) throw new Error("Database not initialized");
+
+    // Get the most recent timestamp for this player/stat
+    const latest = await db.select({ maxTime: sql<Date>`MAX(${playerPropLines.capturedAt})` })
+      .from(playerPropLines)
+      .where(
+        and(
+          eq(playerPropLines.playerId, playerId),
+          eq(playerPropLines.stat, stat),
+          eq(playerPropLines.isActive, true)
+        )
+      );
+
+    if (!latest[0]?.maxTime) return [];
+
+    // Get all lines from that timestamp (all sportsbooks)
+    return await db.select().from(playerPropLines)
+      .where(
+        and(
+          eq(playerPropLines.playerId, playerId),
+          eq(playerPropLines.stat, stat),
+          eq(playerPropLines.capturedAt, latest[0].maxTime),
+          eq(playerPropLines.isActive, true)
+        )
+      );
+  }
+
+  async getAllLinesForGame(gameId: string): Promise<DbPlayerPropLine[]> {
+    if (!db) throw new Error("Database not initialized");
+    return await db.select().from(playerPropLines)
+      .where(
+        and(
+          eq(playerPropLines.gameId, gameId),
+          eq(playerPropLines.isActive, true)
+        )
+      )
+      .orderBy(desc(playerPropLines.capturedAt));
+  }
+
+  // ========================================
+  // LINE MOVEMENTS METHODS
+  // ========================================
+
+  async saveLineMovement(movement: InsertLineMovement): Promise<DbLineMovement> {
+    if (!db) throw new Error("Database not initialized");
+    const [result] = await db.insert(lineMovements).values(movement).returning();
+    return result;
+  }
+
+  async getLineMovements(playerId: number, stat: string, gameDate?: string): Promise<DbLineMovement[]> {
+    if (!db) throw new Error("Database not initialized");
+
+    const conditions = [
+      eq(lineMovements.playerId, playerId),
+      eq(lineMovements.stat, stat),
+    ];
+
+    if (gameDate) {
+      conditions.push(eq(lineMovements.gameDate, gameDate));
+    }
+
+    return await db.select().from(lineMovements)
+      .where(and(...conditions))
+      .orderBy(desc(lineMovements.detectedAt));
+  }
+
+  async getRecentLineMovements(hours: number = 24): Promise<DbLineMovement[]> {
+    if (!db) throw new Error("Database not initialized");
+
+    const cutoff = new Date();
+    cutoff.setHours(cutoff.getHours() - hours);
+
+    return await db.select().from(lineMovements)
+      .where(
+        and(
+          gte(lineMovements.detectedAt, cutoff),
+          eq(lineMovements.isSignificant, true)
+        )
+      )
+      .orderBy(desc(lineMovements.detectedAt));
+  }
+
+  // ========================================
+  // BEST LINES METHODS
+  // ========================================
+
+  async updateBestLines(playerId: number, stat: string, gameDate: string): Promise<void> {
+    if (!db) throw new Error("Database not initialized");
+
+    // Get all current lines for this player/stat/date
+    const lines = await db.select().from(playerPropLines)
+      .where(
+        and(
+          eq(playerPropLines.playerId, playerId),
+          eq(playerPropLines.stat, stat),
+          eq(playerPropLines.gameDate, gameDate),
+          eq(playerPropLines.isActive, true)
+        )
+      );
+
+    if (lines.length === 0) return;
+
+    // Find best over (highest line, best odds if tied)
+    let bestOver = lines[0];
+    for (const line of lines) {
+      if (line.line > bestOver.line ||
+          (line.line === bestOver.line && line.overOdds > bestOver.overOdds)) {
+        bestOver = line;
+      }
+    }
+
+    // Find best under (lowest line, best odds if tied)
+    let bestUnder = lines[0];
+    for (const line of lines) {
+      if (line.line < bestUnder.line ||
+          (line.line === bestUnder.line && line.underOdds > bestUnder.underOdds)) {
+        bestUnder = line;
+      }
+    }
+
+    // Calculate consensus
+    const consensusLine = lines.reduce((sum, l) => sum + l.line, 0) / lines.length;
+    const lineValues = lines.map(l => l.line);
+    const lineSpread = Math.max(...lineValues) - Math.min(...lineValues);
+
+    const playerName = lines[0].playerName;
+    const gameId = lines[0].gameId;
+
+    // Upsert best lines
+    await db.insert(bestLines).values({
+      playerId,
+      playerName,
+      gameId,
+      gameDate,
+      stat,
+      bestOverLine: bestOver.line,
+      bestOverOdds: bestOver.overOdds,
+      bestOverBook: bestOver.sportsbookKey,
+      bestUnderLine: bestUnder.line,
+      bestUnderOdds: bestUnder.underOdds,
+      bestUnderBook: bestUnder.sportsbookKey,
+      consensusLine,
+      numBooks: lines.length,
+      lineSpread,
+    }).onConflictDoUpdate({
+      target: [bestLines.playerId, bestLines.stat, bestLines.gameDate],
+      set: {
+        bestOverLine: bestOver.line,
+        bestOverOdds: bestOver.overOdds,
+        bestOverBook: bestOver.sportsbookKey,
+        bestUnderLine: bestUnder.line,
+        bestUnderOdds: bestUnder.underOdds,
+        bestUnderBook: bestUnder.sportsbookKey,
+        consensusLine,
+        numBooks: lines.length,
+        lineSpread,
+      },
+    });
+  }
+
+  async getBestLines(playerId: number, stat: string): Promise<DbBestLine | undefined> {
+    if (!db) throw new Error("Database not initialized");
+    const [result] = await db.select().from(bestLines)
+      .where(
+        and(
+          eq(bestLines.playerId, playerId),
+          eq(bestLines.stat, stat)
+        )
+      )
+      .orderBy(desc(bestLines.lastUpdated))
+      .limit(1);
+    return result;
+  }
+
+  async getBestLinesForDate(gameDate: string): Promise<DbBestLine[]> {
+    if (!db) throw new Error("Database not initialized");
+    return await db.select().from(bestLines)
+      .where(eq(bestLines.gameDate, gameDate))
+      .orderBy(desc(bestLines.lastUpdated));
+  }
+
+  // ========================================
+  // USER BETS METHODS
+  // ========================================
+
+  async saveUserBet(bet: InsertUserBet): Promise<DbUserBet> {
+    if (!db) throw new Error("Database not initialized");
+    const [result] = await db.insert(userBets).values(bet).returning();
+    return result;
+  }
+
+  async getUserBets(filters?: { pending?: boolean; gameDate?: string }): Promise<DbUserBet[]> {
+    if (!db) throw new Error("Database not initialized");
+
+    const conditions = [];
+
+    if (filters?.pending) {
+      conditions.push(eq(userBets.result, 'pending'));
+    }
+
+    if (filters?.gameDate) {
+      conditions.push(eq(userBets.gameDate, filters.gameDate));
+    }
+
+    return await db.select().from(userBets)
+      .where(conditions.length > 0 ? and(...conditions) : undefined)
+      .orderBy(desc(userBets.placedAt));
+  }
+
+  async updateUserBetResult(betId: number, result: 'win' | 'loss' | 'push', actualValue: number, profit: number): Promise<void> {
+    if (!db) throw new Error("Database not initialized");
+    await db.update(userBets)
+      .set({
+        result,
+        actualValue,
+        profit,
+        settledAt: new Date(),
+      })
+      .where(eq(userBets.id, betId));
+  }
+
+  // ========================================
+  // LINE COMPARISON METHODS
+  // ========================================
+
+  async compareLines(playerId: number, stat: string, gameDate: string): Promise<LineComparison> {
+    if (!db) throw new Error("Database not initialized");
+
+    // Get latest lines from all sportsbooks
+    const lines = await this.getPlayerPropLines(playerId, stat, gameDate);
+
+    if (lines.length === 0) {
+      throw new Error("No lines available for comparison");
+    }
+
+    const playerName = lines[0].playerName;
+
+    // Format lines for comparison
+    const formattedLines = lines.map(l => ({
+      sportsbook: l.sportsbookKey,
+      line: l.line,
+      overOdds: l.overOdds,
+      underOdds: l.underOdds,
+      overImpliedProb: l.overProb,
+      underImpliedProb: l.underProb,
+      vig: l.vig,
+    }));
+
+    // Find best over and under
+    let bestOver = lines[0];
+    let bestUnder = lines[0];
+
+    for (const line of lines) {
+      if (line.line > bestOver.line ||
+          (line.line === bestOver.line && line.overOdds > bestOver.overOdds)) {
+        bestOver = line;
+      }
+      if (line.line < bestUnder.line ||
+          (line.line === bestUnder.line && line.underOdds > bestUnder.underOdds)) {
+        bestUnder = line;
+      }
+    }
+
+    // Calculate consensus
+    const consensusLine = lines.reduce((sum, l) => sum + l.line, 0) / lines.length;
+    const lineValues = lines.map(l => l.line);
+    const spread = Math.max(...lineValues) - Math.min(...lineValues);
+
+    return {
+      playerId,
+      playerName,
+      stat,
+      gameDate,
+      lines: formattedLines,
+      bestOver: {
+        sportsbook: bestOver.sportsbookKey,
+        line: bestOver.line,
+        odds: bestOver.overOdds,
+      },
+      bestUnder: {
+        sportsbook: bestUnder.sportsbookKey,
+        line: bestUnder.line,
+        odds: bestUnder.underOdds,
+      },
+      consensus: {
+        line: consensusLine,
+        spread,
+      },
+    };
   }
 }
 
