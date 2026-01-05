@@ -22,6 +22,7 @@ interface PlayerRealStats {
   recentGames: PlayerGameStats[];
   last10Averages: PlayerStats;
   last5Averages: PlayerStats;
+  vsTeamStats?: Record<string, { games: number; PTS: number; REB: number; AST: number; FG3M: number; PRA: number }>;
 }
 
 function generateMockStats(position: string): {
@@ -189,7 +190,38 @@ export async function buildPlayerFromESPN(athlete: ESPNAthlete, team: ESPNTeam):
         GAME_DATE: g.game.date ? new Date(g.game.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).toUpperCase() : '',
       }));
 
-      realStats = { seasonAverages, gamesPlayed: gamelog.length, recentGames, last10Averages, last5Averages };
+      // Calculate vs_team stats from gamelog
+      const vsTeamMap = new Map<string, { pts: number[]; reb: number[]; ast: number[]; fg3m: number[] }>();
+      for (const g of gamelog) {
+        const opp = g.game.opponent?.abbreviation;
+        if (!opp) continue;
+        if (!vsTeamMap.has(opp)) {
+          vsTeamMap.set(opp, { pts: [], reb: [], ast: [], fg3m: [] });
+        }
+        const data = vsTeamMap.get(opp)!;
+        data.pts.push(parseInt(g.stats.PTS || '0'));
+        data.reb.push(parseInt(g.stats.REB || '0'));
+        data.ast.push(parseInt(g.stats.AST || '0'));
+        data.fg3m.push(parseInt(g.stats['3PM'] || g.stats.FG3M || '0'));
+      }
+
+      const vsTeamStats: Record<string, { games: number; PTS: number; REB: number; AST: number; FG3M: number; PRA: number }> = {};
+      for (const [team, data] of Array.from(vsTeamMap)) {
+        const avg = (arr: number[]) => arr.length > 0 ? Math.round((arr.reduce((a, b) => a + b, 0) / arr.length) * 10) / 10 : 0;
+        const pts = avg(data.pts);
+        const reb = avg(data.reb);
+        const ast = avg(data.ast);
+        vsTeamStats[team] = {
+          games: data.pts.length,
+          PTS: pts,
+          REB: reb,
+          AST: ast,
+          FG3M: avg(data.fg3m),
+          PRA: Math.round((pts + reb + ast) * 10) / 10,
+        };
+      }
+
+      realStats = { seasonAverages, gamesPlayed: gamelog.length, recentGames, last10Averages, last5Averages, vsTeamStats };
     }
   } catch (e) {
     // Fall back to mock data if ESPN fetch fails
@@ -249,7 +281,7 @@ export async function buildPlayerFromESPN(athlete: ESPNAthlete, team: ESPNTeam):
     last_10_averages: last10Averages,
     last_5_averages: last5Averages,
     hit_rates: hitRates,
-    vs_team: {},
+    vs_team: realStats?.vsTeamStats || {},
     recent_games: recentGames,
     home_averages: homeAvgs,
     away_averages: awayAvgs,
