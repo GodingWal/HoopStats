@@ -543,3 +543,149 @@ export const lineComparisonSchema = z.object({
 });
 
 export type LineComparison = z.infer<typeof lineComparisonSchema>;
+
+// ========================================
+// INJURY TRACKING TABLES
+// ========================================
+
+// Injury status enum
+export const InjuryStatus = ['out', 'doubtful', 'questionable', 'probable', 'available', 'day-to-day', 'suspended'] as const;
+export type InjuryStatusType = typeof InjuryStatus[number];
+
+// Current player injuries (real-time state)
+export const playerInjuries = pgTable("player_injuries", {
+  id: serial("id").primaryKey(),
+
+  // Player identification
+  playerId: integer("player_id").notNull(),
+  playerName: text("player_name").notNull(),
+  team: text("team").notNull(),
+  teamId: integer("team_id"),
+
+  // Injury details
+  status: varchar("status", { length: 20 }).notNull(), // 'out', 'doubtful', 'questionable', 'probable', 'available'
+  injuryType: text("injury_type"), // e.g., 'Knee', 'Ankle', 'Illness', 'Rest'
+  description: text("description"), // e.g., 'Left knee soreness'
+  returnDate: date("return_date"), // Expected return (if known)
+
+  // Source tracking
+  source: varchar("source", { length: 50 }).notNull(), // 'espn', 'rotowire', 'twitter', 'team_official'
+  sourceUrl: text("source_url"),
+
+  // Timestamps
+  firstReported: timestamp("first_reported").defaultNow().notNull(),
+  lastUpdated: timestamp("last_updated").defaultNow().notNull(),
+  statusChangedAt: timestamp("status_changed_at").defaultNow().notNull(),
+
+  // Active flag (false when player returns)
+  isActive: boolean("is_active").default(true),
+});
+
+export const insertPlayerInjurySchema = createInsertSchema(playerInjuries).omit({ id: true, firstReported: true, lastUpdated: true });
+export type InsertPlayerInjury = z.infer<typeof insertPlayerInjurySchema>;
+export type DbPlayerInjury = typeof playerInjuries.$inferSelect;
+
+// Injury status change history (for tracking when status changed)
+export const injuryHistory = pgTable("injury_history", {
+  id: serial("id").primaryKey(),
+
+  // Reference to player
+  playerId: integer("player_id").notNull(),
+  playerName: text("player_name").notNull(),
+  team: text("team").notNull(),
+
+  // Status change
+  previousStatus: varchar("previous_status", { length: 20 }),
+  newStatus: varchar("new_status", { length: 20 }).notNull(),
+  injuryType: text("injury_type"),
+  description: text("description"),
+
+  // Source
+  source: varchar("source", { length: 50 }).notNull(),
+
+  // When detected
+  detectedAt: timestamp("detected_at").defaultNow().notNull(),
+
+  // Was this change significant for betting (status -> out or out -> available)
+  isSignificant: boolean("is_significant").default(false),
+});
+
+export const insertInjuryHistorySchema = createInsertSchema(injuryHistory).omit({ id: true, detectedAt: true });
+export type InsertInjuryHistory = z.infer<typeof insertInjuryHistorySchema>;
+export type DbInjuryHistory = typeof injuryHistory.$inferSelect;
+
+// Injury impact on teammates (calculated projection changes)
+export const injuryImpacts = pgTable("injury_impacts", {
+  id: serial("id").primaryKey(),
+
+  // Injured player
+  injuredPlayerId: integer("injured_player_id").notNull(),
+  injuredPlayerName: text("injured_player_name").notNull(),
+  injuredPlayerTeam: text("injured_player_team").notNull(),
+
+  // Benefiting player
+  beneficiaryPlayerId: integer("beneficiary_player_id").notNull(),
+  beneficiaryPlayerName: text("beneficiary_player_name").notNull(),
+
+  // Game context
+  gameId: varchar("game_id", { length: 20 }),
+  gameDate: date("game_date").notNull(),
+  opponent: text("opponent"),
+
+  // Projection changes (before/after injury factored in)
+  stat: varchar("stat", { length: 20 }).notNull(),
+  baselineMean: real("baseline_mean").notNull(),
+  adjustedMean: real("adjusted_mean").notNull(),
+  baselineStd: real("baseline_std").notNull(),
+  adjustedStd: real("adjusted_std").notNull(),
+
+  // Edge changes
+  currentLine: real("current_line"),
+  baselineProbOver: real("baseline_prob_over"),
+  adjustedProbOver: real("adjusted_prob_over"),
+  edgeChange: real("edge_change"), // Change in edge due to injury
+
+  // Is this a betting opportunity?
+  isOpportunity: boolean("is_opportunity").default(false), // True if edge change > threshold
+
+  // Timestamps
+  calculatedAt: timestamp("calculated_at").defaultNow().notNull(),
+});
+
+export const insertInjuryImpactSchema = createInsertSchema(injuryImpacts).omit({ id: true, calculatedAt: true });
+export type InsertInjuryImpact = z.infer<typeof insertInjuryImpactSchema>;
+export type DbInjuryImpact = typeof injuryImpacts.$inferSelect;
+
+// Injury alert schema (for real-time notifications)
+export const injuryAlertSchema = z.object({
+  injuredPlayer: z.object({
+    playerId: z.number(),
+    playerName: z.string(),
+    team: z.string(),
+    status: z.enum(['out', 'doubtful', 'questionable', 'probable', 'available', 'day-to-day', 'suspended']),
+    previousStatus: z.string().optional(),
+    injuryType: z.string().optional(),
+    description: z.string().optional(),
+    source: z.string(),
+  }),
+  affectedPlayers: z.array(z.object({
+    playerId: z.number(),
+    playerName: z.string(),
+    team: z.string(),
+    impacts: z.array(z.object({
+      stat: z.string(),
+      baselineMean: z.number(),
+      adjustedMean: z.number(),
+      change: z.number(), // Absolute change in projection
+      changePercent: z.number(), // Percentage change
+      currentLine: z.number().optional(),
+      edgeBefore: z.number().optional(),
+      edgeAfter: z.number().optional(),
+      isOpportunity: z.boolean(),
+    })),
+  })),
+  timestamp: z.string(),
+  isSignificant: z.boolean(),
+});
+
+export type InjuryAlertData = z.infer<typeof injuryAlertSchema>;

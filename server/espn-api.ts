@@ -457,3 +457,254 @@ export async function fetchPlayerCommon(playerId: string): Promise<ESPNPlayerCom
         return null;
     }
 }
+
+// ========================================
+// INJURY DATA FETCHING
+// ========================================
+
+export interface PlayerInjuryReport {
+    playerId: number;
+    playerName: string;
+    team: string;
+    teamId: number;
+    status: 'out' | 'doubtful' | 'questionable' | 'probable' | 'available' | 'day-to-day' | 'suspended';
+    injuryType?: string;
+    description?: string;
+    returnDate?: string;
+    source: 'espn';
+}
+
+interface ESPNInjuryData {
+    id?: string;
+    status?: string;
+    date?: string;
+    description?: string;
+    type?: { id: string; name: string; abbreviation: string };
+    longComment?: string;
+    shortComment?: string;
+}
+
+// Map ESPN status to our standardized status
+function mapEspnStatus(status: string | undefined, injuryData?: ESPNInjuryData): PlayerInjuryReport['status'] {
+    if (!status) return 'available';
+
+    const statusLower = status.toLowerCase();
+
+    // Check athlete status first
+    if (statusLower === 'active' && !injuryData) return 'available';
+
+    // Check injury data if present
+    if (injuryData) {
+        const injuryStatus = injuryData.status?.toLowerCase() || '';
+        if (injuryStatus.includes('out')) return 'out';
+        if (injuryStatus.includes('doubtful')) return 'doubtful';
+        if (injuryStatus.includes('questionable')) return 'questionable';
+        if (injuryStatus.includes('probable')) return 'probable';
+        if (injuryStatus.includes('day-to-day') || injuryStatus.includes('day to day')) return 'day-to-day';
+    }
+
+    // Check the athlete status.type
+    if (statusLower.includes('out')) return 'out';
+    if (statusLower.includes('injured')) return 'out';
+    if (statusLower.includes('doubtful')) return 'doubtful';
+    if (statusLower.includes('questionable')) return 'questionable';
+    if (statusLower.includes('probable')) return 'probable';
+    if (statusLower.includes('day-to-day') || statusLower.includes('day to day')) return 'day-to-day';
+    if (statusLower.includes('suspended')) return 'suspended';
+    if (statusLower === 'active') return 'available';
+
+    return 'available';
+}
+
+// Fetch injury report for a specific team
+export async function fetchTeamInjuries(teamId: string): Promise<PlayerInjuryReport[]> {
+    const cacheKey = `team-injuries-${teamId}`;
+    const cached = apiCache.get<PlayerInjuryReport[]>(cacheKey);
+    if (cached) {
+        return cached;
+    }
+
+    try {
+        const roster = await fetchTeamRoster(teamId);
+        const injuries: PlayerInjuryReport[] = [];
+
+        for (const athlete of roster) {
+            // Check if player has any injuries or non-active status
+            const hasInjury = athlete.injuries && athlete.injuries.length > 0;
+            const isNotActive = athlete.status?.name?.toLowerCase() !== 'active';
+
+            if (hasInjury || isNotActive) {
+                const latestInjury = athlete.injuries?.[0];
+                const status = mapEspnStatus(athlete.status?.name, latestInjury);
+
+                // Only include players who are not 'available'
+                if (status !== 'available') {
+                    injuries.push({
+                        playerId: parseInt(athlete.id),
+                        playerName: athlete.displayName || `${athlete.firstName} ${athlete.lastName}`,
+                        team: '', // Will be filled from team data
+                        teamId: parseInt(teamId),
+                        status,
+                        injuryType: latestInjury?.type?.name || latestInjury?.shortComment?.split(' - ')?.[0],
+                        description: latestInjury?.longComment || latestInjury?.shortComment || latestInjury?.description,
+                        returnDate: latestInjury?.date,
+                        source: 'espn',
+                    });
+                }
+            }
+        }
+
+        // Cache for 2 minutes (injury data can change quickly)
+        apiCache.set(cacheKey, injuries, 120000);
+        return injuries;
+
+    } catch (error) {
+        apiLogger.error(`Error fetching team injuries for team ${teamId}`, error);
+        return [];
+    }
+}
+
+// NBA team IDs for ESPN
+const NBA_TEAM_IDS = [
+    { id: '1', abbr: 'ATL', name: 'Hawks' },
+    { id: '2', abbr: 'BOS', name: 'Celtics' },
+    { id: '17', abbr: 'BKN', name: 'Nets' },
+    { id: '30', abbr: 'CHA', name: 'Hornets' },
+    { id: '4', abbr: 'CHI', name: 'Bulls' },
+    { id: '5', abbr: 'CLE', name: 'Cavaliers' },
+    { id: '6', abbr: 'DAL', name: 'Mavericks' },
+    { id: '7', abbr: 'DEN', name: 'Nuggets' },
+    { id: '8', abbr: 'DET', name: 'Pistons' },
+    { id: '9', abbr: 'GSW', name: 'Warriors' },
+    { id: '10', abbr: 'HOU', name: 'Rockets' },
+    { id: '11', abbr: 'IND', name: 'Pacers' },
+    { id: '12', abbr: 'LAC', name: 'Clippers' },
+    { id: '13', abbr: 'LAL', name: 'Lakers' },
+    { id: '29', abbr: 'MEM', name: 'Grizzlies' },
+    { id: '14', abbr: 'MIA', name: 'Heat' },
+    { id: '15', abbr: 'MIL', name: 'Bucks' },
+    { id: '16', abbr: 'MIN', name: 'Timberwolves' },
+    { id: '3', abbr: 'NOP', name: 'Pelicans' },
+    { id: '18', abbr: 'NYK', name: 'Knicks' },
+    { id: '25', abbr: 'OKC', name: 'Thunder' },
+    { id: '19', abbr: 'ORL', name: 'Magic' },
+    { id: '20', abbr: 'PHI', name: '76ers' },
+    { id: '21', abbr: 'PHX', name: 'Suns' },
+    { id: '22', abbr: 'POR', name: 'Trail Blazers' },
+    { id: '23', abbr: 'SAC', name: 'Kings' },
+    { id: '24', abbr: 'SAS', name: 'Spurs' },
+    { id: '28', abbr: 'TOR', name: 'Raptors' },
+    { id: '26', abbr: 'UTA', name: 'Jazz' },
+    { id: '27', abbr: 'WAS', name: 'Wizards' },
+];
+
+export function getTeamAbbreviationById(teamId: number): string {
+    const team = NBA_TEAM_IDS.find(t => parseInt(t.id) === teamId);
+    return team?.abbr || 'UNK';
+}
+
+export function getTeamIdByAbbreviation(abbr: string): number | null {
+    const team = NBA_TEAM_IDS.find(t => t.abbr === abbr);
+    return team ? parseInt(team.id) : null;
+}
+
+// Fetch all NBA injuries (league-wide)
+export async function fetchAllNbaInjuries(): Promise<PlayerInjuryReport[]> {
+    const cacheKey = 'all-nba-injuries';
+    const cached = apiCache.get<PlayerInjuryReport[]>(cacheKey);
+    if (cached) {
+        apiLogger.debug("Cache hit for all NBA injuries");
+        return cached;
+    }
+
+    apiLogger.info("Fetching injury reports for all NBA teams...");
+
+    const allInjuries: PlayerInjuryReport[] = [];
+
+    // Fetch injuries for all teams in parallel (batched to avoid rate limiting)
+    const batchSize = 10;
+    for (let i = 0; i < NBA_TEAM_IDS.length; i += batchSize) {
+        const batch = NBA_TEAM_IDS.slice(i, i + batchSize);
+        const batchPromises = batch.map(team =>
+            fetchTeamInjuries(team.id).then(injuries =>
+                injuries.map(inj => ({ ...inj, team: team.abbr }))
+            )
+        );
+
+        const batchResults = await Promise.all(batchPromises);
+        for (const teamInjuries of batchResults) {
+            allInjuries.push(...teamInjuries);
+        }
+    }
+
+    // Cache for 2 minutes
+    apiCache.set(cacheKey, allInjuries, 120000);
+    apiLogger.info(`Fetched ${allInjuries.length} injury reports across all teams`);
+
+    return allInjuries;
+}
+
+// Fetch injuries for teams playing today (more focused approach)
+export async function fetchTodaysGameInjuries(): Promise<PlayerInjuryReport[]> {
+    const cacheKey = 'todays-game-injuries';
+    const cached = apiCache.get<PlayerInjuryReport[]>(cacheKey);
+    if (cached) {
+        return cached;
+    }
+
+    try {
+        // Get today's games
+        const todaysGames = await fetchLiveGames();
+        const teamIds = new Set<string>();
+
+        // Extract all team IDs from today's games
+        for (const game of todaysGames) {
+            for (const competitor of game.competitors) {
+                teamIds.add(competitor.team.id);
+            }
+        }
+
+        if (teamIds.size === 0) {
+            return [];
+        }
+
+        apiLogger.info(`Fetching injuries for ${teamIds.size} teams with games today`);
+
+        // Fetch injuries for these teams
+        const allInjuries: PlayerInjuryReport[] = [];
+        const promises = Array.from(teamIds).map(teamId =>
+            fetchTeamInjuries(teamId).then(injuries => {
+                const abbr = getTeamAbbreviationById(parseInt(teamId));
+                return injuries.map(inj => ({ ...inj, team: abbr }));
+            })
+        );
+
+        const results = await Promise.all(promises);
+        for (const teamInjuries of results) {
+            allInjuries.push(...teamInjuries);
+        }
+
+        // Cache for 2 minutes
+        apiCache.set(cacheKey, allInjuries, 120000);
+        apiLogger.info(`Found ${allInjuries.length} injuries for teams playing today`);
+
+        return allInjuries;
+
+    } catch (error) {
+        apiLogger.error("Error fetching today's game injuries", error);
+        return [];
+    }
+}
+
+// Get players who are OUT for a specific team (for projection adjustments)
+export async function getTeamOutPlayers(teamAbbr: string): Promise<string[]> {
+    const teamId = getTeamIdByAbbreviation(teamAbbr);
+    if (!teamId) {
+        return [];
+    }
+
+    const injuries = await fetchTeamInjuries(teamId.toString());
+    return injuries
+        .filter(inj => inj.status === 'out')
+        .map(inj => inj.playerName);
+}

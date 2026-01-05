@@ -8,9 +8,23 @@ import { fileURLToPath } from "url";
 import { storage } from "./storage";
 import type { Player } from "@shared/schema";
 import { fetchAndBuildAllPlayers } from "./nba-api";
-import { fetchLiveGames, fetchPlayerGamelog, fetchGameBoxScore, fetchTeamRoster } from "./espn-api";
+import {
+  fetchLiveGames,
+  fetchPlayerGamelog,
+  fetchGameBoxScore,
+  fetchTeamRoster,
+  fetchTodaysGameInjuries,
+  fetchAllNbaInjuries,
+  getTeamOutPlayers,
+  type PlayerInjuryReport,
+} from "./espn-api";
 import { fetchNbaEvents, fetchEventPlayerProps, isOddsApiConfigured, getOddsApiStatus } from "./odds-api";
 import { fetchPrizePicksProjections, fetchPlayerPrizePicksProps } from "./prizepicks-api";
+import {
+  injuryWatcher,
+  calculateInjuryAdjustedProjection,
+  calculateInjuryEdgeChange,
+} from "./injury-watcher";
 
 // Load sample players from external JSON file
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -350,19 +364,41 @@ export async function registerRoutes(
 
   app.post("/api/projections", async (req, res) => {
     try {
-      const { players } = req.body;
+      const { players, includeInjuries = true } = req.body;
       if (!players || !Array.isArray(players) || players.length === 0) {
         return res.status(400).json({ error: "Invalid players list" });
       }
 
-      // const scriptPath = path.join(process.cwd(), "server", "nba-prop-model", "api.py");
-      // Use absolute path relative to current module or project root
-      // Assuming process.cwd() is the project root (where package.json is)
       const scriptPath = path.join(process.cwd(), "server", "nba-prop-model", "api.py");
 
-      console.log(`Running python script: ${scriptPath} with players: ${players.join(", ")}`);
+      // Build command args
+      const args = ["--players", ...players];
 
-      const pythonProcess = spawn("python", [scriptPath, "--players", ...players]);
+      // If includeInjuries is true, fetch current injuries and include them
+      let injuredPlayers: string[] = [];
+      if (includeInjuries) {
+        try {
+          // Get today's injuries
+          const injuries = await fetchTodaysGameInjuries();
+          injuredPlayers = injuries
+            .filter(inj => inj.status === 'out')
+            .map(inj => inj.playerName);
+
+          if (injuredPlayers.length > 0) {
+            args.push("--injuries", ...injuredPlayers);
+          }
+        } catch (injError) {
+          console.warn("Could not fetch injuries for projections:", injError);
+          // Continue without injury data
+        }
+      }
+
+      console.log(`Running python script: ${scriptPath} with players: ${players.join(", ")}`);
+      if (injuredPlayers.length > 0) {
+        console.log(`  Injuries factored in: ${injuredPlayers.join(", ")}`);
+      }
+
+      const pythonProcess = spawn("python", [scriptPath, ...args]);
 
       let dataString = "";
       let errorString = "";
@@ -373,8 +409,6 @@ export async function registerRoutes(
 
       pythonProcess.stderr.on("data", (data) => {
         errorString += data.toString();
-        // Don't log everything as error, some might be warnings/logs
-        // But keep it for debugging if it fails
       });
 
       pythonProcess.on("close", (code) => {
@@ -384,7 +418,15 @@ export async function registerRoutes(
         }
         try {
           const json = JSON.parse(dataString);
-          res.json(json);
+          // Add injury context to response
+          res.json({
+            ...json,
+            injuryContext: {
+              injuriesIncluded: includeInjuries,
+              injuredPlayers: injuredPlayers,
+              injuryCount: injuredPlayers.length,
+            }
+          });
         } catch (e) {
           console.error("Failed to parse Python output. Data:", dataString);
           console.error("Stderr:", errorString);
@@ -844,6 +886,342 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error fetching player PrizePicks props:", error);
       res.status(500).json({ error: "Failed to fetch player props" });
+    }
+  });
+
+  // =============== INJURY TRACKING ROUTES ===============
+
+  // Get injury watcher status
+  app.get("/api/injuries/status", async (_req, res) => {
+    try {
+      res.json({
+        isActive: injuryWatcher.isActive(),
+        lastCheck: injuryWatcher.getLastCheckTime(),
+        knownInjuries: injuryWatcher.getKnownInjuries().length,
+      });
+    } catch (error) {
+      console.error("Error fetching injury status:", error);
+      res.status(500).json({ error: "Failed to fetch injury status" });
+    }
+  });
+
+  // Start injury monitoring
+  app.post("/api/injuries/start", async (req, res) => {
+    try {
+      const intervalMs = parseInt(req.query.interval as string) || 60000;
+      await injuryWatcher.start(intervalMs);
+      res.json({
+        success: true,
+        message: `Injury watcher started with ${intervalMs}ms interval`,
+        isActive: injuryWatcher.isActive(),
+      });
+    } catch (error) {
+      console.error("Error starting injury watcher:", error);
+      res.status(500).json({ error: "Failed to start injury watcher" });
+    }
+  });
+
+  // Stop injury monitoring
+  app.post("/api/injuries/stop", async (_req, res) => {
+    try {
+      injuryWatcher.stop();
+      res.json({
+        success: true,
+        message: "Injury watcher stopped",
+        isActive: injuryWatcher.isActive(),
+      });
+    } catch (error) {
+      console.error("Error stopping injury watcher:", error);
+      res.status(500).json({ error: "Failed to stop injury watcher" });
+    }
+  });
+
+  // Force check for injury updates
+  app.post("/api/injuries/check", async (_req, res) => {
+    try {
+      const changes = await injuryWatcher.forceCheck();
+      res.json({
+        success: true,
+        changes,
+        changesCount: changes.length,
+        lastCheck: injuryWatcher.getLastCheckTime(),
+      });
+    } catch (error) {
+      console.error("Error checking injuries:", error);
+      res.status(500).json({ error: "Failed to check injuries" });
+    }
+  });
+
+  // Get all current injuries for teams playing today
+  app.get("/api/injuries/today", async (_req, res) => {
+    try {
+      const injuries = await fetchTodaysGameInjuries();
+      res.json({
+        injuries,
+        count: injuries.length,
+        fetchedAt: new Date().toISOString(),
+      });
+    } catch (error) {
+      console.error("Error fetching today's injuries:", error);
+      res.status(500).json({ error: "Failed to fetch today's injuries" });
+    }
+  });
+
+  // Get all NBA injuries (league-wide)
+  app.get("/api/injuries/all", async (_req, res) => {
+    try {
+      const injuries = await fetchAllNbaInjuries();
+      res.json({
+        injuries,
+        count: injuries.length,
+        fetchedAt: new Date().toISOString(),
+      });
+    } catch (error) {
+      console.error("Error fetching all injuries:", error);
+      res.status(500).json({ error: "Failed to fetch all injuries" });
+    }
+  });
+
+  // Get injuries for a specific team
+  app.get("/api/injuries/team/:teamAbbr", async (req, res) => {
+    try {
+      const { teamAbbr } = req.params;
+      if (!teamAbbr) {
+        return res.status(400).json({ error: "Team abbreviation is required" });
+      }
+
+      // Try to get from watcher first (if active), otherwise fetch fresh
+      let injuries: PlayerInjuryReport[] = [];
+      if (injuryWatcher.isActive()) {
+        const watcherInjuries = injuryWatcher.getTeamInjuries(teamAbbr.toUpperCase());
+        injuries = watcherInjuries.map(inj => ({
+          playerId: inj.playerId,
+          playerName: inj.playerName,
+          team: inj.team,
+          teamId: 0,
+          status: inj.status,
+          injuryType: inj.injuryType,
+          description: inj.description,
+          source: 'espn' as const,
+        }));
+      } else {
+        const allInjuries = await fetchTodaysGameInjuries();
+        injuries = allInjuries.filter(inj => inj.team === teamAbbr.toUpperCase());
+      }
+
+      res.json({
+        team: teamAbbr.toUpperCase(),
+        injuries,
+        count: injuries.length,
+        outPlayers: injuries.filter(i => i.status === 'out').map(i => i.playerName),
+      });
+    } catch (error) {
+      console.error("Error fetching team injuries:", error);
+      res.status(500).json({ error: "Failed to fetch team injuries" });
+    }
+  });
+
+  // Get players who are OUT for a team (useful for projection adjustments)
+  app.get("/api/injuries/out/:teamAbbr", async (req, res) => {
+    try {
+      const { teamAbbr } = req.params;
+      if (!teamAbbr) {
+        return res.status(400).json({ error: "Team abbreviation is required" });
+      }
+
+      const outPlayers = await getTeamOutPlayers(teamAbbr.toUpperCase());
+      res.json({
+        team: teamAbbr.toUpperCase(),
+        outPlayers,
+        count: outPlayers.length,
+      });
+    } catch (error) {
+      console.error("Error fetching out players:", error);
+      res.status(500).json({ error: "Failed to fetch out players" });
+    }
+  });
+
+  // Get injury-adjusted projection for a player
+  app.get("/api/injuries/projection/:playerName", async (req, res) => {
+    try {
+      const { playerName } = req.params;
+      const team = req.query.team as string;
+
+      if (!playerName) {
+        return res.status(400).json({ error: "Player name is required" });
+      }
+
+      // Get injured teammates
+      const outPlayers = team ? await getTeamOutPlayers(team.toUpperCase()) : [];
+
+      // Get baseline projection (without injuries)
+      const baseline = await calculateInjuryAdjustedProjection(
+        decodeURIComponent(playerName),
+        []
+      );
+
+      // Get adjusted projection (with injuries)
+      const adjusted = await calculateInjuryAdjustedProjection(
+        decodeURIComponent(playerName),
+        outPlayers
+      );
+
+      if (!baseline && !adjusted) {
+        return res.status(404).json({ error: "Could not generate projections" });
+      }
+
+      res.json({
+        playerName: decodeURIComponent(playerName),
+        team: team?.toUpperCase(),
+        injuredTeammates: outPlayers,
+        baseline: baseline?.projection,
+        adjusted: adjusted?.projection,
+        hasInjuryImpact: outPlayers.length > 0,
+        context: adjusted?.context || baseline?.context,
+      });
+    } catch (error) {
+      console.error("Error fetching injury-adjusted projection:", error);
+      res.status(500).json({ error: "Failed to fetch projection" });
+    }
+  });
+
+  // Get injury edge impact for a specific player prop
+  app.get("/api/injuries/edge/:playerName", async (req, res) => {
+    try {
+      const { playerName } = req.params;
+      const team = req.query.team as string;
+      const stat = req.query.stat as string;
+      const line = parseFloat(req.query.line as string);
+
+      if (!playerName || !team || !stat || isNaN(line)) {
+        return res.status(400).json({
+          error: "Missing required parameters",
+          required: ["playerName", "team", "stat", "line"],
+        });
+      }
+
+      const impact = await calculateInjuryEdgeChange(
+        decodeURIComponent(playerName),
+        team.toUpperCase(),
+        stat,
+        line
+      );
+
+      if (!impact) {
+        return res.status(404).json({ error: "Could not calculate injury impact" });
+      }
+
+      res.json({
+        playerName: decodeURIComponent(playerName),
+        team: team.toUpperCase(),
+        stat,
+        line,
+        ...impact,
+        recommendation: impact.isOpportunity
+          ? impact.edgeChange > 0
+            ? "OVER opportunity due to teammate injuries"
+            : "UNDER opportunity due to teammate injuries"
+          : "No significant edge change from injuries",
+      });
+    } catch (error) {
+      console.error("Error calculating injury edge:", error);
+      res.status(500).json({ error: "Failed to calculate injury edge" });
+    }
+  });
+
+  // Get all injury-affected opportunities (players with significant edge changes)
+  app.get("/api/injuries/opportunities", async (req, res) => {
+    try {
+      const minEdgeChange = parseFloat(req.query.minEdge as string) || 0.05;
+
+      // Get today's injuries
+      const injuries = await fetchTodaysGameInjuries();
+      const outByTeam = new Map<string, string[]>();
+
+      // Group OUT players by team
+      for (const inj of injuries) {
+        if (inj.status === 'out') {
+          const teamOuts = outByTeam.get(inj.team) || [];
+          teamOuts.push(inj.playerName);
+          outByTeam.set(inj.team, teamOuts);
+        }
+      }
+
+      // Return teams with OUT players and their impact summary
+      const opportunities = Array.from(outByTeam.entries()).map(([team, outPlayers]) => ({
+        team,
+        outPlayers,
+        outCount: outPlayers.length,
+        impactLevel: outPlayers.length >= 2 ? 'high' : outPlayers.length === 1 ? 'medium' : 'low',
+        recommendation: `Check projections for ${team} players - ${outPlayers.length} key player(s) out`,
+      }));
+
+      res.json({
+        opportunities: opportunities.filter(o => o.outCount > 0),
+        teamsAffected: opportunities.length,
+        totalPlayersOut: injuries.filter(i => i.status === 'out').length,
+        fetchedAt: new Date().toISOString(),
+      });
+    } catch (error) {
+      console.error("Error fetching injury opportunities:", error);
+      res.status(500).json({ error: "Failed to fetch injury opportunities" });
+    }
+  });
+
+  // Projection with injury context (POST version for more flexibility)
+  app.post("/api/projections/with-injuries", async (req, res) => {
+    try {
+      const { players, injuries } = req.body;
+
+      if (!players || !Array.isArray(players) || players.length === 0) {
+        return res.status(400).json({ error: "Invalid players list" });
+      }
+
+      const scriptPath = path.join(process.cwd(), "server", "nba-prop-model", "api.py");
+
+      // Build args with injury context
+      const args = ["--players", ...players];
+      if (injuries && Array.isArray(injuries) && injuries.length > 0) {
+        args.push("--injuries", ...injuries);
+      }
+
+      console.log(`Running python script with injuries: ${args.join(' ')}`);
+
+      const pythonProcess = spawn("python", [scriptPath, ...args]);
+
+      let dataString = "";
+      let errorString = "";
+
+      pythonProcess.stdout.on("data", (data) => {
+        dataString += data.toString();
+      });
+
+      pythonProcess.stderr.on("data", (data) => {
+        errorString += data.toString();
+      });
+
+      pythonProcess.on("close", (code) => {
+        if (code !== 0) {
+          console.error("Python script failed:", errorString);
+          return res.status(500).json({ error: "Projections failed", details: errorString });
+        }
+        try {
+          const json = JSON.parse(dataString);
+          res.json({
+            ...json,
+            injuryContext: {
+              injuredPlayers: injuries || [],
+              injuryCount: (injuries || []).length,
+            }
+          });
+        } catch (e) {
+          console.error("Failed to parse Python output. Data:", dataString);
+          res.status(500).json({ error: "Invalid response from model", details: errorString });
+        }
+      });
+    } catch (error) {
+      console.error("Error generating injury-adjusted projections:", error);
+      res.status(500).json({ error: "Internal server error" });
     }
   });
 
