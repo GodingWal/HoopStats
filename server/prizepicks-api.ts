@@ -151,6 +151,20 @@ export async function fetchPrizePicksProjections(): Promise<PrizePicksProjection
 
         const data: PrizePicksApiResponse = await response.json();
 
+        // Debug: Log sample of raw data to find standard line indicator
+        console.log(`[PrizePicks] Received ${data.data?.length || 0} projections, ${data.included?.length || 0} included items`);
+        if (data.data && data.data.length > 0) {
+            // Log unique odds_type values to find standard vs goblin/demon
+            const oddsTypes = new Set(data.data.map(p => p.attributes.odds_type));
+            console.log(`[PrizePicks] Unique odds_type values:`, Array.from(oddsTypes));
+
+            // Log samples with odds_type
+            const samples = data.data.slice(0, 5);
+            for (const s of samples) {
+                console.log(`[PrizePicks] Sample: line=${s.attributes.line_score}, stat=${s.attributes.stat_type}, odds_type=${s.attributes.odds_type}, is_promo=${s.attributes.is_promo}`);
+            }
+        }
+
         // Build lookup maps for included data
         const players = new Map<string, { name: string; team: string; position: string; imageUrl?: string }>();
         const statTypes = new Map<string, string>();
@@ -173,6 +187,12 @@ export async function fetchPrizePicksProjections(): Promise<PrizePicksProjection
 
         for (const proj of data.data || []) {
             if (proj.attributes.status !== "pre_game") continue; // Only show upcoming
+
+            // Filter out demon/goblin lines - only show standard lines
+            const oddsType = (proj.attributes.odds_type || "").toLowerCase();
+            if (oddsType !== "standard" && oddsType !== "") {
+                continue; // Skip demon, goblin, and other alternate lines
+            }
 
             const playerId = proj.relationships?.new_player?.data?.id;
             const statTypeId = proj.relationships?.stat_type?.data?.id;
