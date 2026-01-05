@@ -2,6 +2,17 @@
 import { apiCache, shortCache } from "./cache";
 import { apiLogger } from "./logger";
 
+interface ESPNEvent {
+    id: string;
+    date: string;
+    status: LiveGame['status'];
+    competitions?: Array<{
+        id: string;
+        competitors: LiveGame['competitors'];
+        headlines?: LiveGame['headlines'];
+    }>;
+}
+
 export interface LiveGame {
     id: string;
     date: string;
@@ -43,8 +54,19 @@ export interface LiveGame {
             displayValue: string;
             period: number;
         }[];
-        statistics?: any[];
-        leaders?: any[];
+        statistics?: Array<{
+            name: string;
+            abbreviation: string;
+            displayValue: string;
+        }>;
+        leaders?: Array<{
+            name: string;
+            displayValue: string;
+            leaders: Array<{
+                displayValue: string;
+                athlete: { displayName: string };
+            }>;
+        }>;
     }[];
     headlines?: {
         description: string;
@@ -80,7 +102,7 @@ export async function fetchLiveGames(dateStr?: string): Promise<LiveGame[]> {
             return [];
         }
 
-        const games: LiveGame[] = data.events.map((event: any) => {
+        const games: LiveGame[] = data.events.map((event: ESPNEvent): LiveGame | null => {
             const competition = event.competitions?.[0];
             if (!competition) return null;
 
@@ -91,7 +113,7 @@ export async function fetchLiveGames(dateStr?: string): Promise<LiveGame[]> {
                 competitors: competition.competitors,
                 headlines: competition.headlines
             };
-        }).filter((game: any) => game !== null);
+        }).filter((game): game is LiveGame => game !== null);
 
         // Cache the result
         shortCache.set(cacheKey, games);
@@ -139,6 +161,33 @@ export interface GameBoxScore {
     };
 }
 
+interface ESPNBoxScoreTeamData {
+    team: {
+        id: string;
+        abbreviation: string;
+        displayName: string;
+        logo: string;
+    };
+    statistics?: Array<{
+        labels: string[];
+        athletes: Array<{
+            athlete: {
+                id: string;
+                displayName: string;
+                jersey?: string;
+                position?: { abbreviation: string };
+            };
+            stats: string[];
+            starter?: boolean;
+        }>;
+    }>;
+}
+
+interface ESPNCompetitor {
+    homeAway: string;
+    score: string;
+}
+
 export async function fetchGameBoxScore(gameId: string): Promise<GameBoxScore | null> {
     try {
         const response = await fetch(`https://site.web.api.espn.com/apis/site/v2/sports/basketball/nba/summary?event=${gameId}`);
@@ -152,7 +201,7 @@ export async function fetchGameBoxScore(gameId: string): Promise<GameBoxScore | 
             return null;
         }
 
-        const parseTeamStats = (teamData: any, isHome: boolean) => {
+        const parseTeamStats = (teamData: ESPNBoxScoreTeamData, isHome: boolean) => {
             const team = teamData.team;
             const players = teamData.statistics?.[0]?.athletes || [];
             const labels = teamData.statistics?.[0]?.labels || [];
@@ -162,8 +211,8 @@ export async function fetchGameBoxScore(gameId: string): Promise<GameBoxScore | 
                 abbreviation: team.abbreviation,
                 displayName: team.displayName,
                 logo: team.logo,
-                score: data.header?.competitions?.[0]?.competitors?.find((c: any) => c.homeAway === (isHome ? "home" : "away"))?.score || "0",
-                players: players.map((p: any) => {
+                score: data.header?.competitions?.[0]?.competitors?.find((c: ESPNCompetitor) => c.homeAway === (isHome ? "home" : "away"))?.score || "0",
+                players: players.map((p) => {
                     const statsMap: { [key: string]: string } = {};
                     labels.forEach((label: string, index: number) => {
                         if (p.stats && index < p.stats.length) {
@@ -344,7 +393,15 @@ export interface ESPNAthlete {
         href: string;
         alt: string;
     };
-    injuries: any[];
+    injuries: Array<{
+        id?: string;
+        status?: string;
+        date?: string;
+        description?: string;
+        type?: string;
+        longComment?: string;
+        shortComment?: string;
+    }>;
     status: {
         id: string;
         name: string;

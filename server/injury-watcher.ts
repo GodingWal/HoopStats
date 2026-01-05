@@ -17,6 +17,34 @@
 
 import { EventEmitter } from "events";
 
+interface InjuryData {
+  playerId: number;
+  playerName: string;
+  team: string;
+  status: 'out' | 'questionable' | 'doubtful' | 'probable';
+  description?: string;
+  timestamp?: Date;
+}
+
+interface ProjectionData {
+  playerId: number;
+  playerName: string;
+  stat: string;
+  line: number;
+  probability: number;
+  edge: number;
+}
+
+interface MispricedLine {
+  playerId: number;
+  playerName: string;
+  stat: string;
+  line: number;
+  currentOdds: number;
+  fairOdds: number;
+  edge: number;
+}
+
 export interface InjuryAlert {
   playerId: number;
   playerName: string;
@@ -101,7 +129,7 @@ export class InjuryWatcher extends EventEmitter {
   /**
    * Process a detected injury and calculate impact
    */
-  private async processInjury(injury: any): Promise<void> {
+  private async processInjury(injury: InjuryData): Promise<void> {
     // TODO: Implement injury impact analysis
     // 1. Identify player
     // 2. Get their recent usage stats
@@ -125,7 +153,7 @@ export class InjuryWatcher extends EventEmitter {
   /**
    * Get affected projections for a player being out
    */
-  private async getAffectedProjections(playerId: number): Promise<any[]> {
+  private async getAffectedProjections(playerId: number): Promise<ProjectionData[]> {
     // TODO: Query database for today's projections
     // TODO: Recalculate with updated usage distribution
     // TODO: Return players with >5% probability shift
@@ -135,7 +163,7 @@ export class InjuryWatcher extends EventEmitter {
   /**
    * Check if current betting lines are mispriced
    */
-  private async findMispricedLines(projections: any[]): Promise<any[]> {
+  private async findMispricedLines(projections: ProjectionData[]): Promise<MispricedLine[]> {
     // TODO: Fetch current lines from odds API
     // TODO: Compare to updated projections
     // TODO: Return opportunities with >3% edge
