@@ -113,13 +113,11 @@ class ProjectionEngine:
             rest_days=context.rest_days
         )
         
-        # Matchup Adjustments
-        # Note: MatchupFeatureEngineer needs to be updated to accept player position
-        # For now, pass a default or use what logic exists. 
-        # The new MatchupFeatureEngineer.calculate_matchup_adjustments takes (player_pos, opponent_stats)
+        # Matchup Adjustments (with positional defense!)
         matchup_adjustments = self.matchup_engineer.calculate_matchup_adjustments(
-            player_pos=features.position, 
-            opponent_stats=opponent_stats
+            player_pos=features.position,
+            opponent_stats=opponent_stats,
+            opponent_team=context.opponent  # Enable positional defense lookup
         )
         
         # Apply situational factors to the matchup adjustments (combine them)
@@ -131,22 +129,27 @@ class ProjectionEngine:
         for k, v in matchup_adjustments.items():
             combined_adjustments[k] = v * eff_mult
             
-        # Usage Redistribution
+        # Usage Redistribution (YOUR EDGE!)
         redistribution = self.usage_model.calculate_redistribution(
-            features.player_name, 
-            context.teammate_injuries
+            player_name=features.player_name,
+            teammate_injuries=context.teammate_injuries,
+            team=features.team
         )
-        
+
         # Merge all modifiers
         all_modifiers = {**combined_adjustments, **redistribution}
 
-        # Step 3: Project minutes
-        # Pass spread and injuries to minutes model
+        # Step 3: Project minutes (HIGHEST LEVERAGE MODEL)
+        # Pass all contextual factors to enhanced minutes model
         minutes_mean, minutes_std = self.minutes_model.project_minutes(
             features=features,
             spread=context.spread,
-            opp_pace_rank=15, # Placeholder
-            teammate_injuries=context.teammate_injuries
+            is_b2b=context.is_b2b,
+            rest_days=context.rest_days,
+            total=context.total,
+            teammate_injuries=context.teammate_injuries,
+            fouls_per_game=None,  # Auto-estimate from features
+            opp_pace_rank=15  # Could be enhanced with actual rank
         )
         
         # Step 4: Project each stat
