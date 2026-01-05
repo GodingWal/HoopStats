@@ -165,9 +165,44 @@ regression_games = 20          # Games before trusting sample
 - **PBPStats** - Lineup and on/off data
 - **Basketball Reference** - Historical data
 
+## Recent Improvements ✨
+
+### Enhanced Minutes Model (Highest Leverage!)
+- ✅ Back-to-back impact: -4.5 minutes
+- ✅ Rest days adjustment: +2.0 for 3+ days rest
+- ✅ Blowout risk modeling: -8.0 minutes (from spread + total)
+- ✅ Foul trouble patterns: -2.0 for high-foul players
+- ✅ Teammate injury redistribution: +0.15 × missing minutes
+
+### Usage Redistribution (YOUR EDGE!)
+- ✅ Historical "Player X OUT" analysis
+- ✅ Team-specific redistribution matrices
+- ✅ Example: When Giannis OUT → Dame +6.6 pts, +1.8 ast
+- ✅ Handles multiple simultaneous injuries
+- ✅ Generic fallback for missing data
+
+### Positional Defense Matchups
+- ✅ Position-specific defensive ratings
+- ✅ Example: WAS allows +10% to guards, PHX allows +8% to centers
+- ✅ Find favorable matchups automatically
+- ✅ Nonlinear scaling for elite/bad defenses
+
+### Advanced Features
+- ✅ Correlation-aware parlay evaluation
+- ✅ Kelly criterion bet sizing
+- ✅ Comprehensive backtesting with calibration
+- ✅ Distribution modeling (Normal, Poisson, NegBinom)
+
+See [docs/DATA_PIPELINE_GUIDE.md](docs/DATA_PIPELINE_GUIDE.md) and [examples/comprehensive_projection_example.py](examples/comprehensive_projection_example.py) for details.
+
 ## Roadmap
 
-- [ ] Real-time odds integration
+- [x] Enhanced minutes model with contextual adjustments
+- [x] Usage redistribution from historical analysis
+- [x] Positional defense matchups
+- [ ] Real-time odds integration (docs available)
+- [ ] Real-time injury monitoring (docs available)
+- [ ] Lineup confirmation pipeline (docs available)
 - [ ] Automated bet placement
 - [ ] Tracking data integration
 - [ ] ML ensemble models
