@@ -282,7 +282,19 @@ function PrizePicksView() {
     if (statFilter !== "all") {
       props = props.filter(p => p.statTypeAbbr === statFilter);
     }
-    return props;
+
+    // Deduplicate: keep only one line per player per stat type
+    // This removes alternate lines (e.g., 12.5, 11.5, 10.5 for same stat)
+    const seen = new Set<string>();
+    const deduped: PrizePicksProjection[] = [];
+    for (const prop of props) {
+      const key = `${prop.playerName}|${prop.statType}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        deduped.push(prop);
+      }
+    }
+    return deduped;
   }, [selectedGame, projections, statFilter]);
 
   const statTypes = useMemo(() => {
