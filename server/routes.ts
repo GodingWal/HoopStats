@@ -73,7 +73,7 @@ function generatePotentialBets(players: Player[]) {
     confidence: string;
   }> = [];
 
-  const statTypes = ["PTS", "REB", "AST", "PRA", "FG3M"];
+  const statTypes = ["PTS", "REB", "AST", "PRA", "FG3M", "STL", "BLK", "TOV", "STOCKS"];
 
   for (const player of players) {
     for (const statType of statTypes) {

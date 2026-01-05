@@ -48,11 +48,12 @@ const STAT_TYPE_MAP: Record<string, string> = {
     "Pts+Rebs+Asts": "PRA",
     "Steals": "STL",
     "Blocks": "BLK",
-    "Turnovers": "TO",
+    "Turnovers": "TOV",
     "Fantasy Score": "FPTS",
     "Pts+Rebs": "PR",
     "Pts+Asts": "PA",
     "Rebs+Asts": "RA",
+    "Minutes": "MIN",
 };
 
 export interface PrizePicksProjection {
