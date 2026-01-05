@@ -1,0 +1,100 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: hoopstats-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: hoopstats_user
+      POSTGRES_PASSWORD: hoopstats_dev_password
+      POSTGRES_DB: hoopstats
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./migrations/setup.sql:/docker-entrypoint-initdb.d/setup.sql
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hoopstats_user -d hoopstats"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - hoopstats-network
+
+  # HoopStats Application
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: hoopstats-app
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://hoopstats_user:hoopstats_dev_password@postgres:5432/hoopstats
+      PORT: 5000
+      # Add your API keys here or use .env file
+      # BALLDONTLIE_API_KEY: ${BALLDONTLIE_API_KEY}
+      # ODDS_API_KEY: ${ODDS_API_KEY}
+    ports:
+      - "5000:5000"
+    volumes:
+      # Mount for logs
+      - ./logs:/app/logs
+    networks:
+      - hoopstats-network
+
+  # Redis (optional - for caching)
+  redis:
+    image: redis:7-alpine
+    container_name: hoopstats-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - hoopstats-network
+
+  # pgAdmin (optional - for database management)
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: hoopstats-pgadmin
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@hoopstats.local
+      PGADMIN_DEFAULT_PASSWORD: admin
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
+    ports:
+      - "5050:80"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    depends_on:
+      - postgres
+    networks:
+      - hoopstats-network
+    profiles:
+      - dev
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  pgadmin_data:
+    driver: local
+
+networks:
+  hoopstats-network:
+    driver: bridge

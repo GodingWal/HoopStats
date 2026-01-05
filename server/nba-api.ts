@@ -4,6 +4,26 @@ import { fetchAllTeams, fetchTeamRoster, fetchPlayerGamelog, type ESPNTeam, type
 // Reusing mock stat generation for now as we don't have a bulk stats endpoint
 // and fetching 500+ player gamelogs individually would be too slow/rate-limited.
 
+interface PlayerStats {
+  PTS: number;
+  REB: number;
+  AST: number;
+  FG3M: number;
+  PRA: number;
+  MIN: number;
+  STL: number;
+  BLK: number;
+  TOV: number;
+}
+
+interface PlayerRealStats {
+  seasonAverages: PlayerStats;
+  gamesPlayed: number;
+  recentGames: PlayerGameStats[];
+  last10Averages: PlayerStats;
+  last5Averages: PlayerStats;
+}
+
 function generateMockStats(position: string): {
   seasonAverages: { PTS: number; REB: number; AST: number; FG3M: number; PRA: number; MIN: number; STL: number; BLK: number; TOV: number };
   gamesPlayed: number;
@@ -101,7 +121,7 @@ export async function buildPlayerFromESPN(athlete: ESPNAthlete, team: ESPNTeam):
   const positionName = athlete.position?.name || 'Guard';
 
   // Try to fetch real gamelog data from ESPN
-  let realStats: { seasonAverages: any; gamesPlayed: number; recentGames: any[]; last10Averages: any; last5Averages: any } | null = null;
+  let realStats: PlayerRealStats | null = null;
 
   try {
     const gamelog = await fetchPlayerGamelog(athlete.id);

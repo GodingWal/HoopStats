@@ -1,0 +1,71 @@
+# Node modules
+node_modules
+npm-debug.log
+yarn-error.log
+
+# Build output
+dist
+.cache
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Documentation
+*.md
+!README.md
+docs/
+ANALYTICS_FEATURES.md
+LINE_TRACKING.md
+DATABASE_SETUP.md
+design_guidelines.md
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Testing
+coverage
+.nyc_output
+tests/
+
+# Development
+.prettierrc
+.eslintrc
+.editorconfig
+
+# Docker
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# Logs
+logs
+*.log
+
+# Python
+__pycache__
+*.py[cod]
+*$py.class
+.Python
+*.so
+.pytest_cache
+venv/
+env/
+
+# Misc
+.temp
+.tmp
