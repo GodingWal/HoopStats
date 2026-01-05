@@ -10,6 +10,7 @@ import type { Player } from "@shared/schema";
 import { fetchAndBuildAllPlayers } from "./nba-api";
 import { fetchLiveGames, fetchPlayerGamelog, fetchGameBoxScore, fetchTeamRoster } from "./espn-api";
 import { fetchNbaEvents, fetchEventPlayerProps, isOddsApiConfigured, getOddsApiStatus } from "./odds-api";
+import { fetchPrizePicksProjections, fetchPlayerPrizePicksProps } from "./prizepicks-api";
 
 // Load sample players from external JSON file
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -31,12 +32,12 @@ function erf(x: number): number {
   const sign = x >= 0 ? 1 : -1;
   x = Math.abs(x);
 
-  const a1 =  0.254829592;
+  const a1 = 0.254829592;
   const a2 = -0.284496736;
-  const a3 =  1.421413741;
+  const a3 = 1.421413741;
   const a4 = -1.453152027;
-  const a5 =  1.061405429;
-  const p  =  0.3275911;
+  const a5 = 1.061405429;
+  const p = 0.3275911;
 
   const t = 1.0 / (1.0 + p * x);
   const y = 1.0 - (((((a5 * t + a4) * t) + a3) * t + a2) * t + a1) * t * Math.exp(-x * x);
@@ -810,6 +811,38 @@ export async function registerRoutes(
       res.json(props);
     } catch (error) {
       console.error("Error fetching event props:", error);
+      res.status(500).json({ error: "Failed to fetch player props" });
+    }
+  });
+
+  // =============== PRIZEPICKS ROUTES ===============
+
+  // Get all NBA PrizePicks projections
+  app.get("/api/prizepicks/projections", async (_req, res) => {
+    try {
+      const projections = await fetchPrizePicksProjections();
+      res.json(projections);
+    } catch (error) {
+      console.error("Error fetching PrizePicks projections:", error);
+      res.status(500).json({
+        error: "Failed to fetch PrizePicks projections",
+        message: error instanceof Error ? error.message : "Unknown error"
+      });
+    }
+  });
+
+  // Get PrizePicks props for a specific player
+  app.get("/api/prizepicks/player/:playerName", async (req, res) => {
+    try {
+      const { playerName } = req.params;
+      if (!playerName) {
+        return res.status(400).json({ error: "Player name is required" });
+      }
+
+      const props = await fetchPlayerPrizePicksProps(decodeURIComponent(playerName));
+      res.json(props);
+    } catch (error) {
+      console.error("Error fetching player PrizePicks props:", error);
       res.status(500).json({ error: "Failed to fetch player props" });
     }
   });

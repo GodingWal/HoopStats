@@ -4,7 +4,8 @@ import type { PotentialBet } from "@shared/schema";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { TrendingUp, TrendingDown, RefreshCw, Target, Flame, ArrowLeft, Swords } from "lucide-react";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { TrendingUp, TrendingDown, RefreshCw, Target, Flame, ArrowLeft, Swords, Clock, Loader2 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useMutation } from "@tanstack/react-query";
 
@@ -23,15 +24,19 @@ interface LiveGame {
   };
 }
 
-function getConfidenceColor(confidence: string) {
-  switch (confidence) {
-    case "HIGH":
-      return "bg-emerald-500/20 text-emerald-400 border-emerald-500/30";
-    case "MEDIUM":
-      return "bg-amber-500/20 text-amber-400 border-amber-500/30";
-    default:
-      return "bg-slate-500/20 text-slate-400 border-slate-500/30";
-  }
+interface PrizePicksProjection {
+  id: string;
+  playerId: string;
+  playerName: string;
+  team: string;
+  teamAbbr: string;
+  position: string;
+  statType: string;
+  statTypeAbbr: string;
+  line: number;
+  gameTime: string;
+  opponent: string;
+  imageUrl?: string;
 }
 
 function getStatLabel(stat: string) {
@@ -43,6 +48,11 @@ function getStatLabel(stat: string) {
     case "FG3M": return "3-Pointers";
     default: return stat;
   }
+}
+
+function formatGameTime(dateStr: string) {
+  const date = new Date(dateStr);
+  return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 }
 
 function BetRow({ bet }: { bet: PotentialBet }) {
@@ -58,8 +68,9 @@ function BetRow({ bet }: { bet: PotentialBet }) {
       </div>
 
       <div className="flex items-center gap-2">
-        <div className={`font-mono text-sm font-bold ${bet.hit_rate >= 70 ? 'text-emerald-400' : bet.hit_rate >= 50 ? 'text-foreground' : 'text-rose-400'
-          }`}>{bet.hit_rate.toFixed(0)}%</div>
+        <div className={`font-mono text-sm font-bold ${bet.hit_rate >= 70 ? 'text-emerald-400' : bet.hit_rate >= 50 ? 'text-foreground' : 'text-rose-400'}`}>
+          {bet.hit_rate.toFixed(0)}%
+        </div>
 
         {bet.confidence === "HIGH" && (
           <Badge className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30 text-xs px-1.5">
@@ -67,10 +78,40 @@ function BetRow({ bet }: { bet: PotentialBet }) {
           </Badge>
         )}
 
-        <div className={`flex items-center gap-0.5 px-1.5 py-0.5 rounded text-xs font-bold ${isOver ? "text-emerald-400 bg-emerald-500/10" : "text-rose-400 bg-rose-500/10"
-          }`}>
+        <div className={`flex items-center gap-0.5 px-1.5 py-0.5 rounded text-xs font-bold ${isOver ? "text-emerald-400 bg-emerald-500/10" : "text-rose-400 bg-rose-500/10"}`}>
           {isOver ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
           {bet.recommendation}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PrizePicksRow({ prop }: { prop: PrizePicksProjection }) {
+  return (
+    <div className="p-3 rounded-lg bg-muted/30 hover:bg-muted/50 transition-all flex items-center justify-between gap-3">
+      <div className="flex items-center gap-3 flex-1 min-w-0">
+        {prop.imageUrl && (
+          <img src={prop.imageUrl} alt={prop.playerName} className="w-10 h-10 rounded-full object-cover" />
+        )}
+        <div>
+          <div className="font-medium text-sm">{prop.playerName}</div>
+          <div className="text-xs text-muted-foreground flex items-center gap-2">
+            <span>{prop.teamAbbr}</span>
+            <span>•</span>
+            <span>{prop.position}</span>
+          </div>
+        </div>
+      </div>
+
+      <div className="flex items-center gap-3">
+        <div className="text-right">
+          <div className="text-xs text-muted-foreground">{prop.statType}</div>
+          <div className="font-mono text-lg font-bold text-primary">{prop.line}</div>
+        </div>
+        <div className="text-xs text-muted-foreground flex items-center gap-1">
+          <Clock className="w-3 h-3" />
+          {formatGameTime(prop.gameTime)}
         </div>
       </div>
     </div>
@@ -97,7 +138,6 @@ function GameCard({ homeTeam, awayTeam, homeLogo, awayLogo, bets, status, onClic
     >
       <CardContent className="p-4">
         <div className="flex items-center justify-between">
-          {/* Away Team */}
           <div className="flex flex-col items-center gap-1 flex-1">
             {awayLogo ? (
               <img src={awayLogo} alt={awayTeam} className="w-10 h-10 object-contain" />
@@ -107,13 +147,11 @@ function GameCard({ homeTeam, awayTeam, homeLogo, awayLogo, bets, status, onClic
             <span className="text-sm font-bold">{awayTeam}</span>
           </div>
 
-          {/* VS */}
           <div className="px-3">
             <div className="text-xs text-muted-foreground font-bold">VS</div>
             {status && <div className="text-[10px] text-muted-foreground text-center mt-0.5">{status}</div>}
           </div>
 
-          {/* Home Team */}
           <div className="flex flex-col items-center gap-1 flex-1">
             {homeLogo ? (
               <img src={homeLogo} alt={homeTeam} className="w-10 h-10 object-contain" />
@@ -160,15 +198,106 @@ function BetsSkeleton() {
   );
 }
 
+function PrizePicksView() {
+  const [statFilter, setStatFilter] = useState<string>("all");
+
+  const { data: projections, isLoading, error } = useQuery<PrizePicksProjection[]>({
+    queryKey: ["/api/prizepicks/projections"],
+  });
+
+  const filteredProjections = useMemo(() => {
+    if (!projections) return [];
+    if (statFilter === "all") return projections;
+    return projections.filter(p => p.statTypeAbbr === statFilter);
+  }, [projections, statFilter]);
+
+  const statTypes = useMemo(() => {
+    if (!projections) return [];
+    const types = new Set(projections.map(p => p.statTypeAbbr));
+    return Array.from(types).sort();
+  }, [projections]);
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-16">
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+        <span className="ml-3 text-muted-foreground">Loading PrizePicks lines...</span>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <Card className="rounded-xl border-border/50">
+        <CardContent className="py-16 text-center">
+          <div className="text-rose-400 mb-2">Failed to load PrizePicks data</div>
+          <p className="text-sm text-muted-foreground">
+            {error instanceof Error ? error.message : "PrizePicks may be blocking requests"}
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (!projections || projections.length === 0) {
+    return (
+      <Card className="rounded-xl border-border/50">
+        <CardContent className="py-16 text-center">
+          <Target className="w-12 h-12 mx-auto text-muted-foreground/50 mb-4" />
+          <h3 className="text-xl font-bold mb-2">No Props Available</h3>
+          <p className="text-muted-foreground">No NBA player props found on PrizePicks right now</p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap gap-2">
+        <Button
+          variant={statFilter === "all" ? "default" : "outline"}
+          size="sm"
+          onClick={() => setStatFilter("all")}
+        >
+          All ({projections.length})
+        </Button>
+        {statTypes.map(stat => (
+          <Button
+            key={stat}
+            variant={statFilter === stat ? "default" : "outline"}
+            size="sm"
+            onClick={() => setStatFilter(stat)}
+          >
+            {getStatLabel(stat)} ({projections.filter(p => p.statTypeAbbr === stat).length})
+          </Button>
+        ))}
+      </div>
+
+      <div className="space-y-2 max-h-[600px] overflow-y-auto">
+        {filteredProjections.map((prop) => (
+          <PrizePicksRow key={prop.id} prop={prop} />
+        ))}
+      </div>
+
+      <div className="text-xs text-muted-foreground text-center pt-4">
+        Data from PrizePicks • Lines update every 10 minutes
+      </div>
+    </div>
+  );
+}
+
 export default function Bets() {
+  const [dataSource, setDataSource] = useState<"prizepicks" | "generated">("prizepicks");
   const [selectedGame, setSelectedGame] = useState<{ home: string; away: string } | null>(null);
 
   const { data: bets, isLoading: betsLoading } = useQuery<PotentialBet[]>({
     queryKey: ["/api/bets"],
+    enabled: dataSource === "generated",
   });
 
   const { data: games } = useQuery<LiveGame[]>({
     queryKey: ["/api/live-games"],
+    enabled: dataSource === "generated",
   });
 
   const refreshMutation = useMutation({
@@ -181,14 +310,12 @@ export default function Bets() {
     },
   });
 
-  // Create game matchups from bets (group by unique team pairs)
   const gameMatchups = useMemo(() => {
     if (!bets) return [];
 
     const teamSet = new Set(bets.map(b => b.team));
     const teams = Array.from(teamSet);
 
-    // If we have live games data, use actual matchups
     if (games && games.length > 0) {
       return games.map(game => {
         const home = game.competitors.find(c => c.homeAway === "home");
@@ -210,7 +337,6 @@ export default function Bets() {
       }).filter(Boolean).filter(g => g!.bets.length > 0);
     }
 
-    // Fallback: show each team as a "matchup" with TBD opponent
     return teams.map(team => ({
       homeTeam: team,
       awayTeam: "TBD",
@@ -232,8 +358,7 @@ export default function Bets() {
   const totalBets = bets?.length || 0;
   const highConfidenceBets = bets?.filter(b => b.confidence === "HIGH").length || 0;
 
-  // Detail view when a game is selected
-  if (selectedGame) {
+  if (selectedGame && dataSource === "generated") {
     return (
       <div className="min-h-screen bg-background">
         <div className="container mx-auto px-4 py-8 max-w-3xl fade-in">
@@ -265,46 +390,62 @@ export default function Bets() {
     );
   }
 
-  // Main grid view
   return (
     <div className="min-h-screen bg-background">
       <div className="container mx-auto px-4 py-8 max-w-5xl fade-in">
-        <div className="flex items-center justify-between gap-4 mb-8 flex-wrap">
+        <div className="flex items-center justify-between gap-4 mb-6 flex-wrap">
           <div className="flex items-center gap-3">
             <div className="p-2 rounded-xl bg-primary/10">
               <Target className="w-7 h-7 text-primary" />
             </div>
             <div>
-              <h1 className="text-3xl font-bold">Potential Bets</h1>
-              <p className="text-muted-foreground">Select a game to view bets</p>
+              <h1 className="text-3xl font-bold">Player Props</h1>
+              <p className="text-muted-foreground">Real lines from PrizePicks</p>
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
-            {totalBets > 0 && (
-              <div className="text-right text-sm">
-                <div className="text-muted-foreground">{totalBets} bets</div>
-                {highConfidenceBets > 0 && (
-                  <div className="text-emerald-400 flex items-center gap-1 justify-end">
-                    <Flame className="w-3 h-3" />
-                    {highConfidenceBets} high
-                  </div>
-                )}
-              </div>
-            )}
-            <Button
-              variant="outline"
-              onClick={() => refreshMutation.mutate()}
-              disabled={refreshMutation.isPending}
-              className="hover:border-primary/50"
-            >
-              <RefreshCw className={`w-4 h-4 mr-2 ${refreshMutation.isPending ? "animate-spin" : ""}`} />
-              Refresh
-            </Button>
-          </div>
+          {dataSource === "generated" && (
+            <div className="flex items-center gap-3">
+              {totalBets > 0 && (
+                <div className="text-right text-sm">
+                  <div className="text-muted-foreground">{totalBets} bets</div>
+                  {highConfidenceBets > 0 && (
+                    <div className="text-emerald-400 flex items-center gap-1 justify-end">
+                      <Flame className="w-3 h-3" />
+                      {highConfidenceBets} high
+                    </div>
+                  )}
+                </div>
+              )}
+              <Button
+                variant="outline"
+                onClick={() => refreshMutation.mutate()}
+                disabled={refreshMutation.isPending}
+                className="hover:border-primary/50"
+              >
+                <RefreshCw className={`w-4 h-4 mr-2 ${refreshMutation.isPending ? "animate-spin" : ""}`} />
+                Refresh
+              </Button>
+            </div>
+          )}
         </div>
 
-        {betsLoading ? (
+        <Tabs value={dataSource} onValueChange={(v) => setDataSource(v as "prizepicks" | "generated")} className="mb-6">
+          <TabsList className="grid w-full max-w-md grid-cols-2">
+            <TabsTrigger value="prizepicks" className="flex items-center gap-2">
+              <img src="https://prizepicks.com/favicon.ico" alt="PP" className="w-4 h-4" onError={(e) => e.currentTarget.style.display = 'none'} />
+              PrizePicks Lines
+            </TabsTrigger>
+            <TabsTrigger value="generated" className="flex items-center gap-2">
+              <Target className="w-4 h-4" />
+              Our Analysis
+            </TabsTrigger>
+          </TabsList>
+        </Tabs>
+
+        {dataSource === "prizepicks" ? (
+          <PrizePicksView />
+        ) : betsLoading ? (
           <BetsSkeleton />
         ) : gameMatchups.length > 0 ? (
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 stagger-fade">
