@@ -197,25 +197,100 @@ function BetsSkeleton() {
     </div>
   );
 }
+interface PrizePicksGameCardProps {
+  gameTime: string;
+  props: PrizePicksProjection[];
+  onClick: () => void;
+}
+
+function PrizePicksGameCard({ gameTime, props, onClick }: PrizePicksGameCardProps) {
+  // Get unique teams from props
+  const teams = useMemo(() => {
+    const teamSet = new Set(props.map(p => p.teamAbbr));
+    return Array.from(teamSet).slice(0, 2);
+  }, [props]);
+
+  const gameDate = new Date(gameTime);
+  const timeStr = gameDate.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+
+  return (
+    <Card
+      className="premium-card rounded-xl overflow-hidden cursor-pointer hover:border-primary/40 hover:shadow-lg hover:shadow-primary/10 transition-all duration-300"
+      onClick={onClick}
+    >
+      <CardContent className="p-4">
+        <div className="flex items-center justify-between">
+          <div className="flex flex-col items-center gap-1 flex-1">
+            <div className="w-10 h-10 rounded-lg bg-muted flex items-center justify-center text-xs font-bold">
+              {teams[0] || "TBD"}
+            </div>
+            <span className="text-sm font-bold">{teams[0] || "TBD"}</span>
+          </div>
+
+          <div className="px-3">
+            <div className="text-xs text-muted-foreground font-bold">VS</div>
+            <div className="text-[10px] text-muted-foreground text-center mt-0.5">{timeStr}</div>
+          </div>
+
+          <div className="flex flex-col items-center gap-1 flex-1">
+            <div className="w-10 h-10 rounded-lg bg-muted flex items-center justify-center text-xs font-bold">
+              {teams[1] || "TBD"}
+            </div>
+            <span className="text-sm font-bold">{teams[1] || "TBD"}</span>
+          </div>
+        </div>
+
+        <div className="mt-3 pt-3 border-t border-border/50 flex items-center justify-between">
+          <span className="text-sm text-muted-foreground">{props.length} props</span>
+          <Badge className="bg-primary/20 text-primary border-primary/30 text-xs">
+            PrizePicks
+          </Badge>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
 
 function PrizePicksView() {
+  const [selectedGame, setSelectedGame] = useState<string | null>(null);
   const [statFilter, setStatFilter] = useState<string>("all");
 
   const { data: projections, isLoading, error } = useQuery<PrizePicksProjection[]>({
     queryKey: ["/api/prizepicks/projections"],
   });
 
-  const filteredProjections = useMemo(() => {
+  // Group projections by game time
+  const gameGroups = useMemo(() => {
     if (!projections) return [];
-    if (statFilter === "all") return projections;
-    return projections.filter(p => p.statTypeAbbr === statFilter);
-  }, [projections, statFilter]);
+    const groups = new Map<string, PrizePicksProjection[]>();
+
+    for (const proj of projections) {
+      const key = proj.gameTime;
+      if (!groups.has(key)) {
+        groups.set(key, []);
+      }
+      groups.get(key)!.push(proj);
+    }
+
+    return Array.from(groups.entries())
+      .sort((a, b) => new Date(a[0]).getTime() - new Date(b[0]).getTime());
+  }, [projections]);
+
+  const selectedProps = useMemo(() => {
+    if (!selectedGame || !projections) return [];
+    let props = projections.filter(p => p.gameTime === selectedGame);
+    if (statFilter !== "all") {
+      props = props.filter(p => p.statTypeAbbr === statFilter);
+    }
+    return props;
+  }, [selectedGame, projections, statFilter]);
 
   const statTypes = useMemo(() => {
-    if (!projections) return [];
-    const types = new Set(projections.map(p => p.statTypeAbbr));
+    if (!selectedGame || !projections) return [];
+    const gameProps = projections.filter(p => p.gameTime === selectedGame);
+    const types = new Set(gameProps.map(p => p.statTypeAbbr));
     return Array.from(types).sort();
-  }, [projections]);
+  }, [selectedGame, projections]);
 
   if (isLoading) {
     return (
@@ -251,40 +326,90 @@ function PrizePicksView() {
     );
   }
 
+  // Detail view when a game is selected
+  if (selectedGame) {
+    const gameDate = new Date(selectedGame);
+    const gameProps = projections.filter(p => p.gameTime === selectedGame);
+    const teams = Array.from(new Set(gameProps.map(p => p.teamAbbr))).slice(0, 2);
+
+    return (
+      <div className="space-y-4">
+        <Button
+          variant="ghost"
+          onClick={() => { setSelectedGame(null); setStatFilter("all"); }}
+          className="hover:bg-primary/10"
+        >
+          <ArrowLeft className="w-4 h-4 mr-2" />
+          Back to Games
+        </Button>
+
+        <div className="text-center mb-6">
+          <div className="flex items-center justify-center gap-4 mb-2">
+            <span className="text-2xl font-bold">{teams[0] || "TBD"}</span>
+            <Swords className="w-6 h-6 text-muted-foreground" />
+            <span className="text-2xl font-bold">{teams[1] || "TBD"}</span>
+          </div>
+          <div className="text-muted-foreground">
+            {gameDate.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })} at {gameDate.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+          </div>
+          <div className="text-sm text-muted-foreground mt-1">{selectedProps.length} props available</div>
+        </div>
+
+        {/* Stat Filter */}
+        <div className="flex flex-wrap gap-2 justify-center">
+          <Button
+            variant={statFilter === "all" ? "default" : "outline"}
+            size="sm"
+            onClick={() => setStatFilter("all")}
+          >
+            All
+          </Button>
+          {statTypes.map(stat => (
+            <Button
+              key={stat}
+              variant={statFilter === stat ? "default" : "outline"}
+              size="sm"
+              onClick={() => setStatFilter(stat)}
+            >
+              {getStatLabel(stat)}
+            </Button>
+          ))}
+        </div>
+
+        <div className="space-y-2 max-h-[500px] overflow-y-auto">
+          {selectedProps.map((prop) => (
+            <PrizePicksRow key={prop.id} prop={prop} />
+          ))}
+        </div>
+
+        <div className="text-xs text-muted-foreground text-center pt-2">
+          Data from PrizePicks • Lines update every 10 minutes
+        </div>
+      </div>
+    );
+  }
+
+  // Game cards grid view
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap gap-2">
-        <Button
-          variant={statFilter === "all" ? "default" : "outline"}
-          size="sm"
-          onClick={() => setStatFilter("all")}
-        >
-          All ({projections.length})
-        </Button>
-        {statTypes.map(stat => (
-          <Button
-            key={stat}
-            variant={statFilter === stat ? "default" : "outline"}
-            size="sm"
-            onClick={() => setStatFilter(stat)}
-          >
-            {getStatLabel(stat)} ({projections.filter(p => p.statTypeAbbr === stat).length})
-          </Button>
-        ))}
-      </div>
-
-      <div className="space-y-2 max-h-[600px] overflow-y-auto">
-        {filteredProjections.map((prop) => (
-          <PrizePicksRow key={prop.id} prop={prop} />
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 stagger-fade">
+        {gameGroups.map(([gameTime, props]) => (
+          <PrizePicksGameCard
+            key={gameTime}
+            gameTime={gameTime}
+            props={props}
+            onClick={() => setSelectedGame(gameTime)}
+          />
         ))}
       </div>
 
       <div className="text-xs text-muted-foreground text-center pt-4">
-        Data from PrizePicks • Lines update every 10 minutes
+        Data from PrizePicks • {projections.length} total props • Lines update every 10 minutes
       </div>
     </div>
   );
 }
+
 
 export default function Bets() {
   const [dataSource, setDataSource] = useState<"prizepicks" | "generated">("prizepicks");

@@ -119,12 +119,10 @@ function AppSidebar() {
     <Sidebar className="border-r-0">
       <SidebarHeader className="p-4 border-b border-sidebar-border/50">
         <Link href="/" className="flex items-center gap-3 group">
-          <div className="p-2 rounded-xl bg-gradient-to-br from-primary to-primary/70 shadow-lg shadow-primary/20 group-hover:shadow-primary/40 transition-all">
-            <TrendingUp className="w-5 h-5 text-primary-foreground" />
-          </div>
+          <img src="/logo.png" alt="CourtSide Edge" className="w-10 h-10 rounded-xl shadow-lg shadow-primary/20 group-hover:shadow-primary/40 transition-all" />
           <div>
-            <span className="font-bold text-lg block">NBA Props</span>
-            <span className="text-xs text-muted-foreground">Analytics Dashboard</span>
+            <span className="font-bold text-lg block">CourtSide Edge</span>
+            <span className="text-xs text-muted-foreground">NBA Analytics</span>
           </div>
         </Link>
       </SidebarHeader>
@@ -168,7 +166,7 @@ function AppSidebar() {
             ) : (
               <CloudDownload className="w-4 h-4 mr-2 group-hover:text-primary transition-colors" />
             )}
-            {syncMutation.isPending ? "Syncing..." : "Sync NBA Data"}
+            {syncMutation.isPending ? "Syncing..." : "Sync Data"}
           </Button>
         ) : (
           <div className="flex items-center gap-2 text-xs text-muted-foreground p-2 rounded-lg bg-amber-500/5 border border-amber-500/20">

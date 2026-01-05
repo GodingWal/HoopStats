@@ -215,12 +215,39 @@ export async function fetchPrizePicksProjections(): Promise<PrizePicksProjection
  */
 export async function fetchPlayerPrizePicksProps(playerName: string): Promise<PrizePicksProjection[]> {
     const allProjections = await fetchPrizePicksProjections();
-    const normalizedName = playerName.toLowerCase().trim();
 
-    return allProjections.filter(p =>
-        p.playerName.toLowerCase().includes(normalizedName) ||
-        normalizedName.includes(p.playerName.toLowerCase())
-    );
+    // Normalize the search name
+    const searchName = playerName.toLowerCase().trim();
+    const searchParts = searchName.split(/\s+/);
+
+    return allProjections.filter(p => {
+        const propName = p.playerName.toLowerCase().trim();
+
+        // Exact match (case insensitive)
+        if (propName === searchName) {
+            return true;
+        }
+
+        // Check if all parts of search name are in the player name
+        // This handles "LeBron James" matching "LeBron James" but not "James Harden"
+        const propParts = propName.split(/\s+/);
+
+        // Both names should have similar parts
+        if (searchParts.length >= 2 && propParts.length >= 2) {
+            // First name and last name must both match
+            const firstMatch = propParts[0].includes(searchParts[0]) || searchParts[0].includes(propParts[0]);
+            const lastMatch = propParts[propParts.length - 1].includes(searchParts[searchParts.length - 1]) ||
+                searchParts[searchParts.length - 1].includes(propParts[propParts.length - 1]);
+            return firstMatch && lastMatch;
+        }
+
+        // Single word search - must match a full word
+        if (searchParts.length === 1) {
+            return propParts.some(part => part === searchParts[0] || part.startsWith(searchParts[0]));
+        }
+
+        return false;
+    });
 }
 
 /**
