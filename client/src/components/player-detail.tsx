@@ -48,11 +48,28 @@ export function PlayerDetail({ player }: PlayerDetailProps) {
     staleTime: 1000 * 60 * 60, // 1 hour (league stats change slowly)
   });
 
-  const advancedStats = allAdvancedStats?.find(s =>
-    s.playerName.toLowerCase() === player.player_name.toLowerCase() ||
-    player.player_name.toLowerCase().includes(s.playerName.toLowerCase()) ||
-    s.playerName.toLowerCase().includes(player.player_name.toLowerCase())
-  );
+  // Helper to normalize names for better matching
+  const normalizeName = (name: string) => {
+    return name.toLowerCase()
+      .replace(/[.'-]/g, "") // Remove punctuation
+      .replace(/\s+(jr|sr|ii|iii|iv)$/i, "") // Remove suffixes
+      .replace(/\s+/g, " ") // Normalize spaces
+      .trim();
+  };
+
+  const advancedStats = allAdvancedStats?.find(s => {
+    const n1 = normalizeName(s.playerName);
+    const n2 = normalizeName(player.player_name);
+    return n1 === n2 || n1.includes(n2) || n2.includes(n1);
+  });
+
+  /* Debug logging */
+  // useEffect(() => {
+  //   if (allAdvancedStats) {
+  //     console.log("Found advanced stats for:", advancedStats?.playerName, "using source:", player.player_name);
+  //     console.log("Sample loaded stats:", allAdvancedStats.slice(0, 3));
+  //   }
+  // }, [allAdvancedStats, advancedStats, player.player_name]);
 
   // Transform ESPN gamelog to the format expected by RecentGamesTable
   const recentGames = liveGamelog?.slice(0, 10).map((entry) => ({
