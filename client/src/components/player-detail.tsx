@@ -110,6 +110,40 @@ export function PlayerDetail({ player }: PlayerDetailProps) {
   const rebTrend = (last5Averages.REB ?? seasonAverages.REB) - seasonAverages.REB;
   const astTrend = (last5Averages.AST ?? seasonAverages.AST) - seasonAverages.AST;
 
+  // Calculate vs_team matchup stats from live gamelog
+  const vsTeamFromGamelog = liveGamelog ? (() => {
+    const teamMap: Record<string, { pts: number[]; reb: number[]; ast: number[]; fg3m: number[] }> = {};
+
+    for (const entry of liveGamelog) {
+      const opp = entry.game.opponent?.abbreviation;
+      if (!opp) continue;
+      if (!teamMap[opp]) {
+        teamMap[opp] = { pts: [], reb: [], ast: [], fg3m: [] };
+      }
+      teamMap[opp].pts.push(parseInt(entry.stats.PTS || "0"));
+      teamMap[opp].reb.push(parseInt(entry.stats.REB || "0"));
+      teamMap[opp].ast.push(parseInt(entry.stats.AST || "0"));
+      teamMap[opp].fg3m.push(parseInt(entry.stats["3PM"] || entry.stats.FG3M || "0"));
+    }
+
+    const result: Record<string, { games: number; PTS: number; REB: number; AST: number; FG3M: number; PRA: number }> = {};
+    for (const [team, data] of Object.entries(teamMap)) {
+      const avg = (arr: number[]) => arr.length > 0 ? Math.round((arr.reduce((a, b) => a + b, 0) / arr.length) * 10) / 10 : 0;
+      const pts = avg(data.pts);
+      const reb = avg(data.reb);
+      const ast = avg(data.ast);
+      result[team] = {
+        games: data.pts.length,
+        PTS: pts,
+        REB: reb,
+        AST: ast,
+        FG3M: avg(data.fg3m),
+        PRA: Math.round((pts + reb + ast) * 10) / 10,
+      };
+    }
+    return result;
+  })() : player.vs_team;
+
   return (
     <div className="space-y-6 fade-in" data-testid="player-detail">
       {/* Hero Section */}
@@ -398,8 +432,8 @@ export function PlayerDetail({ player }: PlayerDetailProps) {
 
         <TabsContent value="matchups" className="mt-4">
           <VsTeamStats
-            vsTeam={player.vs_team}
-            seasonAvg={player.season_averages}
+            vsTeam={vsTeamFromGamelog}
+            seasonAvg={seasonAverages}
           />
         </TabsContent>
 
