@@ -133,6 +133,23 @@ class NBADataClient:
         )
         return stats.get_data_frames()[0]
     
+    def get_league_advanced_stats(
+        self,
+        season: str = "2024-25",
+        season_type: str = "Regular Season"
+    ) -> pd.DataFrame:
+        """
+        Get league-wide advanced player stats (USG%, TS%, PIE, etc.)
+        """
+        self._rate_limit()
+        
+        stats = leaguedashplayerstats.LeagueDashPlayerStats(
+            season=season,
+            measure_type_detailed_defense='Advanced',
+            season_type_all_star=season_type
+        )
+        return stats.get_data_frames()[0]
+
     def get_league_team_stats(
         self,
         season: str = "2024-25",

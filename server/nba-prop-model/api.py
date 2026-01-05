@@ -302,13 +302,49 @@ def get_projections(players: List[str], teammate_injuries: List[str] = None):
     except Exception as e:
         return {"error": f"Global error: {str(e)}"}
 
+def get_all_advanced_stats() -> List[Dict]:
+    """Get advanced stats for all players."""
+    try:
+        client = NBADataClient()
+        df = client.get_league_advanced_stats()
+        
+        # Convert to list of dicts, keeping relevant fields
+        # Fields: PLAYER_NAME, USG_PCT, TS_PCT, AST_PCT, REB_PCT, NET_RATING, PIE
+        results = []
+        for _, row in df.iterrows():
+            results.append({
+                "playerName": row['PLAYER_NAME'],
+                "usageRate": round(row['USG_PCT'] * 100, 1) if 'USG_PCT' in row else 0,
+                "tsPct": round(row['TS_PCT'] * 100, 1) if 'TS_PCT' in row else 0,
+                "astPct": round(row['AST_PCT'] * 100, 1) if 'AST_PCT' in row else 0,
+                "rebPct": round(row['REB_PCT'] * 100, 1) if 'REB_PCT' in row else 0,
+                "netRating": round(row['E_NET_RATING'], 1) if 'E_NET_RATING' in row else 0,
+                "pie": round(row['PIE'] * 100, 1) if 'PIE' in row else 0,
+                "gamesPlayed": int(row['GP']) if 'GP' in row else 0
+            })
+            
+        return results
+    except Exception as e:
+        return [{"error": str(e)}]
+
 def main():
     parser = argparse.ArgumentParser(description='NBA Player Projection Engine')
-    parser.add_argument('--players', nargs='+', required=True,
+    parser.add_argument('--players', nargs='+', required=False,
                         help='List of player names to project')
     parser.add_argument('--injuries', nargs='*', default=[],
                         help='List of injured teammate names (players who are OUT)')
+    parser.add_argument('--advanced-stats', action='store_true',
+                        help='Fetch league-wide advanced stats')
     args = parser.parse_args()
+
+    if args.advanced_stats:
+        data = get_all_advanced_stats()
+        print(json.dumps(data))
+        return
+
+    if not args.players:
+        print(json.dumps({"error": "No players specified"}))
+        return
 
     # Run projections with injury context
     data = get_projections(args.players, args.injuries)

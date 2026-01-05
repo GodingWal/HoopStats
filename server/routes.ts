@@ -848,12 +848,60 @@ export async function registerRoutes(
       const props = await fetchEventPlayerProps(eventId);
       if (!props) {
         return res.status(404).json({ error: "No props found for this event" });
+        res.json(props);
+      } catch (error) {
+        console.error("Error fetching event props:", error);
+        res.status(500).json({ error: "Failed to fetch event props" });
+      }
+    });
+
+  // =============== ADVANCED STATS ===============
+
+  // Cache for advanced stats
+  let advancedStatsCache: { data: any; timestamp: number } | null = null;
+
+  app.get("/api/stats/advanced", async (req, res) => {
+    try {
+      // Check cache (4 hours)
+      if (advancedStatsCache && Date.now() - advancedStatsCache.timestamp < 4 * 60 * 60 * 1000) {
+        return res.json(advancedStatsCache.data);
       }
 
-      res.json(props);
+      console.log("Fetching advanced stats from Python...");
+      const pythonProcess = spawn("python", [
+        "server/nba-prop-model/api.py",
+        "--advanced-stats"
+      ]);
+
+      let dataString = "";
+      let errorString = "";
+
+      pythonProcess.stdout.on("data", (data) => {
+        dataString += data.toString();
+      });
+
+      pythonProcess.stderr.on("data", (data) => {
+        errorString += data.toString();
+      });
+
+      pythonProcess.on("close", (code) => {
+        if (code !== 0) {
+          console.error("Python script error:", errorString);
+          return res.status(500).json({ error: "Failed to fetch advanced stats" });
+        }
+
+        try {
+          const jsonData = JSON.parse(dataString);
+          advancedStatsCache = { data: jsonData, timestamp: Date.now() };
+          res.json(jsonData);
+        } catch (e) {
+          console.error("Failed to parse Python output:", e);
+          res.status(500).json({ error: "Invalid data format from analytics engine" });
+        }
+      });
     } catch (error) {
-      console.error("Error fetching event props:", error);
-      res.status(500).json({ error: "Failed to fetch player props" });
+      console.error("Error in /api/stats/advanced:", error);
+      res.status(500).json({ error: "Internal server error" });
     }
   });
 

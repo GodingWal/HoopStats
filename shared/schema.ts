@@ -48,6 +48,20 @@ export const vsTeamStatsSchema = z.object({
 
 export type VsTeamStats = z.infer<typeof vsTeamStatsSchema>;
 
+// Advanced Stats
+export const advancedStatsSchema = z.object({
+  playerName: z.string(),
+  usageRate: z.number(),
+  tsPct: z.number(),
+  astPct: z.number(),
+  rebPct: z.number(),
+  netRating: z.number(),
+  pie: z.number(),
+  gamesPlayed: z.number(),
+});
+
+export type AdvancedStats = z.infer<typeof advancedStatsSchema>;
+
 // Home/Away averages
 export const splitAveragesSchema = z.object({
   PTS: z.number(),

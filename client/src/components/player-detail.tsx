@@ -1,4 +1,4 @@
-import type { Player } from "@shared/schema";
+import type { Player, VsTeamStats as VsTeamStatsType, AdvancedStats } from "@shared/schema";
 import { useQuery } from "@tanstack/react-query";
 import { StatBadge } from "./stat-badge";
 import { Sparkline } from "./sparkline";
@@ -11,7 +11,7 @@ import { AlertManager, AlertBadge } from "./alert-manager";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { TrendingUp, Target, Users, BarChart3, Loader2, LineChart, Bell } from "lucide-react";
+import { TrendingUp, Target, Users, BarChart3, Loader2, LineChart, Bell, Activity } from "lucide-react";
 
 interface PlayerDetailProps {
   player: Player;
@@ -41,6 +41,18 @@ export function PlayerDetail({ player }: PlayerDetailProps) {
     queryKey: [`/api/players/${player.player_id}/gamelog`],
     staleTime: 1000 * 60 * 5, // Cache for 5 minutes
   });
+
+  // Fetch advanced stats
+  const { data: allAdvancedStats, isLoading: isLoadingAdvanced } = useQuery<AdvancedStats[]>({
+    queryKey: ['/api/stats/advanced'],
+    staleTime: 1000 * 60 * 60, // 1 hour (league stats change slowly)
+  });
+
+  const advancedStats = allAdvancedStats?.find(s =>
+    s.playerName.toLowerCase() === player.player_name.toLowerCase() ||
+    player.player_name.toLowerCase().includes(s.playerName.toLowerCase()) ||
+    s.playerName.toLowerCase().includes(player.player_name.toLowerCase())
+  );
 
   // Transform ESPN gamelog to the format expected by RecentGamesTable
   const recentGames = liveGamelog?.slice(0, 10).map((entry) => ({
@@ -320,6 +332,10 @@ export function PlayerDetail({ player }: PlayerDetailProps) {
           </TabsTrigger>
           <TabsTrigger value="hitrates" data-testid="tab-hitrates">Hit Rates</TabsTrigger>
           <TabsTrigger value="matchups" data-testid="tab-matchups">Matchups</TabsTrigger>
+          <TabsTrigger value="advanced" data-testid="tab-advanced">
+            <Activity className="w-4 h-4 mr-1" />
+            Advanced
+          </TabsTrigger>
           <TabsTrigger value="alerts" data-testid="tab-alerts">
             <Bell className="w-4 h-4 mr-1" />
             Alerts
@@ -435,6 +451,80 @@ export function PlayerDetail({ player }: PlayerDetailProps) {
             vsTeam={vsTeamFromGamelog}
             seasonAvg={seasonAverages}
           />
+        </TabsContent>
+
+        <TabsContent value="advanced" className="mt-4">
+          {isLoadingAdvanced ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+              <span className="ml-2 text-muted-foreground">Loading advanced stats...</span>
+            </div>
+          ) : !advancedStats ? (
+            <div className="text-center py-8 text-muted-foreground bg-muted/20 rounded-lg">
+              No advanced stats available for {player.player_name}
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-xs font-medium text-muted-foreground uppercase">Usage Rate</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{advancedStats.usageRate}%</div>
+                  <p className="text-xs text-muted-foreground mt-1">Est. % of team plays used</p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-xs font-medium text-muted-foreground uppercase">True Shooting</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className={`text-2xl font-bold ${advancedStats.tsPct > 60 ? 'text-emerald-500' : advancedStats.tsPct < 55 ? 'text-yellow-500' : ''}`}>
+                    {advancedStats.tsPct}%
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">Efficiency including FTs</p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-xs font-medium text-muted-foreground uppercase">Net Rating</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className={`text-2xl font-bold ${advancedStats.netRating > 0 ? 'text-emerald-500' : 'text-red-500'}`}>
+                    {advancedStats.netRating > 0 ? '+' : ''}{advancedStats.netRating}
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">Est. point diff per 100 poss</p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-xs font-medium text-muted-foreground uppercase">Assist Rate</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{advancedStats.astPct}%</div>
+                  <p className="text-xs text-muted-foreground mt-1">% of teammate FGs assisted</p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-xs font-medium text-muted-foreground uppercase">Rebound Rate</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{advancedStats.rebPct}%</div>
+                  <p className="text-xs text-muted-foreground mt-1">% of available rebounds</p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-xs font-medium text-muted-foreground uppercase">Impact (PIE)</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{advancedStats.pie}</div>
+                  <p className="text-xs text-muted-foreground mt-1">Player Impact Estimate</p>
+                </CardContent>
+              </Card>
+            </div>
+          )}
         </TabsContent>
 
         <TabsContent value="alerts" className="mt-4">
