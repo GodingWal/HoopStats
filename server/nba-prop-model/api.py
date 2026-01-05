@@ -82,15 +82,27 @@ def get_team_defensive_rating(client: NBADataClient, team_abbr: str) -> tuple:
     
     return float(def_rating), float(pace)
 
-def create_dynamic_context(client: NBADataClient, team_abbr: str) -> tuple:
-    """Create a real game context based on today's schedule."""
+def create_dynamic_context(client: NBADataClient, team_abbr: str, teammate_injuries: List[str] = None) -> tuple:
+    """Create a real game context based on today's schedule.
+
+    Args:
+        client: NBA data client
+        team_abbr: Team abbreviation (e.g., 'LAL')
+        teammate_injuries: List of teammate names who are OUT
+
+    Returns:
+        Tuple of (GameContext, is_real_data)
+    """
+    if teammate_injuries is None:
+        teammate_injuries = []
+
     game_info = find_player_game(client, team_abbr)
-    
+
     if game_info:
         opponent = game_info['opponent']
         is_home = game_info['is_home']
         def_rating, pace = get_team_defensive_rating(client, opponent)
-        
+
         context = GameContext(
             opponent=opponent,
             is_home=is_home,
@@ -100,12 +112,14 @@ def create_dynamic_context(client: NBADataClient, team_abbr: str) -> tuple:
             total=225.5,
             opponent_def_rating=def_rating,
             opponent_pace=pace,
-            teammate_injuries=[]
+            teammate_injuries=teammate_injuries
         )
         return context, True  # True = real data
     else:
-        # No game today, use sample context
-        return create_sample_context(), False  # False = sample data
+        # No game today, use sample context but still include injuries
+        sample_ctx = create_sample_context()
+        sample_ctx.teammate_injuries = teammate_injuries
+        return sample_ctx, False  # False = sample data
 
 
 def serialize_projection(projection):
@@ -159,28 +173,41 @@ def format_recent_games(game_log: pd.DataFrame, n_games: int = 5) -> List[Dict]:
         })
     return games
 
-def get_projections(players: List[str]):
+def get_projections(players: List[str], teammate_injuries: List[str] = None):
+    """Generate projections for players.
+
+    Args:
+        players: List of player names to project
+        teammate_injuries: List of injured teammate names (players who are OUT)
+                          These injuries are factored into usage redistribution
+
+    Returns:
+        Dictionary of projections keyed by player name
+    """
+    if teammate_injuries is None:
+        teammate_injuries = []
+
     try:
         client = NBADataClient()
         engine = ProjectionEngine()
-        
+
         results = {}
-        
+
         for player_name in players:
             try:
                 player_id = client.get_player_id(player_name)
                 if not player_id:
                     results[player_name] = {"error": "Player not found"}
                     continue
-                
+
                 game_log = client.get_player_game_log(player_id)
                 if len(game_log) == 0:
                     results[player_name] = {"error": "No game data"}
                     continue
-                
+
                 # Get additional data
                 career_stats = client.get_player_career_stats(player_id)
-                
+
                 # Try to get player info (may fail for some players)
                 player_info = {}
                 try:
@@ -196,30 +223,40 @@ def get_projections(players: List[str]):
                     }
                 except:
                     pass
-                
+
                 # Generate projection with real opponent context if available
+                # Include teammate injuries in the context
                 team_abbr = player_info.get('team', '')
-                context, is_real_context = create_dynamic_context(client, team_abbr) if team_abbr else (create_sample_context(), False)
+                if team_abbr:
+                    context, is_real_context = create_dynamic_context(client, team_abbr, teammate_injuries)
+                else:
+                    context = create_sample_context()
+                    context.teammate_injuries = teammate_injuries
+                    is_real_context = False
+
                 projection = engine.project_player(game_log, context, career_stats)
-                
+
                 # Build comprehensive result
                 results[player_name] = {
                     # Core projections
                     "projection": serialize_projection(projection),
-                    
+
+                    # Also include as 'distributions' for compatibility
+                    "distributions": serialize_projection(projection),
+
                     # Player info
                     "playerInfo": player_info,
-                    
+
                     # Season averages
                     "seasonAverages": calculate_averages(game_log),
-                    
+
                     # Recent splits
                     "last5Averages": calculate_averages(game_log, 5),
                     "last10Averages": calculate_averages(game_log, 10),
-                    
+
                     # Recent games
                     "recentGames": format_recent_games(game_log, 5),
-                    
+
                     # Model context (what the model uses)
                     "modelContext": {
                         "gamesAnalyzed": len(game_log),
@@ -230,24 +267,52 @@ def get_projections(players: List[str]):
                         "opponentDefRating": context.opponent_def_rating,
                         "opponentPace": context.opponent_pace,
                         "isRealData": is_real_context,  # True if using real opponent data
+                        "teammateInjuries": context.teammate_injuries,  # Injuries factored in
+                    },
+
+                    # Context for external use
+                    "context": {
+                        "opponent": context.opponent,
+                        "isHome": context.is_home,
+                        "teammateInjuries": context.teammate_injuries,
                     }
                 }
-                
+
             except Exception as e:
                 results[player_name] = {"error": str(e)}
-        
-        return results
+
+        # Wrap in projections array format for compatibility with routes.ts
+        output = {
+            "projections": [
+                {
+                    "playerName": name,
+                    **data
+                }
+                for name, data in results.items()
+                if "error" not in data
+            ],
+            "errors": {
+                name: data["error"]
+                for name, data in results.items()
+                if "error" in data
+            }
+        }
+
+        return output
     except Exception as e:
         return {"error": f"Global error: {str(e)}"}
 
 def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--players', nargs='+', required=True, help='List of player names')
+    parser = argparse.ArgumentParser(description='NBA Player Projection Engine')
+    parser.add_argument('--players', nargs='+', required=True,
+                        help='List of player names to project')
+    parser.add_argument('--injuries', nargs='*', default=[],
+                        help='List of injured teammate names (players who are OUT)')
     args = parser.parse_args()
-    
-    # Run projections
-    data = get_projections(args.players)
-    
+
+    # Run projections with injury context
+    data = get_projections(args.players, args.injuries)
+
     # Print ONLY the JSON to stdout
     print(json.dumps(data))
 
