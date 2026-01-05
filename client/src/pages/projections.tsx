@@ -56,6 +56,7 @@ interface ModelContext {
     restDays: number;
     opponentDefRating: number;
     opponentPace: number;
+    isRealData?: boolean;
 }
 
 interface PlayerProjection {
@@ -409,6 +410,11 @@ function EnrichedPlayerCard({ player, data }: { player: string; data: PlayerProj
                         <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-3 flex items-center gap-2">
                             <Activity className="w-4 h-4" />
                             Model Context
+                            {context.isRealData ? (
+                                <Badge className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30 text-[10px]">Live Data</Badge>
+                            ) : (
+                                <Badge className="bg-amber-500/20 text-amber-400 border-amber-500/30 text-[10px]">No Game Today</Badge>
+                            )}
                         </h3>
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
                             <div>

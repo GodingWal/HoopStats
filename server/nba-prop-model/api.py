@@ -3,14 +3,110 @@ import argparse
 import sys
 import json
 import pandas as pd
-from typing import List, Dict
+from typing import List, Dict, Optional
+from datetime import datetime
 
 # Ensure src is in path
 import os
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from src.data.nba_api_client import NBADataClient
-from src.models.projection_engine import ProjectionEngine, create_sample_context
+from src.models.projection_engine import ProjectionEngine, GameContext, create_sample_context
+
+# Cache for team stats to avoid repeated API calls
+_team_stats_cache = None
+_schedule_cache = {}
+
+def get_team_stats(client: NBADataClient) -> pd.DataFrame:
+    """Get cached team stats."""
+    global _team_stats_cache
+    if _team_stats_cache is None:
+        try:
+            _team_stats_cache = client.get_league_team_stats()
+        except:
+            _team_stats_cache = pd.DataFrame()
+    return _team_stats_cache
+
+def get_todays_schedule(client: NBADataClient) -> pd.DataFrame:
+    """Get today's games schedule."""
+    today = datetime.now().strftime("%Y-%m-%d")
+    if today not in _schedule_cache:
+        try:
+            _schedule_cache[today] = client.get_todays_games()
+        except:
+            _schedule_cache[today] = pd.DataFrame()
+    return _schedule_cache[today]
+
+def find_player_game(client: NBADataClient, team_abbr: str) -> Optional[Dict]:
+    """Find the player's team's game today."""
+    schedule = get_todays_schedule(client)
+    
+    if schedule.empty:
+        return None
+    
+    # Scoreboard columns: GAME_ID, HOME_TEAM_ID, VISITOR_TEAM_ID, etc.
+    for _, game in schedule.iterrows():
+        home_abbr = game.get('HOME_ABBREV', '') or game.get('HOME_TEAM_ABBREV', '')
+        away_abbr = game.get('AWAY_ABBREV', '') or game.get('VISITOR_TEAM_ABBREV', '')
+        
+        if team_abbr.upper() == str(home_abbr).upper():
+            return {
+                "opponent": str(away_abbr),
+                "is_home": True,
+                "game_id": game.get('GAME_ID', '')
+            }
+        elif team_abbr.upper() == str(away_abbr).upper():
+            return {
+                "opponent": str(home_abbr),
+                "is_home": False,
+                "game_id": game.get('GAME_ID', '')
+            }
+    
+    return None
+
+def get_team_defensive_rating(client: NBADataClient, team_abbr: str) -> tuple:
+    """Get a team's defensive rating and pace."""
+    team_stats = get_team_stats(client)
+    
+    if team_stats.empty:
+        return 110.0, 100.0  # Default values
+    
+    # Find the team
+    team_row = team_stats[team_stats['TEAM_ABBREVIATION'] == team_abbr.upper()]
+    
+    if team_row.empty:
+        return 110.0, 100.0
+    
+    def_rating = team_row['DEF_RATING'].values[0] if 'DEF_RATING' in team_row.columns else 110.0
+    pace = team_row['PACE'].values[0] if 'PACE' in team_row.columns else 100.0
+    
+    return float(def_rating), float(pace)
+
+def create_dynamic_context(client: NBADataClient, team_abbr: str) -> tuple:
+    """Create a real game context based on today's schedule."""
+    game_info = find_player_game(client, team_abbr)
+    
+    if game_info:
+        opponent = game_info['opponent']
+        is_home = game_info['is_home']
+        def_rating, pace = get_team_defensive_rating(client, opponent)
+        
+        context = GameContext(
+            opponent=opponent,
+            is_home=is_home,
+            is_b2b=False,  # Would need yesterday's schedule to detect
+            rest_days=1,
+            spread=-3.5 if is_home else 3.5,
+            total=225.5,
+            opponent_def_rating=def_rating,
+            opponent_pace=pace,
+            teammate_injuries=[]
+        )
+        return context, True  # True = real data
+    else:
+        # No game today, use sample context
+        return create_sample_context(), False  # False = sample data
+
 
 def serialize_projection(projection):
     """Convert projection object to dictionary."""
@@ -101,8 +197,9 @@ def get_projections(players: List[str]):
                 except:
                     pass
                 
-                # Generate projection
-                context = create_sample_context()
+                # Generate projection with real opponent context if available
+                team_abbr = player_info.get('team', '')
+                context, is_real_context = create_dynamic_context(client, team_abbr) if team_abbr else (create_sample_context(), False)
                 projection = engine.project_player(game_log, context, career_stats)
                 
                 # Build comprehensive result
@@ -132,6 +229,7 @@ def get_projections(players: List[str]):
                         "restDays": context.rest_days,
                         "opponentDefRating": context.opponent_def_rating,
                         "opponentPace": context.opponent_pace,
+                        "isRealData": is_real_context,  # True if using real opponent data
                     }
                 }
                 
