@@ -14,6 +14,7 @@ import LiveOdds from "@/pages/live-odds";
 import ProjectionsPage from "@/pages/projections";
 import Dashboard from "@/pages/dashboard";
 import TrackRecord from "@/pages/track-record";
+import TeamStatsPage from "@/pages/team-stats";
 import { ThemeToggle } from "@/components/theme-toggle";
 import {
   SidebarProvider,
@@ -30,7 +31,7 @@ import {
   SidebarFooter,
 } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
-import { Users, Target, TrendingUp, RefreshCw, CloudDownload, AlertCircle, Tv, BrainCircuit, DollarSign, LayoutDashboard, Award } from "lucide-react";
+import { Users, Target, TrendingUp, RefreshCw, CloudDownload, AlertCircle, Tv, BrainCircuit, DollarSign, LayoutDashboard, Award, BarChart3 } from "lucide-react";
 
 function Router() {
   return (
@@ -42,6 +43,7 @@ function Router() {
       <Route path="/live" component={LiveGames} />
       <Route path="/odds" component={LiveOdds} />
       <Route path="/projections" component={ProjectionsPage} />
+      <Route path="/team-stats" component={TeamStatsPage} />
       <Route component={NotFound} />
     </Switch>
   );
@@ -57,6 +59,11 @@ const navItems = [
     title: "Players",
     url: "/",
     icon: Users,
+  },
+  {
+    title: "Team Stats",
+    url: "/team-stats",
+    icon: BarChart3,
   },
   {
     title: "Potential Bets",

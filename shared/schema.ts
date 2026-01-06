@@ -703,3 +703,169 @@ export const injuryAlertSchema = z.object({
 });
 
 export type InjuryAlertData = z.infer<typeof injuryAlertSchema>;
+
+// ========================================
+// TEAM STATS SCHEMAS
+// ========================================
+
+// Quarter/Half scoring breakdown
+export const quarterScoringSchema = z.object({
+  q1: z.number(),
+  q2: z.number(),
+  q3: z.number(),
+  q4: z.number(),
+  ot: z.number().optional(),
+  firstHalf: z.number(),
+  secondHalf: z.number(),
+});
+
+export type QuarterScoring = z.infer<typeof quarterScoringSchema>;
+
+// Game context for rotation analysis
+export const gameContextSchema = z.object({
+  gameId: z.string(),
+  date: z.string(),
+  opponent: z.string(),
+  isHome: z.boolean(),
+  result: z.enum(['W', 'L']),
+  finalScore: z.string(),
+  pointDifferential: z.number(),
+  gameType: z.enum(['blowout_win', 'close_win', 'close_loss', 'blowout_loss']), // +/- 10 pts threshold
+  quarterScoring: quarterScoringSchema,
+});
+
+export type GameContext = z.infer<typeof gameContextSchema>;
+
+// Player rotation stats by game type
+export const playerRotationStatsSchema = z.object({
+  playerId: z.number(),
+  playerName: z.string(),
+  position: z.string().optional(),
+  // Overall averages
+  overallMpg: z.number(),
+  overallPpg: z.number(),
+  overallRpg: z.number(),
+  overallApg: z.number(),
+  gamesPlayed: z.number(),
+  // Close games (within 10 points)
+  closeGameMpg: z.number(),
+  closeGamePpg: z.number(),
+  closeGamesPlayed: z.number(),
+  // Blowout games (more than 10 points)
+  blowoutMpg: z.number(),
+  blowoutPpg: z.number(),
+  blowoutGamesPlayed: z.number(),
+  // Starter vs bench indicator
+  isStarter: z.boolean(),
+  starterPct: z.number(), // % of games started
+});
+
+export type PlayerRotationStats = z.infer<typeof playerRotationStatsSchema>;
+
+// Team advanced stats
+export const teamAdvancedStatsSchema = z.object({
+  // Offensive
+  offRating: z.number(), // Points per 100 possessions
+  pace: z.number(), // Possessions per game
+  efgPct: z.number(), // Effective FG%
+  tsPct: z.number(), // True Shooting %
+  tovPct: z.number(), // Turnover %
+  orbPct: z.number(), // Offensive Rebound %
+  ftRate: z.number(), // Free Throw Rate
+  // Defensive
+  defRating: z.number(), // Opponent points per 100 possessions
+  oppEfgPct: z.number(), // Opponent eFG%
+  drbPct: z.number(), // Defensive Rebound %
+  stlPct: z.number(), // Steal %
+  blkPct: z.number(), // Block %
+  // Net
+  netRating: z.number(), // Off rating - def rating
+  // Four Factors
+  fourFactorsOff: z.object({
+    efgPct: z.number(),
+    tovPct: z.number(),
+    orbPct: z.number(),
+    ftRate: z.number(),
+  }),
+  fourFactorsDef: z.object({
+    efgPct: z.number(),
+    tovPct: z.number(),
+    drbPct: z.number(),
+    ftRate: z.number(),
+  }),
+});
+
+export type TeamAdvancedStats = z.infer<typeof teamAdvancedStatsSchema>;
+
+// Team basic stats
+export const teamBasicStatsSchema = z.object({
+  gamesPlayed: z.number(),
+  wins: z.number(),
+  losses: z.number(),
+  winPct: z.number(),
+  ppg: z.number(), // Points per game
+  oppPpg: z.number(), // Opponent points per game
+  rpg: z.number(), // Rebounds per game
+  apg: z.number(), // Assists per game
+  spg: z.number(), // Steals per game
+  bpg: z.number(), // Blocks per game
+  tpg: z.number(), // Turnovers per game
+  fgPct: z.number(),
+  fg3Pct: z.number(),
+  ftPct: z.number(),
+  // Home/Away splits
+  homeRecord: z.string(), // "15-5"
+  awayRecord: z.string(), // "12-8"
+  homePpg: z.number(),
+  awayPpg: z.number(),
+  // Scoring by quarter
+  avgQuarterScoring: quarterScoringSchema,
+  oppAvgQuarterScoring: quarterScoringSchema,
+});
+
+export type TeamBasicStats = z.infer<typeof teamBasicStatsSchema>;
+
+// Complete team stats response
+export const teamStatsSchema = z.object({
+  teamId: z.number(),
+  teamAbbr: z.string(),
+  teamName: z.string(),
+  teamLogo: z.string().optional(),
+  teamColor: z.string().optional(),
+  conference: z.string().optional(),
+  division: z.string().optional(),
+  // Stats
+  basicStats: teamBasicStatsSchema,
+  advancedStats: teamAdvancedStatsSchema.optional(),
+  // Rotation & minutes
+  rotation: z.array(playerRotationStatsSchema),
+  // Recent games with quarter breakdown
+  recentGames: z.array(gameContextSchema),
+  // Streak info
+  streak: z.object({
+    type: z.enum(['W', 'L']),
+    count: z.number(),
+  }).optional(),
+  // Last 10 games record
+  last10: z.string().optional(),
+});
+
+export type TeamStats = z.infer<typeof teamStatsSchema>;
+
+// Team comparison schema
+export const teamComparisonSchema = z.object({
+  team1: teamStatsSchema,
+  team2: teamStatsSchema,
+  headToHead: z.object({
+    team1Wins: z.number(),
+    team2Wins: z.number(),
+    avgPointDiff: z.number(),
+    recentGames: z.array(z.object({
+      date: z.string(),
+      winner: z.string(),
+      score: z.string(),
+    })),
+  }).optional(),
+});
+
+export type TeamComparison = z.infer<typeof teamComparisonSchema>;
