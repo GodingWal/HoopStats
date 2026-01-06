@@ -45,6 +45,7 @@ import type {
   PlayerRotationStats,
   GameContext,
 } from "@shared/schema";
+import { InjuryImpact } from "@/components/injury-impact";
 
 // NBA Team info type
 interface TeamInfo {
@@ -625,6 +626,7 @@ export default function TeamStatsPage() {
   const [selectedTeam, setSelectedTeam] = useState<string>('');
   const [compareTeam, setCompareTeam] = useState<string>('');
   const [isComparing, setIsComparing] = useState(false);
+  const [selectedInjuredPlayer, setSelectedInjuredPlayer] = useState<{ id: number; name: string } | null>(null);
 
   // Fetch teams list
   const { data: teams, isLoading: teamsLoading } = useQuery({
@@ -810,6 +812,7 @@ export default function TeamStatsPage() {
             <TabsList>
               <TabsTrigger value="scoring">Quarter Scoring</TabsTrigger>
               <TabsTrigger value="rotation">Rotation</TabsTrigger>
+              <TabsTrigger value="injuries">Injury Impact</TabsTrigger>
               <TabsTrigger value="games">Recent Games</TabsTrigger>
               <TabsTrigger value="advanced">Advanced</TabsTrigger>
             </TabsList>
@@ -828,6 +831,52 @@ export default function TeamStatsPage() {
                 closeGamesCount={closeGamesCount}
                 blowoutsCount={blowoutsCount}
               />
+            </TabsContent>
+
+            <TabsContent value="injuries">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg">Select Injured Player</CardTitle>
+                  <CardDescription>
+                    Choose a player to see how teammates perform when they sit out
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <Select
+                    value={selectedInjuredPlayer?.id.toString() || ''}
+                    onValueChange={(value) => {
+                      const player = teamStats.rotation.find(p => p.playerId.toString() === value);
+                      if (player) {
+                        setSelectedInjuredPlayer({ id: player.playerId, name: player.playerName });
+                      }
+                    }}
+                  >
+                    <SelectTrigger className="w-full md:w-[300px]">
+                      <SelectValue placeholder="Select a player..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {teamStats.rotation
+                        .filter(p => p.isStarter) // Only show starters
+                        .sort((a, b) => b.overallPpg - a.overallPpg)
+                        .map((player) => (
+                          <SelectItem key={player.playerId} value={player.playerId.toString()}>
+                            {player.playerName} ({player.overallPpg.toFixed(1)} PPG)
+                          </SelectItem>
+                        ))}
+                    </SelectContent>
+                  </Select>
+                </CardContent>
+              </Card>
+
+              {selectedInjuredPlayer && (
+                <div className="mt-4">
+                  <InjuryImpact
+                    injuredPlayerId={selectedInjuredPlayer.id}
+                    injuredPlayerName={selectedInjuredPlayer.name}
+                    team={teamStats.teamAbbr}
+                  />
+                </div>
+              )}
             </TabsContent>
 
             <TabsContent value="games">

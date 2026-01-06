@@ -704,6 +704,55 @@ export const injuryAlertSchema = z.object({
 
 export type InjuryAlertData = z.infer<typeof injuryAlertSchema>;
 
+// Player on/off splits (teammate performance with/without injured player)
+export const playerOnOffSplits = pgTable("player_on_off_splits", {
+  id: serial("id").primaryKey(),
+
+  // Player being analyzed (teammate who benefits/suffers)
+  playerId: integer("player_id").notNull(),
+  playerName: text("player_name").notNull(),
+  team: varchar("team", { length: 10 }).notNull(),
+
+  // Star player who was OUT
+  withoutPlayerId: integer("without_player_id").notNull(),
+  withoutPlayerName: text("without_player_name").notNull(),
+
+  season: varchar("season", { length: 10 }).notNull(), // e.g., "2024-25"
+
+  // Sample sizes
+  gamesWithTeammate: integer("games_with_teammate").notNull(),
+  gamesWithoutTeammate: integer("games_without_teammate").notNull(),
+
+  // Stats WITH teammate
+  ptsWithTeammate: real("pts_with_teammate"),
+  rebWithTeammate: real("reb_with_teammate"),
+  astWithTeammate: real("ast_with_teammate"),
+  minWithTeammate: real("min_with_teammate"),
+  fgaWithTeammate: real("fga_with_teammate"),
+
+  // Stats WITHOUT teammate
+  ptsWithoutTeammate: real("pts_without_teammate"),
+  rebWithoutTeammate: real("reb_without_teammate"),
+  astWithoutTeammate: real("ast_without_teammate"),
+  minWithoutTeammate: real("min_without_teammate"),
+  fgaWithoutTeammate: real("fga_without_teammate"),
+
+  // Deltas (precomputed)
+  ptsDelta: real("pts_delta"),
+  rebDelta: real("reb_delta"),
+  astDelta: real("ast_delta"),
+  minDelta: real("min_delta"),
+  fgaDelta: real("fga_delta"),
+
+  // Metadata
+  calculatedAt: timestamp("calculated_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertPlayerOnOffSplitSchema = createInsertSchema(playerOnOffSplits).omit({ id: true, calculatedAt: true, updatedAt: true });
+export type InsertPlayerOnOffSplit = z.infer<typeof insertPlayerOnOffSplitSchema>;
+export type DbPlayerOnOffSplit = typeof playerOnOffSplits.$inferSelect;
+
 // ========================================
 // TEAM STATS SCHEMAS
 // ========================================

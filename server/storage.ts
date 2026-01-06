@@ -1,5 +1,5 @@
-import type { Player, PotentialBet, InsertPlayer, InsertPotentialBet, SeasonAverages, HitRates, VsTeamStats, GameLog, SplitAverages, InsertProjection, DbProjection, InsertRecommendation, DbRecommendation, InsertTeamDefense, DbTeamDefense, TrackRecord, PropEvaluation, InsertSportsbook, DbSportsbook, InsertPlayerPropLine, DbPlayerPropLine, InsertLineMovement, DbLineMovement, InsertBestLine, DbBestLine, InsertUserBet, DbUserBet, LineComparison } from "@shared/schema";
-import { players, potentialBets, projections, recommendations, teamDefense, sportsbooks, playerPropLines, lineMovements, bestLines, userBets } from "@shared/schema";
+import type { Player, PotentialBet, InsertPlayer, InsertPotentialBet, SeasonAverages, HitRates, VsTeamStats, GameLog, SplitAverages, InsertProjection, DbProjection, InsertRecommendation, DbRecommendation, InsertTeamDefense, DbTeamDefense, TrackRecord, PropEvaluation, InsertSportsbook, DbSportsbook, InsertPlayerPropLine, DbPlayerPropLine, InsertLineMovement, DbLineMovement, InsertBestLine, DbBestLine, InsertUserBet, DbUserBet, LineComparison, InsertPlayerOnOffSplit, DbPlayerOnOffSplit } from "@shared/schema";
+import { players, potentialBets, projections, recommendations, teamDefense, sportsbooks, playerPropLines, lineMovements, bestLines, userBets, playerOnOffSplits } from "@shared/schema";
 import { db } from "./db";
 import { eq, ilike, or, desc, and, gte, sql, inArray, avg, max, min, count } from "drizzle-orm";
 
@@ -58,6 +58,13 @@ export interface IStorage {
 
   // Line comparison
   compareLines(playerId: number, stat: string, gameDate: string): Promise<LineComparison>;
+
+  // On/Off Splits
+  savePlayerOnOffSplit(split: InsertPlayerOnOffSplit): Promise<DbPlayerOnOffSplit>;
+  getPlayerOnOffSplits(withoutPlayerId: number, season?: string): Promise<DbPlayerOnOffSplit[]>;
+  getTopBeneficiaries(withoutPlayerId: number, stat: 'pts' | 'reb' | 'ast', limit: number): Promise<DbPlayerOnOffSplit[]>;
+  getOnOffSplitsByTeam(teamAbbr: string, season?: string): Promise<DbPlayerOnOffSplit[]>;
+  deleteStaleOnOffSplits(olderThanDays: number): Promise<void>;
 }
 
 function dbPlayerToPlayer(dbPlayer: typeof players.$inferSelect): Player {
@@ -693,6 +700,128 @@ export class DatabaseStorage implements IStorage {
       },
     };
   }
+
+  // ========================================
+  // ON/OFF SPLITS METHODS
+  // ========================================
+
+  async savePlayerOnOffSplit(split: InsertPlayerOnOffSplit): Promise<DbPlayerOnOffSplit> {
+    if (!db) throw new Error("Database not initialized");
+
+    const result = await db
+      .insert(playerOnOffSplits)
+      .values({
+        ...split,
+        calculatedAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .onConflictDoUpdate({
+        target: [playerOnOffSplits.playerId, playerOnOffSplits.withoutPlayerId, playerOnOffSplits.season],
+        set: {
+          gamesWithTeammate: split.gamesWithTeammate,
+          gamesWithoutTeammate: split.gamesWithoutTeammate,
+          ptsWithTeammate: split.ptsWithTeammate,
+          rebWithTeammate: split.rebWithTeammate,
+          astWithTeammate: split.astWithTeammate,
+          minWithTeammate: split.minWithTeammate,
+          fgaWithTeammate: split.fgaWithTeammate,
+          ptsWithoutTeammate: split.ptsWithoutTeammate,
+          rebWithoutTeammate: split.rebWithoutTeammate,
+          astWithoutTeammate: split.astWithoutTeammate,
+          minWithoutTeammate: split.minWithoutTeammate,
+          fgaWithoutTeammate: split.fgaWithoutTeammate,
+          ptsDelta: split.ptsDelta,
+          rebDelta: split.rebDelta,
+          astDelta: split.astDelta,
+          minDelta: split.minDelta,
+          fgaDelta: split.fgaDelta,
+          updatedAt: new Date(),
+        },
+      })
+      .returning();
+
+    return result[0];
+  }
+
+  async getPlayerOnOffSplits(withoutPlayerId: number, season?: string): Promise<DbPlayerOnOffSplit[]> {
+    if (!db) throw new Error("Database not initialized");
+
+    const query = db
+      .select()
+      .from(playerOnOffSplits)
+      .where(eq(playerOnOffSplits.withoutPlayerId, withoutPlayerId));
+
+    if (season) {
+      const result = await query.where(
+        and(
+          eq(playerOnOffSplits.withoutPlayerId, withoutPlayerId),
+          eq(playerOnOffSplits.season, season)
+        )
+      );
+      return result;
+    }
+
+    return await query;
+  }
+
+  async getTopBeneficiaries(
+    withoutPlayerId: number,
+    stat: 'pts' | 'reb' | 'ast',
+    limit: number
+  ): Promise<DbPlayerOnOffSplit[]> {
+    if (!db) throw new Error("Database not initialized");
+
+    const deltaColumn =
+      stat === 'pts' ? playerOnOffSplits.ptsDelta :
+      stat === 'reb' ? playerOnOffSplits.rebDelta :
+      playerOnOffSplits.astDelta;
+
+    const result = await db
+      .select()
+      .from(playerOnOffSplits)
+      .where(
+        and(
+          eq(playerOnOffSplits.withoutPlayerId, withoutPlayerId),
+          gte(playerOnOffSplits.gamesWithoutTeammate, 3) // Minimum sample size
+        )
+      )
+      .orderBy(desc(deltaColumn))
+      .limit(limit);
+
+    return result;
+  }
+
+  async getOnOffSplitsByTeam(teamAbbr: string, season?: string): Promise<DbPlayerOnOffSplit[]> {
+    if (!db) throw new Error("Database not initialized");
+
+    const query = db
+      .select()
+      .from(playerOnOffSplits)
+      .where(eq(playerOnOffSplits.team, teamAbbr));
+
+    if (season) {
+      const result = await query.where(
+        and(
+          eq(playerOnOffSplits.team, teamAbbr),
+          eq(playerOnOffSplits.season, season)
+        )
+      );
+      return result;
+    }
+
+    return await query;
+  }
+
+  async deleteStaleOnOffSplits(olderThanDays: number): Promise<void> {
+    if (!db) throw new Error("Database not initialized");
+
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - olderThanDays);
+
+    await db
+      .delete(playerOnOffSplits)
+      .where(sql`${playerOnOffSplits.updatedAt} < ${cutoffDate}`);
+  }
 }
 
 export class MemStorage implements IStorage {
@@ -1005,6 +1134,12 @@ export class MemStorage implements IStorage {
   async updateUserBetResult(betId: number, result: 'win' | 'loss' | 'push', actualValue: number, profit: number): Promise<void> { }
 
   async compareLines(playerId: number, stat: string, gameDate: string): Promise<LineComparison> { throw new Error("Not implemented in MemStorage"); }
+
+  async savePlayerOnOffSplit(split: InsertPlayerOnOffSplit): Promise<DbPlayerOnOffSplit> { throw new Error("Not implemented in MemStorage"); }
+  async getPlayerOnOffSplits(withoutPlayerId: number, season?: string): Promise<DbPlayerOnOffSplit[]> { return []; }
+  async getTopBeneficiaries(withoutPlayerId: number, stat: 'pts' | 'reb' | 'ast', limit: number): Promise<DbPlayerOnOffSplit[]> { return []; }
+  async getOnOffSplitsByTeam(teamAbbr: string, season?: string): Promise<DbPlayerOnOffSplit[]> { return []; }
+  async deleteStaleOnOffSplits(olderThanDays: number): Promise<void> { }
 }
 
 

@@ -21,6 +21,7 @@ import {
 import { apiLogger } from "./logger";
 import { apiCache } from "./cache";
 import type { InjuryAlertData, InjuryStatusType } from "@shared/schema";
+import { onOffService } from "./on-off-service";
 
 // ========================================
 // TYPES
@@ -351,7 +352,34 @@ export class InjuryWatcher extends EventEmitter {
         } catch (error) {
           apiLogger.error(`Error calculating impacts for ${change.playerName}`, error);
         }
+
+        // Trigger on/off splits calculation when player goes OUT
+        if (change.newStatus === 'out') {
+          this.triggerOnOffSplitsCalculation(change).catch(err => {
+            apiLogger.error(`Error calculating on/off splits for ${change.playerName}`, err);
+          });
+        }
       }
+    }
+  }
+
+  /**
+   * Trigger on/off splits calculation in background
+   */
+  private async triggerOnOffSplitsCalculation(change: InjuryChangeEvent): Promise<void> {
+    apiLogger.info(`Triggering on/off splits calculation for ${change.playerName} (${change.playerId})`);
+
+    try {
+      await onOffService.calculateSplitsForPlayer(
+        change.playerId,
+        change.playerName,
+        change.team
+      );
+
+      apiLogger.info(`On/off splits calculated for ${change.playerName}`);
+    } catch (error) {
+      apiLogger.error(`Failed to calculate on/off splits for ${change.playerName}`, error);
+      throw error;
     }
   }
 

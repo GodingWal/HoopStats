@@ -25,6 +25,7 @@ import {
   calculateInjuryAdjustedProjection,
   calculateInjuryEdgeChange,
 } from "./injury-watcher";
+import { onOffService } from "./on-off-service";
 import {
   fetchTeamStats,
   fetchTeamRecentGames,
@@ -1342,6 +1343,155 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error generating injury-adjusted projections:", error);
       res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  // =============== ON/OFF SPLITS ROUTES ===============
+
+  // Get all teammates' stat changes when a player sits
+  app.get("/api/splits/without-player/:playerId", async (req, res) => {
+    try {
+      const { playerId } = req.params;
+      const { season } = req.query;
+
+      if (!playerId) {
+        return res.status(400).json({ error: "Player ID is required" });
+      }
+
+      const splits = await onOffService.getSplitsForPlayer(
+        parseInt(playerId),
+        season as string | undefined
+      );
+
+      // Filter out entries with insufficient sample size
+      const validSplits = splits.filter(s => s.gamesWithoutTeammate >= 3);
+
+      // Sort by points delta descending (biggest beneficiaries first)
+      const sortedSplits = validSplits.sort((a, b) => {
+        const aDelta = a.ptsDelta ?? 0;
+        const bDelta = b.ptsDelta ?? 0;
+        return bDelta - aDelta;
+      });
+
+      res.json({
+        playerId: parseInt(playerId),
+        splits: sortedSplits,
+        count: sortedSplits.length,
+      });
+    } catch (error) {
+      console.error("Error fetching on/off splits:", error);
+      res.status(500).json({ error: "Failed to fetch on/off splits" });
+    }
+  });
+
+  // Get top beneficiaries by stat
+  app.get("/api/splits/biggest-beneficiaries/:playerId", async (req, res) => {
+    try {
+      const { playerId } = req.params;
+      const { stat = 'pts', limit = '5' } = req.query;
+
+      if (!playerId) {
+        return res.status(400).json({ error: "Player ID is required" });
+      }
+
+      if (!['pts', 'reb', 'ast'].includes(stat as string)) {
+        return res.status(400).json({ error: "Stat must be pts, reb, or ast" });
+      }
+
+      const beneficiaries = await onOffService.getTopBeneficiaries(
+        parseInt(playerId),
+        stat as 'pts' | 'reb' | 'ast',
+        parseInt(limit as string)
+      );
+
+      res.json({
+        playerId: parseInt(playerId),
+        stat,
+        beneficiaries,
+        count: beneficiaries.length,
+      });
+    } catch (error) {
+      console.error("Error fetching top beneficiaries:", error);
+      res.status(500).json({ error: "Failed to fetch top beneficiaries" });
+    }
+  });
+
+  // Manually trigger calculation for a player
+  app.post("/api/splits/calculate/:playerId", async (req, res) => {
+    try {
+      const { playerId } = req.params;
+      const { playerName, team, seasons } = req.body;
+
+      if (!playerId || !playerName || !team) {
+        return res.status(400).json({
+          error: "Player ID, player name, and team are required",
+        });
+      }
+
+      // Start calculation in background
+      onOffService.calculateSplitsForPlayer(
+        parseInt(playerId),
+        playerName,
+        team,
+        seasons
+      ).catch(error => {
+        console.error("Background calculation failed:", error);
+      });
+
+      res.json({
+        message: "Calculation started",
+        playerId: parseInt(playerId),
+        playerName,
+        status: "processing",
+      });
+    } catch (error) {
+      console.error("Error triggering calculation:", error);
+      res.status(500).json({ error: "Failed to start calculation" });
+    }
+  });
+
+  // Get team-wide splits
+  app.get("/api/splits/team/:teamAbbr", async (req, res) => {
+    try {
+      const { teamAbbr } = req.params;
+      const { season } = req.query;
+
+      if (!teamAbbr) {
+        return res.status(400).json({ error: "Team abbreviation is required" });
+      }
+
+      const splits = await onOffService.getTeamSplits(
+        teamAbbr.toUpperCase(),
+        season as string | undefined
+      );
+
+      // Group by injured player
+      const groupedByInjuredPlayer = splits.reduce((acc, split) => {
+        const key = split.withoutPlayerId;
+        if (!acc[key]) {
+          acc[key] = {
+            injuredPlayerId: split.withoutPlayerId,
+            injuredPlayerName: split.withoutPlayerName,
+            teammates: [],
+          };
+        }
+        acc[key].teammates.push(split);
+        return acc;
+      }, {} as Record<number, {
+        injuredPlayerId: number;
+        injuredPlayerName: string;
+        teammates: typeof splits;
+      }>);
+
+      res.json({
+        teamAbbr: teamAbbr.toUpperCase(),
+        season,
+        injuredPlayers: Object.values(groupedByInjuredPlayer),
+        totalSplits: splits.length,
+      });
+    } catch (error) {
+      console.error("Error fetching team splits:", error);
+      res.status(500).json({ error: "Failed to fetch team splits" });
     }
   });
 
