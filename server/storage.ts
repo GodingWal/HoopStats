@@ -509,7 +509,7 @@ export class DatabaseStorage implements IStorage {
     let bestOver = lines[0];
     for (const line of lines) {
       if (line.line > bestOver.line ||
-          (line.line === bestOver.line && line.overOdds > bestOver.overOdds)) {
+        (line.line === bestOver.line && line.overOdds > bestOver.overOdds)) {
         bestOver = line;
       }
     }
@@ -518,7 +518,7 @@ export class DatabaseStorage implements IStorage {
     let bestUnder = lines[0];
     for (const line of lines) {
       if (line.line < bestUnder.line ||
-          (line.line === bestUnder.line && line.underOdds > bestUnder.underOdds)) {
+        (line.line === bestUnder.line && line.underOdds > bestUnder.underOdds)) {
         bestUnder = line;
       }
     }
@@ -657,11 +657,11 @@ export class DatabaseStorage implements IStorage {
 
     for (const line of lines) {
       if (line.line > bestOver.line ||
-          (line.line === bestOver.line && line.overOdds > bestOver.overOdds)) {
+        (line.line === bestOver.line && line.overOdds > bestOver.overOdds)) {
         bestOver = line;
       }
       if (line.line < bestUnder.line ||
-          (line.line === bestUnder.line && line.underOdds > bestUnder.underOdds)) {
+        (line.line === bestUnder.line && line.underOdds > bestUnder.underOdds)) {
         bestUnder = line;
       }
     }
@@ -850,6 +850,8 @@ export class MemStorage implements IStorage {
     const newRecommendation: DbRecommendation = {
       id,
       ...recommendation,
+      projectionId: recommendation.projectionId ?? null,
+      recommendedBetSize: recommendation.recommendedBetSize ?? null,
       userBet: false,
       profit: null,
       createdAt: new Date(),
@@ -968,9 +970,41 @@ export class MemStorage implements IStorage {
     const existing = this.teamDefenseMap.get(defense.teamId);
     this.teamDefenseMap.set(defense.teamId, {
       ...defense,
+      defRating: defense.defRating ?? null,
+      pace: defense.pace ?? null,
+      oppPtsAllowed: defense.oppPtsAllowed ?? null,
+      oppRebAllowed: defense.oppRebAllowed ?? null,
+      oppAstAllowed: defense.oppAstAllowed ?? null,
+      opp3PtPctAllowed: defense.opp3PtPctAllowed ?? null,
       updatedAt: new Date(),
     });
   }
+
+  // ========================================
+  // STUBS FOR MISSING METHODS
+  // ========================================
+
+  async getSportsbooks(): Promise<DbSportsbook[]> { return []; }
+  async upsertSportsbook(sportsbook: InsertSportsbook): Promise<DbSportsbook> { throw new Error("Not implemented in MemStorage"); }
+
+  async savePlayerPropLine(line: InsertPlayerPropLine): Promise<DbPlayerPropLine> { throw new Error("Not implemented in MemStorage"); }
+  async getPlayerPropLines(playerId: number, stat: string, gameDate?: string): Promise<DbPlayerPropLine[]> { return []; }
+  async getLatestLines(playerId: number, stat: string): Promise<DbPlayerPropLine[]> { return []; }
+  async getAllLinesForGame(gameId: string): Promise<DbPlayerPropLine[]> { return []; }
+
+  async saveLineMovement(movement: InsertLineMovement): Promise<DbLineMovement> { throw new Error("Not implemented in MemStorage"); }
+  async getLineMovements(playerId: number, stat: string, gameDate?: string): Promise<DbLineMovement[]> { return []; }
+  async getRecentLineMovements(hours: number = 24): Promise<DbLineMovement[]> { return []; }
+
+  async updateBestLines(playerId: number, stat: string, gameDate: string): Promise<void> { }
+  async getBestLines(playerId: number, stat: string): Promise<DbBestLine | undefined> { return undefined; }
+  async getBestLinesForDate(gameDate: string): Promise<DbBestLine[]> { return []; }
+
+  async saveUserBet(bet: InsertUserBet): Promise<DbUserBet> { throw new Error("Not implemented in MemStorage"); }
+  async getUserBets(filters?: { pending?: boolean; gameDate?: string }): Promise<DbUserBet[]> { return []; }
+  async updateUserBetResult(betId: number, result: 'win' | 'loss' | 'push', actualValue: number, profit: number): Promise<void> { }
+
+  async compareLines(playerId: number, stat: string, gameDate: string): Promise<LineComparison> { throw new Error("Not implemented in MemStorage"); }
 }
 
 

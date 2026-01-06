@@ -72,6 +72,15 @@ export interface LiveGame {
         description: string;
         shortLinkText: string;
     }[];
+    gameOdds?: {
+        favorite: string; // Team abbreviation
+        spread: number;
+        moneyline: {
+            home: number;
+            away: number;
+        };
+        bookmaker: string;
+    };
 }
 
 // dateStr format: YYYYMMDD (e.g., "20260103")
@@ -113,7 +122,7 @@ export async function fetchLiveGames(dateStr?: string): Promise<LiveGame[]> {
                 competitors: competition.competitors,
                 headlines: competition.headlines
             };
-        }).filter((game): game is LiveGame => game !== null);
+        }).filter((game: LiveGame | null): game is LiveGame => game !== null);
 
         // Cache the result
         shortCache.set(cacheKey, games);
@@ -398,7 +407,7 @@ export interface ESPNAthlete {
         status?: string;
         date?: string;
         description?: string;
-        type?: string;
+        type?: string | { id: string; name: string; abbreviation: string };
         longComment?: string;
         shortComment?: string;
     }>;
@@ -479,7 +488,7 @@ interface ESPNInjuryData {
     status?: string;
     date?: string;
     description?: string;
-    type?: { id: string; name: string; abbreviation: string };
+    type?: { id: string; name: string; abbreviation: string } | string;
     longComment?: string;
     shortComment?: string;
 }
@@ -545,7 +554,7 @@ export async function fetchTeamInjuries(teamId: string): Promise<PlayerInjuryRep
                         team: '', // Will be filled from team data
                         teamId: parseInt(teamId),
                         status,
-                        injuryType: latestInjury?.type?.name || latestInjury?.shortComment?.split(' - ')?.[0],
+                        injuryType: typeof latestInjury?.type === 'object' ? latestInjury.type.name : latestInjury?.type || latestInjury?.shortComment?.split(' - ')?.[0],
                         description: latestInjury?.longComment || latestInjury?.shortComment || latestInjury?.description,
                         returnDate: latestInjury?.date,
                         source: 'espn',

@@ -102,7 +102,7 @@ export function isOddsApiConfigured(): boolean {
 }
 
 /**
- * Fetch today's NBA events/games
+ * Fetch today's NBA events/games with odds
  */
 export async function fetchNbaEvents(): Promise<OddsEvent[]> {
     const apiKey = getApiKey();
@@ -119,7 +119,8 @@ export async function fetchNbaEvents(): Promise<OddsEvent[]> {
     }
 
     try {
-        const url = `${ODDS_API_BASE}/sports/${SPORT_KEY}/events?apiKey=${apiKey}`;
+        // Fetch h2h (moneyline) and spreads
+        const url = `${ODDS_API_BASE}/sports/${SPORT_KEY}/odds?apiKey=${apiKey}&regions=us&markets=h2h,spreads&oddsFormat=american&bookmakers=${BOOKMAKERS}`;
         const response = await fetch(url);
 
         if (!response.ok) {
@@ -143,6 +144,60 @@ export async function fetchNbaEvents(): Promise<OddsEvent[]> {
         apiLogger.error("Failed to fetch NBA events", error);
         return [];
     }
+}
+
+export interface GameOdds {
+    favorite: string;
+    spread: number;
+    moneyline: {
+        home: number;
+        away: number;
+    };
+    bookmaker: string;
+}
+
+/**
+ * Extract best/representative odds from an event
+ */
+export function extractGameOdds(event: OddsEvent): GameOdds | null {
+    if (!event.bookmakers || event.bookmakers.length === 0) return null;
+
+    // Prefer DraftKings, then FanDuel, then first available
+    const preferredBook = event.bookmakers.find(b => b.key === 'draftkings')
+        || event.bookmakers.find(b => b.key === 'fanduel')
+        || event.bookmakers[0];
+
+    const moneylineMarket = preferredBook.markets.find(m => m.key === 'h2h');
+    const spreadMarket = preferredBook.markets.find(m => m.key === 'spreads');
+
+    if (!spreadMarket) return null;
+
+    // Get spread
+    const homeSpread = spreadMarket.outcomes.find(o => o.name === event.home_team);
+    const awaySpread = spreadMarket.outcomes.find(o => o.name === event.away_team);
+
+    if (!homeSpread || !awaySpread) return null;
+
+    // Determine favorite (negative spread)
+    const favorite = homeSpread.point! < 0 ? event.home_team : event.away_team;
+    const spread = homeSpread.point! < 0 ? homeSpread.point! : awaySpread.point!;
+
+    // Get moneyline if available
+    let moneyline = { home: 0, away: 0 };
+    if (moneylineMarket) {
+        const homeML = moneylineMarket.outcomes.find(o => o.name === event.home_team);
+        const awayML = moneylineMarket.outcomes.find(o => o.name === event.away_team);
+        if (homeML && awayML) {
+            moneyline = { home: homeML.price, away: awayML.price };
+        }
+    }
+
+    return {
+        favorite,
+        spread,
+        moneyline,
+        bookmaker: preferredBook.title
+    };
 }
 
 /**

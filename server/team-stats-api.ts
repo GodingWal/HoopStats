@@ -29,37 +29,37 @@ export const NBA_TEAMS_INFO: Array<{
   conference: string;
   division: string;
 }> = [
-  { id: '1', abbr: 'ATL', name: 'Hawks', fullName: 'Atlanta Hawks', conference: 'Eastern', division: 'Southeast' },
-  { id: '2', abbr: 'BOS', name: 'Celtics', fullName: 'Boston Celtics', conference: 'Eastern', division: 'Atlantic' },
-  { id: '17', abbr: 'BKN', name: 'Nets', fullName: 'Brooklyn Nets', conference: 'Eastern', division: 'Atlantic' },
-  { id: '30', abbr: 'CHA', name: 'Hornets', fullName: 'Charlotte Hornets', conference: 'Eastern', division: 'Southeast' },
-  { id: '4', abbr: 'CHI', name: 'Bulls', fullName: 'Chicago Bulls', conference: 'Eastern', division: 'Central' },
-  { id: '5', abbr: 'CLE', name: 'Cavaliers', fullName: 'Cleveland Cavaliers', conference: 'Eastern', division: 'Central' },
-  { id: '6', abbr: 'DAL', name: 'Mavericks', fullName: 'Dallas Mavericks', conference: 'Western', division: 'Southwest' },
-  { id: '7', abbr: 'DEN', name: 'Nuggets', fullName: 'Denver Nuggets', conference: 'Western', division: 'Northwest' },
-  { id: '8', abbr: 'DET', name: 'Pistons', fullName: 'Detroit Pistons', conference: 'Eastern', division: 'Central' },
-  { id: '9', abbr: 'GSW', name: 'Warriors', fullName: 'Golden State Warriors', conference: 'Western', division: 'Pacific' },
-  { id: '10', abbr: 'HOU', name: 'Rockets', fullName: 'Houston Rockets', conference: 'Western', division: 'Southwest' },
-  { id: '11', abbr: 'IND', name: 'Pacers', fullName: 'Indiana Pacers', conference: 'Eastern', division: 'Central' },
-  { id: '12', abbr: 'LAC', name: 'Clippers', fullName: 'Los Angeles Clippers', conference: 'Western', division: 'Pacific' },
-  { id: '13', abbr: 'LAL', name: 'Lakers', fullName: 'Los Angeles Lakers', conference: 'Western', division: 'Pacific' },
-  { id: '29', abbr: 'MEM', name: 'Grizzlies', fullName: 'Memphis Grizzlies', conference: 'Western', division: 'Southwest' },
-  { id: '14', abbr: 'MIA', name: 'Heat', fullName: 'Miami Heat', conference: 'Eastern', division: 'Southeast' },
-  { id: '15', abbr: 'MIL', name: 'Bucks', fullName: 'Milwaukee Bucks', conference: 'Eastern', division: 'Central' },
-  { id: '16', abbr: 'MIN', name: 'Timberwolves', fullName: 'Minnesota Timberwolves', conference: 'Western', division: 'Northwest' },
-  { id: '3', abbr: 'NOP', name: 'Pelicans', fullName: 'New Orleans Pelicans', conference: 'Western', division: 'Southwest' },
-  { id: '18', abbr: 'NYK', name: 'Knicks', fullName: 'New York Knicks', conference: 'Eastern', division: 'Atlantic' },
-  { id: '25', abbr: 'OKC', name: 'Thunder', fullName: 'Oklahoma City Thunder', conference: 'Western', division: 'Northwest' },
-  { id: '19', abbr: 'ORL', name: 'Magic', fullName: 'Orlando Magic', conference: 'Eastern', division: 'Southeast' },
-  { id: '20', abbr: 'PHI', name: '76ers', fullName: 'Philadelphia 76ers', conference: 'Eastern', division: 'Atlantic' },
-  { id: '21', abbr: 'PHX', name: 'Suns', fullName: 'Phoenix Suns', conference: 'Western', division: 'Pacific' },
-  { id: '22', abbr: 'POR', name: 'Trail Blazers', fullName: 'Portland Trail Blazers', conference: 'Western', division: 'Northwest' },
-  { id: '23', abbr: 'SAC', name: 'Kings', fullName: 'Sacramento Kings', conference: 'Western', division: 'Pacific' },
-  { id: '24', abbr: 'SAS', name: 'Spurs', fullName: 'San Antonio Spurs', conference: 'Western', division: 'Southwest' },
-  { id: '28', abbr: 'TOR', name: 'Raptors', fullName: 'Toronto Raptors', conference: 'Eastern', division: 'Atlantic' },
-  { id: '26', abbr: 'UTA', name: 'Jazz', fullName: 'Utah Jazz', conference: 'Western', division: 'Northwest' },
-  { id: '27', abbr: 'WAS', name: 'Wizards', fullName: 'Washington Wizards', conference: 'Eastern', division: 'Southeast' },
-];
+    { id: '1', abbr: 'ATL', name: 'Hawks', fullName: 'Atlanta Hawks', conference: 'Eastern', division: 'Southeast' },
+    { id: '2', abbr: 'BOS', name: 'Celtics', fullName: 'Boston Celtics', conference: 'Eastern', division: 'Atlantic' },
+    { id: '17', abbr: 'BKN', name: 'Nets', fullName: 'Brooklyn Nets', conference: 'Eastern', division: 'Atlantic' },
+    { id: '30', abbr: 'CHA', name: 'Hornets', fullName: 'Charlotte Hornets', conference: 'Eastern', division: 'Southeast' },
+    { id: '4', abbr: 'CHI', name: 'Bulls', fullName: 'Chicago Bulls', conference: 'Eastern', division: 'Central' },
+    { id: '5', abbr: 'CLE', name: 'Cavaliers', fullName: 'Cleveland Cavaliers', conference: 'Eastern', division: 'Central' },
+    { id: '6', abbr: 'DAL', name: 'Mavericks', fullName: 'Dallas Mavericks', conference: 'Western', division: 'Southwest' },
+    { id: '7', abbr: 'DEN', name: 'Nuggets', fullName: 'Denver Nuggets', conference: 'Western', division: 'Northwest' },
+    { id: '8', abbr: 'DET', name: 'Pistons', fullName: 'Detroit Pistons', conference: 'Eastern', division: 'Central' },
+    { id: '9', abbr: 'GSW', name: 'Warriors', fullName: 'Golden State Warriors', conference: 'Western', division: 'Pacific' },
+    { id: '10', abbr: 'HOU', name: 'Rockets', fullName: 'Houston Rockets', conference: 'Western', division: 'Southwest' },
+    { id: '11', abbr: 'IND', name: 'Pacers', fullName: 'Indiana Pacers', conference: 'Eastern', division: 'Central' },
+    { id: '12', abbr: 'LAC', name: 'Clippers', fullName: 'Los Angeles Clippers', conference: 'Western', division: 'Pacific' },
+    { id: '13', abbr: 'LAL', name: 'Lakers', fullName: 'Los Angeles Lakers', conference: 'Western', division: 'Pacific' },
+    { id: '29', abbr: 'MEM', name: 'Grizzlies', fullName: 'Memphis Grizzlies', conference: 'Western', division: 'Southwest' },
+    { id: '14', abbr: 'MIA', name: 'Heat', fullName: 'Miami Heat', conference: 'Eastern', division: 'Southeast' },
+    { id: '15', abbr: 'MIL', name: 'Bucks', fullName: 'Milwaukee Bucks', conference: 'Eastern', division: 'Central' },
+    { id: '16', abbr: 'MIN', name: 'Timberwolves', fullName: 'Minnesota Timberwolves', conference: 'Western', division: 'Northwest' },
+    { id: '3', abbr: 'NOP', name: 'Pelicans', fullName: 'New Orleans Pelicans', conference: 'Western', division: 'Southwest' },
+    { id: '18', abbr: 'NYK', name: 'Knicks', fullName: 'New York Knicks', conference: 'Eastern', division: 'Atlantic' },
+    { id: '25', abbr: 'OKC', name: 'Thunder', fullName: 'Oklahoma City Thunder', conference: 'Western', division: 'Northwest' },
+    { id: '19', abbr: 'ORL', name: 'Magic', fullName: 'Orlando Magic', conference: 'Eastern', division: 'Southeast' },
+    { id: '20', abbr: 'PHI', name: '76ers', fullName: 'Philadelphia 76ers', conference: 'Eastern', division: 'Atlantic' },
+    { id: '21', abbr: 'PHX', name: 'Suns', fullName: 'Phoenix Suns', conference: 'Western', division: 'Pacific' },
+    { id: '22', abbr: 'POR', name: 'Trail Blazers', fullName: 'Portland Trail Blazers', conference: 'Western', division: 'Northwest' },
+    { id: '23', abbr: 'SAC', name: 'Kings', fullName: 'Sacramento Kings', conference: 'Western', division: 'Pacific' },
+    { id: '24', abbr: 'SAS', name: 'Spurs', fullName: 'San Antonio Spurs', conference: 'Western', division: 'Southwest' },
+    { id: '28', abbr: 'TOR', name: 'Raptors', fullName: 'Toronto Raptors', conference: 'Eastern', division: 'Atlantic' },
+    { id: '26', abbr: 'UTA', name: 'Jazz', fullName: 'Utah Jazz', conference: 'Western', division: 'Northwest' },
+    { id: '27', abbr: 'WAS', name: 'Wizards', fullName: 'Washington Wizards', conference: 'Eastern', division: 'Southeast' },
+  ];
 
 export function getTeamInfo(teamAbbr: string) {
   return NBA_TEAMS_INFO.find(t => t.abbr === teamAbbr.toUpperCase());
@@ -145,6 +145,23 @@ export async function fetchTeamRecentGames(teamAbbr: string, numGames: number = 
         const pointDiff = teamScore - oppScore;
         const isWin = pointDiff > 0;
 
+        // Parse stats if available
+        const getStat = (name: string) => {
+          const s = teamCompetitor.statistics?.find(s => s.name === name || s.abbreviation === name);
+          return s ? parseFloat(s.displayValue) : undefined;
+        };
+
+        const stats = {
+          rebounds: getStat('reb') || getStat('REB'),
+          assists: getStat('ast') || getStat('AST'),
+          steals: getStat('stl') || getStat('STL'),
+          blocks: getStat('blk') || getStat('BLK'),
+          turnovers: getStat('tov') || getStat('TOV'),
+          fgPct: getStat('fgPct') || getStat('FG%'),
+          fg3Pct: getStat('fg3Pct') || getStat('3P%'),
+          ftPct: getStat('ftPct') || getStat('FT%'),
+        };
+
         games.push({
           gameId: game.id,
           date: game.date,
@@ -155,6 +172,7 @@ export async function fetchTeamRecentGames(teamAbbr: string, numGames: number = 
           pointDifferential: pointDiff,
           gameType: getGameType(pointDiff, isWin),
           quarterScoring: parseQuarterScoring(teamCompetitor.linescores),
+          stats,
         });
 
         if (games.length >= numGames) break;
@@ -222,6 +240,26 @@ function calculateBasicStats(games: GameContext[]): TeamBasicStats {
   const homeWins = homeGames.filter(g => g.result === 'W').length;
   const awayWins = awayGames.filter(g => g.result === 'W').length;
 
+  // Calculate averages from available game stats
+  const avg = (key: keyof NonNullable<GameContext['stats']>) => {
+    const validGames = games.filter(g => g.stats && g.stats[key] !== undefined);
+    if (validGames.length === 0) return 0;
+    return validGames.reduce((sum, g) => sum + (g.stats![key] || 0), 0) / validGames.length;
+  };
+
+  const rpg = avg('rebounds') || 44;
+  const apg = avg('assists') || 25;
+  const spg = avg('steals') || 7;
+  const bpg = avg('blocks') || 5;
+  const tpg = avg('turnovers') || 13;
+  const rawFgPct = avg('fgPct') || 46;
+  const rawFg3Pct = avg('fg3Pct') || 36;
+  const rawFtPct = avg('ftPct') || 78;
+
+  const fgPct = rawFgPct > 1 ? rawFgPct / 100 : rawFgPct;
+  const fg3Pct = rawFg3Pct > 1 ? rawFg3Pct / 100 : rawFg3Pct;
+  const ftPct = rawFtPct > 1 ? rawFtPct / 100 : rawFtPct;
+
   return {
     gamesPlayed: games.length,
     wins,
@@ -229,9 +267,8 @@ function calculateBasicStats(games: GameContext[]): TeamBasicStats {
     winPct: wins / games.length,
     ppg: totalPts / games.length,
     oppPpg: totalOppPts / games.length,
-    // These would need box score data for accurate values
-    rpg: 44, apg: 25, spg: 7, bpg: 5, tpg: 13,
-    fgPct: 0.46, fg3Pct: 0.36, ftPct: 0.78,
+    rpg, apg, spg, bpg, tpg,
+    fgPct, fg3Pct, ftPct,
     homeRecord: `${homeWins}-${homeGames.length - homeWins}`,
     awayRecord: `${awayWins}-${awayGames.length - awayWins}`,
     homePpg: homeGames.length > 0 ? homePts / homeGames.length : 0,
@@ -245,7 +282,7 @@ function calculateBasicStats(games: GameContext[]): TeamBasicStats {
 
 // Calculate player rotation stats
 export async function fetchTeamRotation(teamAbbr: string, games: GameContext[]): Promise<PlayerRotationStats[]> {
-  const cacheKey = `team-rotation-${teamAbbr}`;
+  const cacheKey = `team-rotation-v2-${teamAbbr}`;
   const cached = apiCache.get<PlayerRotationStats[]>(cacheKey);
   if (cached) return cached;
 
@@ -253,45 +290,134 @@ export async function fetchTeamRotation(teamAbbr: string, games: GameContext[]):
     const teamInfo = getTeamInfo(teamAbbr);
     if (!teamInfo) return [];
 
-    const roster = await fetchTeamRoster(teamInfo.id);
+    // Fetch full box scores for games to get minutes/rotation
+    // We limit to the most recent 10 games to keep it relevant and fast
+    const recentGames = games.slice(0, 10);
+    const boxScorePromises = recentGames.map(g => fetchGameBoxScore(g.gameId));
+    const boxScores = await Promise.all(boxScorePromises);
+
+    const playerStatsMap = new Map<number, {
+      name: string;
+      position: string;
+      games: number;
+      starts: number;
+      minutes: number;
+      points: number;
+      rebounds: number;
+      assists: number;
+
+      closeGames: number;
+      closeMinutes: number;
+      closePoints: number;
+
+      blowoutGames: number;
+      blowoutMinutes: number;
+      blowoutPoints: number;
+    }>();
+
+    // Map game ID to game context for easy lookup
+    const gameContextMap = new Map(recentGames.map(g => [g.gameId, g]));
+
+    for (const box of boxScores) {
+      if (!box) continue;
+
+      const game = gameContextMap.get(box.gameId);
+      if (!game) continue;
+
+      const isClose = game.gameType.includes('close');
+      const isBlowout = game.gameType.includes('blowout');
+
+      const teamData = box.homeTeam.abbreviation === teamAbbr ? box.homeTeam : box.awayTeam;
+      if (!teamData) {
+        continue;
+      }
+
+      for (const player of teamData.players) {
+        const playerId = parseInt(player.id);
+        const stats = playerStatsMap.get(playerId) || {
+          name: player.displayName,
+          position: player.position,
+          games: 0,
+          starts: 0,
+          minutes: 0,
+          points: 0,
+          rebounds: 0,
+          assists: 0,
+          closeGames: 0,
+          closeMinutes: 0,
+          closePoints: 0,
+          blowoutGames: 0,
+          blowoutMinutes: 0,
+          blowoutPoints: 0,
+        };
+
+        // Parse stats
+        // Parse stats
+        const minStr = player.stats['MIN'] || "0";
+        const minutes = parseInt(minStr) || 0;
+        const pts = parseInt(player.stats['PTS'] || "0");
+        const reb = parseInt(player.stats['REB'] || "0");
+        const ast = parseInt(player.stats['AST'] || "0");
+
+        if (minutes > 0) {
+          stats.games++;
+          stats.minutes += minutes;
+          stats.points += pts;
+          stats.rebounds += reb;
+          stats.assists += ast;
+          if (player.starter) stats.starts++;
+
+          if (isClose) {
+            stats.closeGames++;
+            stats.closeMinutes += minutes;
+            stats.closePoints += pts;
+          } else if (isBlowout) {
+            stats.blowoutGames++;
+            stats.blowoutMinutes += minutes;
+            stats.blowoutPoints += pts;
+          }
+        }
+
+        playerStatsMap.set(playerId, stats);
+      }
+    }
+
     const rotation: PlayerRotationStats[] = [];
 
-    // Get box scores for recent games to calculate minutes
-    const closeGames = games.filter(g => g.gameType === 'close_win' || g.gameType === 'close_loss');
-    const blowoutGames = games.filter(g => g.gameType === 'blowout_win' || g.gameType === 'blowout_loss');
+    for (const [playerId, stats] of playerStatsMap.entries()) {
+      // Only include players with meaningful minutes (e.g. > 5 min total in last 10 games)
+      if (stats.minutes < 5) continue;
 
-    // For now, we'll create estimated rotation data based on roster
-    // In production, this would fetch actual box score data for each game
-    for (const player of roster) {
-      // Estimate based on typical rotation patterns
-      const isStarter = player.injuries?.length === 0 || player.status?.name === 'Active';
-      const baseMinutes = isStarter ? 32 : 18;
+      const mpg = stats.minutes / stats.games;
 
       rotation.push({
-        playerId: parseInt(player.id),
-        playerName: player.displayName,
-        position: player.position?.abbreviation,
-        overallMpg: baseMinutes,
-        overallPpg: isStarter ? 15 : 7,
-        overallRpg: isStarter ? 5 : 2.5,
-        overallApg: isStarter ? 4 : 2,
-        gamesPlayed: games.length,
-        closeGameMpg: isStarter ? baseMinutes + 3 : baseMinutes - 2, // Starters play more in close games
-        closeGamePpg: isStarter ? 17 : 6,
-        closeGamesPlayed: closeGames.length,
-        blowoutMpg: isStarter ? baseMinutes - 5 : baseMinutes + 5, // Bench plays more in blowouts
-        blowoutPpg: isStarter ? 12 : 10,
-        blowoutGamesPlayed: blowoutGames.length,
-        isStarter,
-        starterPct: isStarter ? 0.9 : 0.1,
+        playerId,
+        playerName: stats.name,
+        position: stats.position,
+        overallMpg: Math.round(mpg * 10) / 10,
+        overallPpg: Math.round((stats.points / stats.games) * 10) / 10,
+        overallRpg: Math.round((stats.rebounds / stats.games) * 10) / 10,
+        overallApg: Math.round((stats.assists / stats.games) * 10) / 10,
+        gamesPlayed: stats.games,
+
+        closeGameMpg: stats.closeGames > 0 ? Math.round((stats.closeMinutes / stats.closeGames) * 10) / 10 : 0,
+        closeGamePpg: stats.closeGames > 0 ? Math.round((stats.closePoints / stats.closeGames) * 10) / 10 : 0,
+        closeGamesPlayed: stats.closeGames,
+
+        blowoutMpg: stats.blowoutGames > 0 ? Math.round((stats.blowoutMinutes / stats.blowoutGames) * 10) / 10 : 0,
+        blowoutPpg: stats.blowoutGames > 0 ? Math.round((stats.blowoutPoints / stats.blowoutGames) * 10) / 10 : 0,
+        blowoutGamesPlayed: stats.blowoutGames,
+
+        isStarter: (stats.starts / stats.games) > 0.5,
+        starterPct: Math.round((stats.starts / stats.games) * 100) / 100,
       });
     }
 
     // Sort by overall minutes
     rotation.sort((a, b) => b.overallMpg - a.overallMpg);
 
-    // Cache for 10 minutes
-    apiCache.set(cacheKey, rotation, 600000);
+    // Cache for 30 minutes (rotation doesn't change that fast)
+    apiCache.set(cacheKey, rotation, 1800000);
     return rotation;
 
   } catch (error) {
@@ -340,7 +466,7 @@ function calculateAdvancedStats(basicStats: TeamBasicStats): TeamAdvancedStats {
 
 // Main function to fetch complete team stats
 export async function fetchTeamStats(teamAbbr: string): Promise<TeamStats | null> {
-  const cacheKey = `team-stats-${teamAbbr}`;
+  const cacheKey = `team-stats-v2-${teamAbbr}`;
   const cached = apiCache.get<TeamStats>(cacheKey);
   if (cached) return cached;
 

@@ -11,15 +11,15 @@ interface PlayerStats {
   FG3M: number;
   PRA: number;
   MIN: number;
-  STL: number;
-  BLK: number;
-  TOV: number;
+  STL?: number;
+  BLK?: number;
+  TOV?: number;
 }
 
 interface PlayerRealStats {
   seasonAverages: PlayerStats;
   gamesPlayed: number;
-  recentGames: PlayerGameStats[];
+  recentGames: any[];
   last10Averages: PlayerStats;
   last5Averages: PlayerStats;
   vsTeamStats?: Record<string, { games: number; PTS: number; REB: number; AST: number; FG3M: number; PRA: number }>;
@@ -254,7 +254,7 @@ export async function buildPlayerFromESPN(athlete: ESPNAthlete, team: ESPNTeam):
     AST: generateMockHitRates(seasonAverages.AST, 'AST'),
     FG3M: generateMockHitRates(seasonAverages.FG3M, 'FG3M'),
     PRA: generateMockHitRates(seasonAverages.PRA, 'PRA'),
-    STOCKS: generateMockHitRates(seasonAverages.STL + seasonAverages.BLK, 'STOCKS'),
+    STOCKS: generateMockHitRates((seasonAverages.STL || 0) + (seasonAverages.BLK || 0), 'STOCKS'),
   };
 
   const homeAvgs = {

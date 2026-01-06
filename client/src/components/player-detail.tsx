@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import type { Player, VsTeamStats as VsTeamStatsType, AdvancedStats } from "@shared/schema";
 import { useQuery } from "@tanstack/react-query";
 import { StatBadge } from "./stat-badge";
@@ -43,33 +44,44 @@ export function PlayerDetail({ player }: PlayerDetailProps) {
   });
 
   // Fetch advanced stats
-  const { data: allAdvancedStats, isLoading: isLoadingAdvanced } = useQuery<AdvancedStats[]>({
+  // Fetch advanced stats
+  const { data: allAdvancedStats, isLoading: isLoadingAdvanced, isError: isErrorAdvanced, error: advancedError } = useQuery<AdvancedStats[]>({
     queryKey: ['/api/stats/advanced'],
     staleTime: 1000 * 60 * 60, // 1 hour (league stats change slowly)
   });
 
   // Helper to normalize names for better matching
   const normalizeName = (name: string) => {
-    return name.toLowerCase()
+    return name.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase()
       .replace(/[.'-]/g, "") // Remove punctuation
       .replace(/\s+(jr|sr|ii|iii|iv)$/i, "") // Remove suffixes
       .replace(/\s+/g, " ") // Normalize spaces
       .trim();
   };
 
-  const advancedStats = allAdvancedStats?.find(s => {
+  const playerAdvancedStats = allAdvancedStats?.find(s => {
     const n1 = normalizeName(s.playerName);
     const n2 = normalizeName(player.player_name);
     return n1 === n2 || n1.includes(n2) || n2.includes(n1);
   });
 
   /* Debug logging */
-  // useEffect(() => {
-  //   if (allAdvancedStats) {
-  //     console.log("Found advanced stats for:", advancedStats?.playerName, "using source:", player.player_name);
-  //     console.log("Sample loaded stats:", allAdvancedStats.slice(0, 3));
-  //   }
-  // }, [allAdvancedStats, advancedStats, player.player_name]);
+  useEffect(() => {
+    if (isErrorAdvanced) {
+      console.error("Advanced Stats Error:", advancedError);
+    }
+    if (allAdvancedStats) {
+      console.log("Looking for player:", player.player_name);
+      console.log("Normalized target:", normalizeName(player.player_name));
+      console.log("Found matched stats:", playerAdvancedStats);
+      console.log("Total stats loaded:", allAdvancedStats.length);
+      if (!playerAdvancedStats && allAdvancedStats.length > 0) {
+        // Log potential close matches or the first few to check format
+        console.log("Sample stats in list:", allAdvancedStats.slice(0, 3));
+        console.log("Normalized sample:", allAdvancedStats.slice(0, 3).map(s => normalizeName(s.playerName)));
+      }
+    }
+  }, [allAdvancedStats, playerAdvancedStats, player.player_name, isErrorAdvanced, advancedError]);
 
   // Transform ESPN gamelog to the format expected by RecentGamesTable
   const recentGames = liveGamelog?.slice(0, 10).map((entry) => ({
@@ -129,7 +141,7 @@ export function PlayerDetail({ player }: PlayerDetailProps) {
     MIN: calcAvg(last5Games, 'MIN'),
   } : player.last_5_averages;
 
-  const gamesPlayed = allGames.length || player.games_played;
+  const gamesPlayed = allGames.length || player.games_played || 0;
 
   const recentPts = recentGames.map((g) => g.PTS).reverse();
   const recentReb = recentGames.map((g) => g.REB).reverse();
@@ -476,9 +488,19 @@ export function PlayerDetail({ player }: PlayerDetailProps) {
               <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
               <span className="ml-2 text-muted-foreground">Loading advanced stats...</span>
             </div>
-          ) : !advancedStats ? (
+          ) : isErrorAdvanced ? (
+            <div className="text-center py-8 text-red-500 bg-red-500/10 rounded-lg p-4">
+              <p className="font-medium">Failed to load advanced stats</p>
+              <p className="text-sm mt-1 opacity-80">Please check the console for details.</p>
+            </div>
+          ) : !playerAdvancedStats ? (
             <div className="text-center py-8 text-muted-foreground bg-muted/20 rounded-lg">
               No advanced stats available for {player.player_name}
+              {allAdvancedStats && allAdvancedStats.length > 0 && (
+                <div className="text-xs text-muted-foreground mt-2">
+                  (Loaded {allAdvancedStats.length} players but found no match)
+                </div>
+              )}
             </div>
           ) : (
             <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
@@ -487,7 +509,7 @@ export function PlayerDetail({ player }: PlayerDetailProps) {
                   <CardTitle className="text-xs font-medium text-muted-foreground uppercase">Usage Rate</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold">{advancedStats.usageRate}%</div>
+                  <div className="text-2xl font-bold">{playerAdvancedStats.usageRate}%</div>
                   <p className="text-xs text-muted-foreground mt-1">Est. % of team plays used</p>
                 </CardContent>
               </Card>
@@ -496,8 +518,8 @@ export function PlayerDetail({ player }: PlayerDetailProps) {
                   <CardTitle className="text-xs font-medium text-muted-foreground uppercase">True Shooting</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className={`text-2xl font-bold ${advancedStats.tsPct > 60 ? 'text-emerald-500' : advancedStats.tsPct < 55 ? 'text-yellow-500' : ''}`}>
-                    {advancedStats.tsPct}%
+                  <div className={`text-2xl font-bold ${playerAdvancedStats.tsPct > 60 ? 'text-emerald-500' : playerAdvancedStats.tsPct < 55 ? 'text-yellow-500' : ''}`}>
+                    {playerAdvancedStats.tsPct}%
                   </div>
                   <p className="text-xs text-muted-foreground mt-1">Efficiency including FTs</p>
                 </CardContent>
@@ -507,8 +529,8 @@ export function PlayerDetail({ player }: PlayerDetailProps) {
                   <CardTitle className="text-xs font-medium text-muted-foreground uppercase">Net Rating</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className={`text-2xl font-bold ${advancedStats.netRating > 0 ? 'text-emerald-500' : 'text-red-500'}`}>
-                    {advancedStats.netRating > 0 ? '+' : ''}{advancedStats.netRating}
+                  <div className={`text-2xl font-bold ${playerAdvancedStats.netRating > 0 ? 'text-emerald-500' : 'text-red-500'}`}>
+                    {playerAdvancedStats.netRating > 0 ? '+' : ''}{playerAdvancedStats.netRating}
                   </div>
                   <p className="text-xs text-muted-foreground mt-1">Est. point diff per 100 poss</p>
                 </CardContent>
@@ -518,7 +540,7 @@ export function PlayerDetail({ player }: PlayerDetailProps) {
                   <CardTitle className="text-xs font-medium text-muted-foreground uppercase">Assist Rate</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold">{advancedStats.astPct}%</div>
+                  <div className="text-2xl font-bold">{playerAdvancedStats.astPct}%</div>
                   <p className="text-xs text-muted-foreground mt-1">% of teammate FGs assisted</p>
                 </CardContent>
               </Card>
@@ -527,7 +549,7 @@ export function PlayerDetail({ player }: PlayerDetailProps) {
                   <CardTitle className="text-xs font-medium text-muted-foreground uppercase">Rebound Rate</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold">{advancedStats.rebPct}%</div>
+                  <div className="text-2xl font-bold">{playerAdvancedStats.rebPct}%</div>
                   <p className="text-xs text-muted-foreground mt-1">% of available rebounds</p>
                 </CardContent>
               </Card>
@@ -536,7 +558,7 @@ export function PlayerDetail({ player }: PlayerDetailProps) {
                   <CardTitle className="text-xs font-medium text-muted-foreground uppercase">Impact (PIE)</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold">{advancedStats.pie}</div>
+                  <div className="text-2xl font-bold">{playerAdvancedStats.pie}</div>
                   <p className="text-xs text-muted-foreground mt-1">Player Impact Estimate</p>
                 </CardContent>
               </Card>

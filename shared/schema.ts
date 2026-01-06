@@ -504,7 +504,7 @@ export const lineAlerts = pgTable("line_alerts", {
 });
 
 export const insertLineAlertSchema = createInsertSchema(lineAlerts).omit({ id: true, createdAt: true });
-export type InsertLineAlert = z.infer<typeof lineAlertSchema>;
+export type InsertLineAlert = z.infer<typeof insertLineAlertSchema>;
 export type DbLineAlert = typeof lineAlerts.$inferSelect;
 
 // Validation schemas
@@ -732,6 +732,16 @@ export const gameContextSchema = z.object({
   pointDifferential: z.number(),
   gameType: z.enum(['blowout_win', 'close_win', 'close_loss', 'blowout_loss']), // +/- 10 pts threshold
   quarterScoring: quarterScoringSchema,
+  stats: z.object({
+    rebounds: z.number().optional(),
+    assists: z.number().optional(),
+    steals: z.number().optional(),
+    blocks: z.number().optional(),
+    turnovers: z.number().optional(),
+    fgPct: z.number().optional(),
+    fg3Pct: z.number().optional(),
+    ftPct: z.number().optional(),
+  }).optional(),
 });
 
 export type GameContext = z.infer<typeof gameContextSchema>;

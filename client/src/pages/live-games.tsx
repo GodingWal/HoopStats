@@ -39,6 +39,15 @@ interface LiveGame {
         description: string;
         shortLinkText: string;
     }[];
+    gameOdds?: {
+        favorite: string;
+        spread: number;
+        moneyline: {
+            home: number;
+            away: number;
+        };
+        bookmaker: string;
+    };
 }
 
 interface GameBoxScore {
@@ -245,6 +254,28 @@ function GameCard({ game, onClick }: { game: LiveGame; onClick: () => void }) {
     const isLive = game.status.type.state === "in";
     const isFinished = game.status.type.completed;
     const isUpcoming = game.status.type.state === "pre";
+    const odds = game.gameOdds;
+
+    // Determine odds display
+    let oddsDisplay = null;
+    if (odds && (isUpcoming || isLive)) {
+        const isHomeFav = odds.favorite === homeTeam.team.abbreviation;
+        const spreadText = isHomeFav
+            ? `${homeTeam.team.abbreviation} ${odds.spread}`
+            : `${awayTeam.team.abbreviation} ${odds.spread}`;
+
+        oddsDisplay = (
+            <div className="flex items-center gap-2 mt-2 px-4 py-1.5 bg-muted/40 rounded-lg mx-4">
+                <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Odds</span>
+                <span className="text-sm font-medium font-mono">
+                    {spreadText}
+                </span>
+                <span className="text-xs text-muted-foreground ml-auto">
+                    via {odds.bookmaker}
+                </span>
+            </div>
+        );
+    }
 
     return (
         <Card
@@ -269,8 +300,8 @@ function GameCard({ game, onClick }: { game: LiveGame; onClick: () => void }) {
                     </span>
                 </div>
             </CardHeader>
-            <CardContent className="px-4 pb-4">
-                <div className="flex items-center justify-between py-4">
+            <CardContent className="px-0 pb-4">
+                <div className="flex items-center justify-between py-2 px-4">
                     <div className="flex flex-col items-center gap-2 flex-1">
                         <div className="w-14 h-14 rounded-xl bg-muted/50 p-2 flex items-center justify-center">
                             <img
@@ -285,7 +316,7 @@ function GameCard({ game, onClick }: { game: LiveGame; onClick: () => void }) {
                         </span>
                     </div>
 
-                    <div className="px-4">
+                    <div className="px-2">
                         <span className="text-xl font-bold text-muted-foreground/50">VS</span>
                     </div>
 
@@ -303,6 +334,8 @@ function GameCard({ game, onClick }: { game: LiveGame; onClick: () => void }) {
                         </span>
                     </div>
                 </div>
+
+                {oddsDisplay}
             </CardContent>
         </Card>
     );

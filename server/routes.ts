@@ -18,7 +18,7 @@ import {
   getTeamOutPlayers,
   type PlayerInjuryReport,
 } from "./espn-api";
-import { fetchNbaEvents, fetchEventPlayerProps, isOddsApiConfigured, getOddsApiStatus } from "./odds-api";
+import { fetchNbaEvents, fetchEventPlayerProps, isOddsApiConfigured, getOddsApiStatus, extractGameOdds } from "./odds-api";
 import { fetchPrizePicksProjections, fetchPlayerPrizePicksProps } from "./prizepicks-api";
 import {
   injuryWatcher,
@@ -315,6 +315,59 @@ export async function registerRoutes(
       // Accept date param in format YYYYMMDD
       const dateStr = req.query.date as string | undefined;
       const games = await fetchLiveGames(dateStr);
+
+      // Only fetch odds if no date specified (today) or date is today/future
+      // For simplicity, we'll try to fetch odds if we have games and it looks like today/upcoming
+      if (games.length > 0) {
+        try {
+          // Only fetch odds for today's games or upcoming. 
+          // The Odds API mainly returns upcoming/live odds.
+          const oddsEvents = await fetchNbaEvents();
+
+          // Merge odds into games
+          for (const game of games) {
+            const homeTeam = game.competitors.find(c => c.homeAway === 'home')?.team;
+            const awayTeam = game.competitors.find(c => c.homeAway === 'away')?.team;
+
+            if (!homeTeam || !awayTeam) continue;
+
+            // Find matching odds event
+            // Match by team names. Odds API uses full names e.g. "Los Angeles Lakers"
+            // ESPN uses "Lakers" and "LAL".
+            // We'll check if Odds API team name includes ESPN team name
+
+            const match = oddsEvents.find(e => {
+              const homeMatch = e.home_team.includes(homeTeam.name) || e.home_team.includes(homeTeam.displayName);
+              const awayMatch = e.away_team.includes(awayTeam.name) || e.away_team.includes(awayTeam.displayName);
+              return homeMatch && awayMatch;
+            });
+
+            if (match) {
+              // Check if there are valid odds to extract, assuming extractGameOdds is imported
+              const gameOdds = extractGameOdds(match);
+              if (gameOdds) {
+                // Convert favorite full name to abbreviation if possible, or keep as is
+                // If favorite matches home team name, use home abbr, else away abbr
+                let favAbbr = gameOdds.favorite;
+                if (gameOdds.favorite === match.home_team) {
+                  favAbbr = homeTeam.abbreviation;
+                } else if (gameOdds.favorite === match.away_team) {
+                  favAbbr = awayTeam.abbreviation;
+                }
+
+                game.gameOdds = {
+                  ...gameOdds,
+                  favorite: favAbbr
+                };
+              }
+            }
+          }
+        } catch (oddsError) {
+          console.error("Error fetching/merging odds:", oddsError);
+          // Verify we don't fail the whole request if odds fail
+        }
+      }
+
       res.json(games);
     } catch (error) {
       console.error("Error fetching live games:", error);
@@ -857,6 +910,8 @@ export async function registerRoutes(
       if (!props) {
         return res.status(404).json({ error: "No props found for this event" });
       }
+
+
       res.json(props);
     } catch (error) {
       console.error("Error fetching event props:", error);
@@ -896,7 +951,11 @@ export async function registerRoutes(
       pythonProcess.on("close", (code) => {
         if (code !== 0) {
           console.error("Python script error:", errorString);
-          return res.status(500).json({ error: "Failed to fetch advanced stats" });
+          return res.status(500).json({
+            error: "Failed to fetch advanced stats",
+            details: errorString || "Process exited with non-zero code",
+            stdoutSnippet: dataString.slice(0, 500)
+          });
         }
 
         try {
@@ -905,7 +964,11 @@ export async function registerRoutes(
           res.json(jsonData);
         } catch (e) {
           console.error("Failed to parse Python output:", e);
-          res.status(500).json({ error: "Invalid data format from analytics engine" });
+          res.status(500).json({
+            error: "Invalid data format from analytics engine",
+            details: (e as Error).message,
+            contentPrefix: dataString.slice(0, 500)
+          });
         }
       });
     } catch (error) {
