@@ -1,5 +1,5 @@
-import type { Player, PotentialBet, InsertPlayer, InsertPotentialBet, SeasonAverages, HitRates, VsTeamStats, GameLog, SplitAverages, InsertProjection, DbProjection, InsertRecommendation, DbRecommendation, InsertTeamDefense, DbTeamDefense, TrackRecord, PropEvaluation, InsertSportsbook, DbSportsbook, InsertPlayerPropLine, DbPlayerPropLine, InsertLineMovement, DbLineMovement, InsertBestLine, DbBestLine, InsertUserBet, DbUserBet, LineComparison, InsertPlayerOnOffSplit, DbPlayerOnOffSplit } from "@shared/schema";
-import { players, potentialBets, projections, recommendations, teamDefense, sportsbooks, playerPropLines, lineMovements, bestLines, userBets, playerOnOffSplits } from "@shared/schema";
+import type { Player, PotentialBet, InsertPlayer, InsertPotentialBet, SeasonAverages, HitRates, VsTeamStats, GameLog, SplitAverages, InsertProjection, DbProjection, InsertRecommendation, DbRecommendation, InsertTeamDefense, DbTeamDefense, TrackRecord, PropEvaluation, InsertSportsbook, DbSportsbook, InsertPlayerPropLine, DbPlayerPropLine, InsertLineMovement, DbLineMovement, InsertBestLine, DbBestLine, InsertUserBet, DbUserBet, LineComparison, InsertPlayerOnOffSplit, DbPlayerOnOffSplit, InsertParlay, DbParlay, InsertParlayPick, DbParlayPick } from "@shared/schema";
+import { players, potentialBets, projections, recommendations, teamDefense, sportsbooks, playerPropLines, lineMovements, bestLines, userBets, playerOnOffSplits, parlays, parlayPicks } from "@shared/schema";
 import { db } from "./db";
 import { eq, ilike, or, desc, and, gte, sql, inArray, avg, max, min, count } from "drizzle-orm";
 
@@ -55,6 +55,12 @@ export interface IStorage {
   saveUserBet(bet: InsertUserBet): Promise<DbUserBet>;
   getUserBets(filters?: { pending?: boolean; gameDate?: string }): Promise<DbUserBet[]>;
   updateUserBetResult(betId: number, result: 'win' | 'loss' | 'push', actualValue: number, profit: number): Promise<void>;
+
+  // Parlays
+  saveParlay(parlay: Omit<InsertParlay, 'placedAt'>, picks: Omit<InsertParlayPick, 'parlayId'>[]): Promise<DbParlay>;
+  getParlays(filters?: { pending?: boolean }): Promise<Array<DbParlay & { picks: DbParlayPick[] }>>;
+  updateParlayResult(parlayId: number, result: 'win' | 'loss' | 'push', profit: number): Promise<DbParlay>;
+  updateParlayPickResult(pickId: number, result: 'hit' | 'miss' | 'push', actualValue: number): Promise<DbParlayPick>;
 
   // Line comparison
   compareLines(playerId: number, stat: string, gameDate: string): Promise<LineComparison>;
@@ -632,6 +638,73 @@ export class DatabaseStorage implements IStorage {
   }
 
   // ========================================
+  // PARLAY METHODS
+  // ========================================
+
+  async saveParlay(parlay: Omit<InsertParlay, 'placedAt'>, picks: Omit<InsertParlayPick, 'parlayId'>[]): Promise<DbParlay> {
+    if (!db) throw new Error("Database not initialized");
+
+    const [savedParlay] = await db.insert(parlays).values(parlay).returning();
+
+    // Insert picks with the parlay ID
+    await db.insert(parlayPicks).values(
+      picks.map(pick => ({ ...pick, parlayId: savedParlay.id }))
+    );
+
+    return savedParlay;
+  }
+
+  async getParlays(filters?: { pending?: boolean }): Promise<Array<DbParlay & { picks: DbParlayPick[] }>> {
+    if (!db) throw new Error("Database not initialized");
+
+    const conditions = [];
+
+    if (filters?.pending) {
+      conditions.push(eq(parlays.result, 'pending'));
+    }
+
+    const allParlays = await db.select().from(parlays)
+      .where(conditions.length > 0 ? and(...conditions) : undefined)
+      .orderBy(desc(parlays.placedAt));
+
+    // Fetch picks for each parlay
+    const parlaysWithPicks = await Promise.all(
+      allParlays.map(async (parlay) => {
+        const picks = await db.select().from(parlayPicks)
+          .where(eq(parlayPicks.parlayId, parlay.id));
+        return { ...parlay, picks };
+      })
+    );
+
+    return parlaysWithPicks;
+  }
+
+  async updateParlayResult(parlayId: number, result: 'win' | 'loss' | 'push', profit: number): Promise<DbParlay> {
+    if (!db) throw new Error("Database not initialized");
+    const [updated] = await db.update(parlays)
+      .set({
+        result,
+        profit,
+        settledAt: new Date(),
+      })
+      .where(eq(parlays.id, parlayId))
+      .returning();
+    return updated;
+  }
+
+  async updateParlayPickResult(pickId: number, result: 'hit' | 'miss' | 'push', actualValue: number): Promise<DbParlayPick> {
+    if (!db) throw new Error("Database not initialized");
+    const [updated] = await db.update(parlayPicks)
+      .set({
+        result,
+        actualValue,
+      })
+      .where(eq(parlayPicks.id, pickId))
+      .returning();
+    return updated;
+  }
+
+  // ========================================
   // LINE COMPARISON METHODS
   // ========================================
 
@@ -773,8 +846,8 @@ export class DatabaseStorage implements IStorage {
 
     const deltaColumn =
       stat === 'pts' ? playerOnOffSplits.ptsDelta :
-      stat === 'reb' ? playerOnOffSplits.rebDelta :
-      playerOnOffSplits.astDelta;
+        stat === 'reb' ? playerOnOffSplits.rebDelta :
+          playerOnOffSplits.astDelta;
 
     const result = await db
       .select()
@@ -833,6 +906,9 @@ export class MemStorage implements IStorage {
   private recommendationsMap: Map<number, DbRecommendation>;
   private recommendationsIdCounter: number;
   private teamDefenseMap: Map<number, DbTeamDefense>;
+  private parlaysMap: Map<number, DbParlay & { picks: DbParlayPick[] }>;
+  private parlayIdCounter: number;
+  private parlayPickIdCounter: number;
 
   constructor() {
     this.players = new Map();
@@ -843,6 +919,9 @@ export class MemStorage implements IStorage {
     this.recommendationsMap = new Map();
     this.recommendationsIdCounter = 1;
     this.teamDefenseMap = new Map();
+    this.parlaysMap = new Map();
+    this.parlayIdCounter = 1;
+    this.parlayPickIdCounter = 1;
   }
 
   async getPlayers(): Promise<Player[]> {
@@ -1132,6 +1211,62 @@ export class MemStorage implements IStorage {
   async saveUserBet(bet: InsertUserBet): Promise<DbUserBet> { throw new Error("Not implemented in MemStorage"); }
   async getUserBets(filters?: { pending?: boolean; gameDate?: string }): Promise<DbUserBet[]> { return []; }
   async updateUserBetResult(betId: number, result: 'win' | 'loss' | 'push', actualValue: number, profit: number): Promise<void> { }
+
+  async saveParlay(parlay: Omit<InsertParlay, 'placedAt'>, picks: Omit<InsertParlayPick, 'parlayId'>[]): Promise<DbParlay> {
+    const id = this.parlayIdCounter++;
+    const newParlay: DbParlay = {
+      id,
+      ...parlay,
+      placedAt: new Date(),
+      settledAt: null,
+    };
+
+    const savedPicks: DbParlayPick[] = picks.map(pick => ({
+      id: this.parlayPickIdCounter++,
+      parlayId: id,
+      ...pick,
+      result: 'pending' as const,
+      actualValue: null,
+    }));
+
+    this.parlaysMap.set(id, { ...newParlay, picks: savedPicks });
+    return newParlay;
+  }
+
+  async getParlays(filters?: { pending?: boolean }): Promise<Array<DbParlay & { picks: DbParlayPick[] }>> {
+    let result = Array.from(this.parlaysMap.values());
+
+    if (filters?.pending) {
+      result = result.filter(p => p.result === 'pending');
+    }
+
+    return result.sort((a, b) => new Date(b.placedAt).getTime() - new Date(a.placedAt).getTime());
+  }
+
+  async updateParlayResult(parlayId: number, result: 'win' | 'loss' | 'push', profit: number): Promise<DbParlay> {
+    const parlay = this.parlaysMap.get(parlayId);
+    if (!parlay) {
+      throw new Error(`Parlay with id ${parlayId} not found`);
+    }
+
+    parlay.result = result;
+    parlay.profit = profit;
+    parlay.settledAt = new Date();
+
+    return parlay;
+  }
+
+  async updateParlayPickResult(pickId: number, result: 'hit' | 'miss' | 'push', actualValue: number): Promise<DbParlayPick> {
+    for (const parlay of this.parlaysMap.values()) {
+      const pick = parlay.picks.find(p => p.id === pickId);
+      if (pick) {
+        pick.result = result;
+        pick.actualValue = actualValue;
+        return pick;
+      }
+    }
+    throw new Error(`Pick with id ${pickId} not found`);
+  }
 
   async compareLines(playerId: number, stat: string, gameDate: string): Promise<LineComparison> { throw new Error("Not implemented in MemStorage"); }
 

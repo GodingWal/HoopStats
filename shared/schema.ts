@@ -135,6 +135,9 @@ export const potentialBetSchema = z.object({
   last_5_avg: z.number().optional(),
   recommendation: z.enum(["OVER", "UNDER"]),
   confidence: z.enum(["HIGH", "MEDIUM", "LOW"]),
+  edge_type: z.string().optional(),
+  edge_score: z.number().optional(),
+  edge_description: z.string().optional(),
 });
 
 export type PotentialBet = z.infer<typeof potentialBetSchema>;
@@ -152,6 +155,9 @@ export const potentialBets = pgTable("potential_bets", {
   last_5_avg: real("last_5_avg"),
   recommendation: text("recommendation").notNull(),
   confidence: text("confidence").notNull(),
+  edge_type: text("edge_type"),
+  edge_score: real("edge_score"),
+  edge_description: text("edge_description"),
 });
 
 export const insertPotentialBetSchema = createInsertSchema(potentialBets).omit({ id: true });
@@ -479,6 +485,55 @@ export const userBets = pgTable("user_bets", {
 export const insertUserBetSchema = createInsertSchema(userBets).omit({ id: true, placedAt: true });
 export type InsertUserBet = z.infer<typeof insertUserBetSchema>;
 export type DbUserBet = typeof userBets.$inferSelect;
+
+// Parlay tracking (for PrizePicks flex plays)
+export const parlays = pgTable("parlays", {
+  id: serial("id").primaryKey(),
+
+  // Parlay details
+  parlayType: varchar("parlay_type", { length: 20 }).notNull(), // 'flex' or 'power'
+  numPicks: integer("num_picks").notNull(),
+  entryAmount: real("entry_amount").notNull(),
+  payoutMultiplier: real("payout_multiplier").notNull(), // 3x, 5x, 10x, 20x, 25x, etc.
+
+  // Outcome
+  result: varchar("result", { length: 10 }), // 'win', 'loss', 'push', 'pending'
+  profit: real("profit"), // Net profit/loss
+
+  // Metadata
+  placedAt: timestamp("placed_at").defaultNow().notNull(),
+  settledAt: timestamp("settled_at"),
+  notes: text("notes"),
+});
+
+export const insertParlaySchema = createInsertSchema(parlays).omit({ id: true, placedAt: true });
+export type InsertParlay = z.infer<typeof insertParlaySchema>;
+export type DbParlay = typeof parlays.$inferSelect;
+
+// Individual picks within a parlay
+export const parlayPicks = pgTable("parlay_picks", {
+  id: serial("id").primaryKey(),
+
+  // Reference to parlay
+  parlayId: integer("parlay_id").references(() => parlays.id, { onDelete: 'cascade' }).notNull(),
+
+  // Pick details
+  playerId: integer("player_id"),
+  playerName: text("player_name").notNull(),
+  team: text("team").notNull(),
+  stat: varchar("stat", { length: 20 }).notNull(),
+  line: real("line").notNull(),
+  side: varchar("side", { length: 10 }).notNull(), // 'over' or 'under'
+  gameDate: date("game_date").notNull(),
+
+  // Outcome
+  result: varchar("result", { length: 10 }), // 'hit', 'miss', 'push', 'pending'
+  actualValue: real("actual_value"), // Player's actual stat value
+});
+
+export const insertParlayPickSchema = createInsertSchema(parlayPicks).omit({ id: true });
+export type InsertParlayPick = z.infer<typeof insertParlayPickSchema>;
+export type DbParlayPick = typeof parlayPicks.$inferSelect;
 
 // Line alert configurations
 export const lineAlerts = pgTable("line_alerts", {

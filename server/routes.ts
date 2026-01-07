@@ -8,6 +8,7 @@ import { fileURLToPath } from "url";
 import { storage } from "./storage";
 import type { Player } from "@shared/schema";
 import { fetchAndBuildAllPlayers } from "./nba-api";
+import { analyzeEdges } from "./edge-detection";
 import {
   fetchLiveGames,
   fetchPlayerGamelog,
@@ -94,6 +95,9 @@ function generatePotentialBets(players: Player[]) {
     last_5_avg: number | null;
     recommendation: string;
     confidence: string;
+    edge_type: string | null;
+    edge_score: number | null;
+    edge_description: string | null;
   }> = [];
 
   const statTypes = ["PTS", "REB", "AST", "PRA", "FG3M"];
@@ -128,6 +132,9 @@ function generatePotentialBets(players: Player[]) {
         }
 
         if (confidence !== "LOW") {
+          // Analyze edges for this bet
+          const edgeAnalysis = analyzeEdges(player, statType, recommendation, rate);
+
           bets.push({
             player_id: player.player_id,
             player_name: player.player_name,
@@ -139,13 +146,27 @@ function generatePotentialBets(players: Player[]) {
             last_5_avg: typeof last5Avg === "number" ? last5Avg : null,
             recommendation,
             confidence,
+            edge_type: edgeAnalysis.bestEdge?.type || null,
+            edge_score: edgeAnalysis.totalScore || null,
+            edge_description: edgeAnalysis.bestEdge?.description || null,
           });
         }
       }
     }
   }
 
+  // Sort by edge score first (highest priority), then by hit rate
   return bets.sort((a, b) => {
+    // Prioritize bets with edges
+    if (a.edge_score && !b.edge_score) return -1;
+    if (!a.edge_score && b.edge_score) return 1;
+
+    // Both have edges or both don't - sort by edge score
+    if (a.edge_score && b.edge_score) {
+      if (a.edge_score !== b.edge_score) return b.edge_score - a.edge_score;
+    }
+
+    // Same edge score or no edges - sort by confidence then hit rate
     if (a.confidence === "HIGH" && b.confidence !== "HIGH") return -1;
     if (b.confidence === "HIGH" && a.confidence !== "HIGH") return 1;
     return b.hit_rate - a.hit_rate;
@@ -226,6 +247,35 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error fetching bets:", error);
       res.status(500).json({ error: "Failed to fetch bets" });
+    }
+  });
+
+  // Get top 10 best picks based on edge analysis
+  app.get("/api/bets/top-picks", async (req, res) => {
+    try {
+      let bets = await storage.getPotentialBets();
+      if (bets.length === 0) {
+        let players = await storage.getPlayers();
+        if (players.length === 0) {
+          await storage.seedPlayers(SAMPLE_PLAYERS);
+          players = await storage.getPlayers();
+        }
+        const generatedBets = generatePotentialBets(players);
+        await storage.clearPotentialBets();
+        for (const bet of generatedBets) {
+          await storage.createPotentialBet(bet);
+        }
+        bets = await storage.getPotentialBets();
+      }
+
+      // Filter for bets with edges and get top 10
+      const betsWithEdges = bets.filter(b => b.edge_score && b.edge_score > 0);
+      const topPicks = betsWithEdges.slice(0, 10);
+
+      res.json(topPicks);
+    } catch (error) {
+      console.error("Error fetching top picks:", error);
+      res.status(500).json({ error: "Failed to fetch top picks" });
     }
   });
 
@@ -858,6 +908,64 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error updating bet result:", error);
       res.status(500).json({ error: "Failed to update bet result" });
+    }
+  });
+
+  // =============== PARLAY ROUTES ===============
+
+  // Create a parlay
+  app.post("/api/parlays", async (req, res) => {
+    try {
+      const { parlayType, numPicks, entryAmount, payoutMultiplier, picks } = req.body;
+      const savedParlay = await storage.saveParlay({
+        parlayType,
+        numPicks,
+        entryAmount,
+        payoutMultiplier,
+        result: 'pending',
+      }, picks);
+      res.json(savedParlay);
+    } catch (error) {
+      console.error("Error saving parlay:", error);
+      res.status(500).json({ error: "Failed to save parlay" });
+    }
+  });
+
+  // Get user parlays
+  app.get("/api/parlays", async (req, res) => {
+    try {
+      const pending = req.query.pending === 'true';
+      const parlays = await storage.getParlays({ pending });
+      res.json(parlays);
+    } catch (error) {
+      console.error("Error fetching parlays:", error);
+      res.status(500).json({ error: "Failed to fetch parlays" });
+    }
+  });
+
+  // Update parlay result
+  app.patch("/api/parlays/:parlayId", async (req, res) => {
+    try {
+      const parlayId = parseInt(req.params.parlayId);
+      const { result, profit } = req.body;
+      const updatedParlay = await storage.updateParlayResult(parlayId, result, profit);
+      res.json(updatedParlay);
+    } catch (error) {
+      console.error("Error updating parlay result:", error);
+      res.status(500).json({ error: "Failed to update parlay result" });
+    }
+  });
+
+  // Update parlay pick result
+  app.patch("/api/parlays/:parlayId/picks/:pickId", async (req, res) => {
+    try {
+      const pickId = parseInt(req.params.pickId);
+      const { result, actualValue } = req.body;
+      const updatedPick = await storage.updateParlayPickResult(pickId, result, actualValue);
+      res.json(updatedPick);
+    } catch (error) {
+      console.error("Error updating pick result:", error);
+      res.status(500).json({ error: "Failed to update pick result" });
     }
   });
 

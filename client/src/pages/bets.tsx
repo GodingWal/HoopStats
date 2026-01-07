@@ -5,9 +5,22 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { TrendingUp, TrendingDown, RefreshCw, Target, Flame, ArrowLeft, Swords, Clock, Loader2 } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { TrendingUp, TrendingDown, RefreshCw, Target, Flame, ArrowLeft, Swords, Clock, Loader2, Plus, ShoppingCart } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useMutation } from "@tanstack/react-query";
+import { useParlayCart } from "@/contexts/parlay-cart";
+import { ParlayCart } from "@/components/parlay-cart";
 
 interface LiveGame {
   id: string;
@@ -57,30 +70,63 @@ function formatGameTime(dateStr: string) {
 
 function BetRow({ bet }: { bet: PotentialBet }) {
   const isOver = bet.recommendation === "OVER";
+  const hasEdge = bet.edge_score && bet.edge_score > 0;
+
+  const getEdgeBadgeColor = (edgeType: string | undefined) => {
+    if (!edgeType) return "";
+    if (edgeType === "STAR_OUT") return "bg-purple-500/20 text-purple-400 border-purple-500/30";
+    if (edgeType === "BACK_TO_BACK") return "bg-blue-500/20 text-blue-400 border-blue-500/30";
+    if (edgeType === "BLOWOUT_RISK") return "bg-orange-500/20 text-orange-400 border-orange-500/30";
+    if (edgeType === "PACE_MATCHUP") return "bg-cyan-500/20 text-cyan-400 border-cyan-500/30";
+    if (edgeType === "BAD_DEFENSE") return "bg-red-500/20 text-red-400 border-red-500/30";
+    if (edgeType === "MINUTES_STABILITY") return "bg-green-500/20 text-green-400 border-green-500/30";
+    if (edgeType === "HOME_ROAD_SPLIT") return "bg-yellow-500/20 text-yellow-400 border-yellow-500/30";
+    return "bg-primary/20 text-primary border-primary/30";
+  };
+
+  const getEdgeLabel = (edgeType: string | undefined) => {
+    if (!edgeType) return "";
+    return edgeType.replace(/_/g, " ");
+  };
 
   return (
-    <div className="p-3 rounded-lg bg-muted/30 hover:bg-muted/50 transition-all flex items-center justify-between gap-3">
-      <div className="flex-1 min-w-0">
-        <div className="font-medium text-sm">{bet.player_name}</div>
-        <div className="text-xs text-muted-foreground flex items-center gap-1">
-          {getStatLabel(bet.stat_type)} <span className="font-mono font-bold text-foreground">{bet.line}</span>
+    <div className={`p-3 rounded-lg transition-all ${hasEdge ? 'bg-gradient-to-r from-primary/10 to-transparent border border-primary/30' : 'bg-muted/30'} hover:bg-muted/50`}>
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex-1 min-w-0 space-y-1">
+          <div className="font-medium text-sm">{bet.player_name}</div>
+          <div className="text-xs text-muted-foreground flex items-center gap-1">
+            {getStatLabel(bet.stat_type)} <span className="font-mono font-bold text-foreground">{bet.line}</span>
+          </div>
+          {hasEdge && bet.edge_description && (
+            <div className="text-xs text-muted-foreground italic mt-1">
+              {bet.edge_description}
+            </div>
+          )}
         </div>
-      </div>
 
-      <div className="flex items-center gap-2">
-        <div className={`font-mono text-sm font-bold ${bet.hit_rate >= 70 ? 'text-emerald-400' : bet.hit_rate >= 50 ? 'text-foreground' : 'text-rose-400'}`}>
-          {bet.hit_rate.toFixed(0)}%
-        </div>
+        <div className="flex flex-col items-end gap-1">
+          <div className="flex items-center gap-2">
+            <div className={`font-mono text-sm font-bold ${bet.hit_rate >= 70 ? 'text-emerald-400' : bet.hit_rate >= 50 ? 'text-foreground' : 'text-rose-400'}`}>
+              {bet.hit_rate.toFixed(0)}%
+            </div>
 
-        {bet.confidence === "HIGH" && (
-          <Badge className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30 text-xs px-1.5">
-            <Flame className="w-3 h-3" />
-          </Badge>
-        )}
+            {hasEdge && bet.edge_type && (
+              <Badge className={`${getEdgeBadgeColor(bet.edge_type)} text-xs px-1.5 capitalize`}>
+                {getEdgeLabel(bet.edge_type)}
+              </Badge>
+            )}
 
-        <div className={`flex items-center gap-0.5 px-1.5 py-0.5 rounded text-xs font-bold ${isOver ? "text-emerald-400 bg-emerald-500/10" : "text-rose-400 bg-rose-500/10"}`}>
-          {isOver ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
-          {bet.recommendation}
+            {bet.confidence === "HIGH" && (
+              <Badge className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30 text-xs px-1.5">
+                <Flame className="w-3 h-3" />
+              </Badge>
+            )}
+
+            <div className={`flex items-center gap-0.5 px-1.5 py-0.5 rounded text-xs font-bold ${isOver ? "text-emerald-400 bg-emerald-500/10" : "text-rose-400 bg-rose-500/10"}`}>
+              {isOver ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
+              {bet.recommendation}
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -88,8 +134,42 @@ function BetRow({ bet }: { bet: PotentialBet }) {
 }
 
 function PrizePicksRow({ prop }: { prop: PrizePicksProjection }) {
+  const { addPick, picks } = useParlayCart();
+  const [justAdded, setJustAdded] = useState(false);
+
+  const isInCart = picks.some(
+    p => p.playerName === prop.playerName && p.stat === prop.statType && p.line === prop.line
+  );
+
+  const handleAddToCart = () => {
+    if (isInCart) return;
+
+    addPick({
+      playerId: prop.playerId,
+      playerName: prop.playerName,
+      team: prop.teamAbbr,
+      stat: prop.statType,
+      statTypeAbbr: prop.statTypeAbbr,
+      line: prop.line,
+      gameDate: prop.gameTime.split('T')[0],
+      imageUrl: prop.imageUrl,
+    });
+
+    setJustAdded(true);
+    setTimeout(() => setJustAdded(false), 1500);
+  };
+
   return (
-    <div className="p-3 rounded-lg bg-muted/30 hover:bg-muted/50 transition-all flex items-center justify-between gap-3">
+    <div
+      className={`p-3 rounded-lg transition-all flex items-center justify-between gap-3 cursor-pointer group ${
+        isInCart
+          ? 'bg-primary/10 border border-primary/50'
+          : justAdded
+          ? 'bg-emerald-500/10 border border-emerald-500/50'
+          : 'bg-muted/30 hover:bg-muted/50 hover:border hover:border-primary/30'
+      }`}
+      onClick={handleAddToCart}
+    >
       <div className="flex items-center gap-3 flex-1 min-w-0">
         {prop.imageUrl && (
           <img src={prop.imageUrl} alt={prop.playerName} className="w-10 h-10 rounded-full object-cover" />
@@ -113,6 +193,29 @@ function PrizePicksRow({ prop }: { prop: PrizePicksProjection }) {
           <Clock className="w-3 h-3" />
           {formatGameTime(prop.gameTime)}
         </div>
+        <Button
+          size="sm"
+          variant="ghost"
+          className={`transition-opacity ${
+            isInCart
+              ? 'opacity-100 text-primary'
+              : justAdded
+              ? 'opacity-100 text-emerald-400'
+              : 'opacity-0 group-hover:opacity-100'
+          }`}
+          onClick={(e) => {
+            e.stopPropagation();
+            handleAddToCart();
+          }}
+        >
+          {isInCart ? (
+            <ShoppingCart className="w-4 h-4 fill-current" />
+          ) : justAdded ? (
+            <Plus className="w-4 h-4" />
+          ) : (
+            <Plus className="w-4 h-4" />
+          )}
+        </Button>
       </div>
     </div>
   );
@@ -529,6 +632,7 @@ export default function Bets() {
 
   return (
     <div className="min-h-screen bg-background">
+      <ParlayCart />
       <div className="container mx-auto px-4 py-8 max-w-5xl fade-in">
         <div className="flex items-center justify-between gap-4 mb-6 flex-wrap">
           <div className="flex items-center gap-3">

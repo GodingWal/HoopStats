@@ -6,9 +6,11 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
 import { ThemeProvider } from "next-themes";
+import { ParlayCartProvider } from "@/contexts/parlay-cart";
 import NotFound from "@/pages/not-found";
 import Home from "@/pages/home";
 import Bets from "@/pages/bets";
+import MyBets from "@/pages/my-bets";
 import LiveGames from "@/pages/live-games";
 import LiveOdds from "@/pages/live-odds";
 import ProjectionsPage from "@/pages/projections";
@@ -31,7 +33,7 @@ import {
   SidebarFooter,
 } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
-import { Users, Target, TrendingUp, RefreshCw, CloudDownload, AlertCircle, Tv, BrainCircuit, DollarSign, LayoutDashboard, Award, BarChart3 } from "lucide-react";
+import { Users, Target, TrendingUp, RefreshCw, CloudDownload, AlertCircle, Tv, BrainCircuit, DollarSign, LayoutDashboard, Award, BarChart3, Wallet } from "lucide-react";
 
 function Router() {
   return (
@@ -39,6 +41,7 @@ function Router() {
       <Route path="/" component={Home} />
       <Route path="/dashboard" component={Dashboard} />
       <Route path="/bets" component={Bets} />
+      <Route path="/my-bets" component={MyBets} />
       <Route path="/track-record" component={TrackRecord} />
       <Route path="/live" component={LiveGames} />
       <Route path="/odds" component={LiveOdds} />
@@ -69,6 +72,11 @@ const navItems = [
     title: "Potential Bets",
     url: "/bets",
     icon: Target,
+  },
+  {
+    title: "My Bets",
+    url: "/my-bets",
+    icon: Wallet,
   },
   {
     title: "Track Record",
@@ -195,23 +203,25 @@ function App() {
   return (
     <ThemeProvider attribute="class" defaultTheme="dark" enableSystem>
       <QueryClientProvider client={queryClient}>
-        <TooltipProvider>
-          <SidebarProvider style={style as React.CSSProperties}>
-            <div className="flex h-screen w-full">
-              <AppSidebar />
-              <div className="flex flex-col flex-1 min-w-0">
-                <header className="flex items-center justify-between gap-2 p-2 border-b bg-background sticky top-0 z-50">
-                  <SidebarTrigger data-testid="button-sidebar-toggle" />
-                  <ThemeToggle />
-                </header>
-                <main className="flex-1 overflow-auto">
-                  <Router />
-                </main>
+        <ParlayCartProvider>
+          <TooltipProvider>
+            <SidebarProvider style={style as React.CSSProperties}>
+              <div className="flex h-screen w-full">
+                <AppSidebar />
+                <div className="flex flex-col flex-1 min-w-0">
+                  <header className="flex items-center justify-between gap-2 p-2 border-b bg-background sticky top-0 z-50">
+                    <SidebarTrigger data-testid="button-sidebar-toggle" />
+                    <ThemeToggle />
+                  </header>
+                  <main className="flex-1 overflow-auto">
+                    <Router />
+                  </main>
+                </div>
               </div>
-            </div>
-          </SidebarProvider>
-          <Toaster />
-        </TooltipProvider>
+            </SidebarProvider>
+            <Toaster />
+          </TooltipProvider>
+        </ParlayCartProvider>
       </QueryClientProvider>
     </ThemeProvider>
   );
