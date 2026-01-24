@@ -37,7 +37,7 @@ class MinutesModel:
         is_b2b: bool = False,
         rest_days: int = 1,
         total: float = 225.0,
-        teammate_injuries: List[str] = None,
+        teammate_injuries: Dict[str, float] = None,
         fouls_per_game: Optional[float] = None,
         opp_pace_rank: int = 15  # 1-30, 15 is avg (kept for backward compatibility)
     ) -> Tuple[float, float]:
@@ -50,7 +50,7 @@ class MinutesModel:
             is_b2b: True if playing on back-to-back nights
             rest_days: Number of days since last game
             total: Vegas total (for blowout risk estimation)
-            teammate_injuries: List of injured teammates (names)
+            teammate_injuries: Dict of injured teammate names mapped to their avg minutes
             fouls_per_game: Player's foul rate (if None, uses features)
             opp_pace_rank: Opponent pace rank (1=fastest, 30=slowest)
 
@@ -191,20 +191,16 @@ class MinutesModel:
 
     def _sum_missing_teammate_minutes(
         self,
-        injured_teammates: List[str],
+        injured_teammates: Dict[str, float],
         team: str
     ) -> float:
         """
-        Sum the minutes lost from injured teammates
-
-        In production, this would query a database for each teammate's average minutes
-        For now, use heuristic: assume each injured player = ~25 minutes
+        Sum the minutes lost from injured teammates directly from the inputs
         """
-        # Placeholder: assume rotation players average 25 min
-        # In production: look up actual player season averages
-        estimated_minutes_per_player = 25.0
-
-        return len(injured_teammates) * estimated_minutes_per_player
+        if not injured_teammates:
+            return 0.0
+            
+        return sum(injured_teammates.values())
 
     def _estimate_minutes_variance(
         self,

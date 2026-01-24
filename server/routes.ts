@@ -35,10 +35,21 @@ import {
   getAllTeamsInfo,
   getTeamInfo,
 } from "./team-stats-api";
+import { generateBetExplanation } from "./services/openai";
+import { lineWatcher } from "./services/line-watcher";
 
 // Load sample players from external JSON file
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const samplePlayersPath = path.join(__dirname, "data", "sample-players.json");
+// Load sample players from external JSON file
+const getDirname = () => {
+  try {
+    // @ts-ignore
+    return __dirname;
+  } catch {
+    return path.dirname(fileURLToPath(import.meta.url));
+  }
+};
+const currentDir = getDirname();
+const samplePlayersPath = path.join(currentDir, "data", "sample-players.json");
 const SAMPLE_PLAYERS: Player[] = JSON.parse(readFileSync(samplePlayersPath, "utf-8"));
 
 // ========================================
@@ -173,6 +184,134 @@ function generatePotentialBets(players: Player[]) {
   });
 }
 
+/**
+ * Generate potential bets from actual PrizePicks projections
+ * This syncs our analysis with what's actually available on PrizePicks
+ */
+async function generateBetsFromPrizePicks(players: Player[]) {
+  const bets: Array<{
+    player_id: number;
+    player_name: string;
+    team: string;
+    stat_type: string;
+    line: number;
+    hit_rate: number;
+    season_avg: number;
+    last_5_avg: number | null;
+    recommendation: string;
+    confidence: string;
+    edge_type: string | null;
+    edge_score: number | null;
+    edge_description: string | null;
+  }> = [];
+
+  try {
+    // Fetch current PrizePicks projections
+    const projections = await fetchPrizePicksProjections();
+    console.log(`Fetched ${projections.length} PrizePicks projections`);
+
+    // Create a player lookup map by name (case-insensitive)
+    const playerMap = new Map<string, Player>();
+    for (const player of players) {
+      playerMap.set(player.player_name.toLowerCase(), player);
+    }
+
+    // For each PrizePicks projection, find the player and calculate hit rate
+    for (const proj of projections) {
+      const player = playerMap.get(proj.playerName.toLowerCase());
+      if (!player) {
+        console.log(`Player not found in DB: ${proj.playerName}`);
+        continue;
+      }
+
+      const statType = proj.statTypeAbbr;
+      const line = proj.line;
+
+      // Get hit rates for this stat type
+      const hitRates = player.hit_rates[statType];
+      if (!hitRates) continue;
+
+      // Find the closest line or exact match
+      const lineStr = line.toString();
+      let hitRate = hitRates[lineStr];
+
+      // If exact line not found, interpolate or find closest
+      if (hitRate === undefined) {
+        const lines = Object.keys(hitRates).map(l => parseFloat(l)).sort((a, b) => a - b);
+        const closestLine = lines.reduce((prev, curr) =>
+          Math.abs(curr - line) < Math.abs(prev - line) ? curr : prev
+        );
+        hitRate = hitRates[closestLine.toString()];
+        console.log(`Using closest line ${closestLine} for ${proj.playerName} ${statType} ${line} (hit rate: ${hitRate}%)`);
+      }
+
+      if (hitRate === undefined) continue;
+
+      const seasonAvg = player.season_averages[statType as keyof typeof player.season_averages];
+      const last5Avg = player.last_5_averages[statType as keyof typeof player.last_5_averages];
+
+      if (typeof seasonAvg !== "number") continue;
+
+      // Determine confidence and recommendation based on hit rate
+      let confidence: "HIGH" | "MEDIUM" | "LOW" = "LOW";
+      let recommendation: "OVER" | "UNDER" = "OVER";
+
+      if (hitRate >= 80) {
+        confidence = "HIGH";
+        recommendation = "OVER";
+      } else if (hitRate >= 65) {
+        confidence = "MEDIUM";
+        recommendation = "OVER";
+      } else if (hitRate <= 25) {
+        confidence = "HIGH";
+        recommendation = "UNDER";
+      } else if (hitRate <= 35) {
+        confidence = "MEDIUM";
+        recommendation = "UNDER";
+      }
+
+      // Only create bets with at least MEDIUM confidence
+      if (confidence !== "LOW") {
+        // Analyze edges for this bet
+        const edgeAnalysis = analyzeEdges(player, statType, recommendation, hitRate);
+
+        bets.push({
+          player_id: player.player_id,
+          player_name: player.player_name,
+          team: player.team,
+          stat_type: statType,
+          line: line,
+          hit_rate: hitRate,
+          season_avg: seasonAvg,
+          last_5_avg: typeof last5Avg === "number" ? last5Avg : null,
+          recommendation,
+          confidence,
+          edge_type: edgeAnalysis.bestEdge?.type || null,
+          edge_score: edgeAnalysis.totalScore || null,
+          edge_description: edgeAnalysis.bestEdge?.description || null,
+        });
+      }
+    }
+
+    // Sort by edge score first, then by hit rate
+    return bets.sort((a, b) => {
+      if (a.edge_score && !b.edge_score) return -1;
+      if (!a.edge_score && b.edge_score) return 1;
+      if (a.edge_score && b.edge_score) {
+        if (a.edge_score !== b.edge_score) return b.edge_score - a.edge_score;
+      }
+      if (a.confidence === "HIGH" && b.confidence !== "HIGH") return -1;
+      if (b.confidence === "HIGH" && a.confidence !== "HIGH") return 1;
+      return b.hit_rate - a.hit_rate;
+    });
+  } catch (error) {
+    console.error("Error generating bets from PrizePicks:", error);
+    // Fallback to generating from all hit rates if PrizePicks fetch fails
+    console.log("Falling back to generating bets from all hit rates");
+    return generatePotentialBets(players);
+  }
+}
+
 export async function registerRoutes(
   httpServer: Server,
   app: Express
@@ -185,7 +324,26 @@ export async function registerRoutes(
         await storage.seedPlayers(SAMPLE_PLAYERS);
         players = await storage.getPlayers();
       }
-      res.json(players);
+
+      // Enrich players with injury status
+      const allInjuries = injuryWatcher.getKnownInjuries();
+      const playersWithInjuries = players.map(player => {
+        const playerInjury = allInjuries.find(inj =>
+          player.player_name.toLowerCase().includes(inj.playerName.toLowerCase()) ||
+          inj.playerName.toLowerCase().includes(player.player_name.toLowerCase())
+        );
+
+        return {
+          ...player,
+          injury_status: playerInjury ? {
+            status: playerInjury.status,
+            description: playerInjury.description,
+            isOut: playerInjury.status === 'out',
+          } : null,
+        };
+      });
+
+      res.json(playersWithInjuries);
     } catch (error) {
       console.error("Error fetching players:", error);
       res.status(500).json({ error: "Failed to fetch players" });
@@ -204,7 +362,34 @@ export async function registerRoutes(
         return res.status(404).json({ error: "Player not found" });
       }
 
-      res.json(player);
+      // Check if player is currently injured
+      const teamInjuredPlayers = injuryWatcher.getTeamOutPlayers(player.team);
+      const isInjured = teamInjuredPlayers.some(injuredName =>
+        player.player_name.toLowerCase().includes(injuredName.toLowerCase()) ||
+        injuredName.toLowerCase().includes(player.player_name.toLowerCase())
+      );
+
+      // Get full injury details if injured
+      let injuryStatus = null;
+      if (isInjured) {
+        const allInjuries = injuryWatcher.getKnownInjuries();
+        const playerInjury = allInjuries.find(inj =>
+          player.player_name.toLowerCase().includes(inj.playerName.toLowerCase()) ||
+          inj.playerName.toLowerCase().includes(player.player_name.toLowerCase())
+        );
+        if (playerInjury) {
+          injuryStatus = {
+            status: playerInjury.status,
+            description: playerInjury.description,
+            isOut: playerInjury.status === 'out',
+          };
+        }
+      }
+
+      res.json({
+        ...player,
+        injury_status: injuryStatus,
+      });
     } catch (error) {
       console.error("Error fetching player:", error);
       res.status(500).json({ error: "Failed to fetch player" });
@@ -214,16 +399,70 @@ export async function registerRoutes(
   app.get("/api/search", async (req, res) => {
     try {
       const query = req.query.q as string;
+      let players;
+
       if (!query || query.trim().length === 0) {
-        const players = await storage.getPlayers();
-        return res.json(players);
+        players = await storage.getPlayers();
+      } else {
+        players = await storage.searchPlayers(query.trim());
       }
 
-      const players = await storage.searchPlayers(query.trim());
-      res.json(players);
+      // Enrich with injury status
+      const allInjuries = injuryWatcher.getKnownInjuries();
+      const playersWithInjuries = players.map(player => {
+        const playerInjury = allInjuries.find(inj =>
+          player.player_name.toLowerCase().includes(inj.playerName.toLowerCase()) ||
+          inj.playerName.toLowerCase().includes(player.player_name.toLowerCase())
+        );
+
+        return {
+          ...player,
+          injury_status: playerInjury ? {
+            status: playerInjury.status,
+            description: playerInjury.description,
+            isOut: playerInjury.status === 'out',
+          } : null,
+        };
+      });
+
+      res.json(playersWithInjuries);
     } catch (error) {
       console.error("Error searching players:", error);
       res.status(500).json({ error: "Failed to search players" });
+    }
+  });
+
+  // Refresh bets from current PrizePicks projections
+  app.post("/api/bets/refresh", async (req, res) => {
+    try {
+      console.log("Refreshing bets from PrizePicks...");
+
+      let players = await storage.getPlayers();
+      if (players.length === 0) {
+        await storage.seedPlayers(SAMPLE_PLAYERS);
+        players = await storage.getPlayers();
+      }
+
+      const generatedBets = await generateBetsFromPrizePicks(players);
+
+      await storage.clearPotentialBets();
+      for (const bet of generatedBets) {
+        await storage.createPotentialBet(bet);
+      }
+
+      console.log(`Refreshed ${generatedBets.length} bets from PrizePicks`);
+
+      res.json({
+        success: true,
+        betsCount: generatedBets.length,
+        message: `Successfully refreshed ${generatedBets.length} betting opportunities from PrizePicks`
+      });
+    } catch (error) {
+      console.error("Error refreshing bets:", error);
+      res.status(500).json({
+        error: "Failed to refresh bets",
+        message: error instanceof Error ? error.message : "Unknown error"
+      });
     }
   });
 
@@ -236,14 +475,62 @@ export async function registerRoutes(
           await storage.seedPlayers(SAMPLE_PLAYERS);
           players = await storage.getPlayers();
         }
-        const generatedBets = generatePotentialBets(players);
+        const generatedBets = await generateBetsFromPrizePicks(players);
         await storage.clearPotentialBets();
         for (const bet of generatedBets) {
           await storage.createPotentialBet(bet);
         }
         bets = await storage.getPotentialBets();
       }
-      res.json(bets);
+
+      // Filter to only show the BEST bets - those with meaningful edges or high confidence
+      // Criteria for "best bets":
+      // 1. HIGH confidence (hit rate >= 80% or <= 25%)
+      // 2. Edge score >= 5 (meaningful edge detected)
+      // 3. Hit rate >= 75% (OVER) or <= 30% (UNDER) with any edge
+      const filteredBets = bets.filter(bet => {
+        // Always include HIGH confidence bets
+        if (bet.confidence === "HIGH") return true;
+
+        // Include bets with strong edges (score >= 5)
+        if (bet.edge_score && bet.edge_score >= 5) return true;
+
+        // Include bets with good edges (score >= 3) AND strong hit rates
+        if (bet.edge_score && bet.edge_score >= 3) {
+          if (bet.hit_rate >= 75 || bet.hit_rate <= 30) return true;
+        }
+
+        // Include extreme hit rates even without edges
+        if (bet.hit_rate >= 78 || bet.hit_rate <= 22) return true;
+
+        return false;
+      });
+
+      // Sort by best bets first: edge score, then confidence, then hit rate
+      const sortedBets = filteredBets.sort((a, b) => {
+        // Prioritize bets with edges
+        if (a.edge_score && !b.edge_score) return -1;
+        if (!a.edge_score && b.edge_score) return 1;
+
+        // Both have edges - sort by edge score
+        if (a.edge_score && b.edge_score) {
+          if (a.edge_score !== b.edge_score) return b.edge_score - a.edge_score;
+        }
+
+        // Same edge score or no edges - sort by confidence then hit rate
+        if (a.confidence === "HIGH" && b.confidence !== "HIGH") return -1;
+        if (b.confidence === "HIGH" && a.confidence !== "HIGH") return 1;
+
+        // For hit rate, sort by distance from 50% (more extreme = better)
+        const aDeviation = Math.abs(a.hit_rate - 50);
+        const bDeviation = Math.abs(b.hit_rate - 50);
+        return bDeviation - aDeviation;
+      });
+
+      // Limit to top 50 bets to avoid overwhelming the UI
+      const limitedBets = sortedBets.slice(0, 50);
+
+      res.json(limitedBets);
     } catch (error) {
       console.error("Error fetching bets:", error);
       res.status(500).json({ error: "Failed to fetch bets" });
@@ -295,6 +582,54 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/explain", async (req, res) => {
+    try {
+      const { player_name, prop, line, side, season_average, last_5_average, hit_rate, opponent } = req.body;
+
+      if (!player_name || !prop || !line || !side) {
+        return res.status(400).json({ error: "Missing required bet details" });
+      }
+
+      const explanation = await generateBetExplanation({
+        player_name,
+        prop,
+        line,
+        side,
+        season_average: season_average || 0,
+        last_5_average: last_5_average || 0,
+        hit_rate: hit_rate || 0,
+        opponent: opponent || "Unknown",
+      });
+
+      res.json({ explanation });
+    } catch (error) {
+      console.error("Error generating explanation:", error);
+      res.status(500).json({ error: "Failed to generate explanation" });
+    }
+  });
+
+  // Alerts API
+  app.get("/api/alerts", async (req, res) => {
+    try {
+      const alerts = await storage.getAlerts({ limit: 20 });
+      res.json(alerts);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch alerts" });
+    }
+  });
+
+  app.post("/api/alerts/:id/read", async (req, res) => {
+    try {
+      await storage.markAlertAsRead(parseInt(req.params.id));
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to mark alert as read" });
+    }
+  });
+
+  // Start background services
+  lineWatcher.start();
+
   app.get("/api/sync/status", async (req, res) => {
     res.json({
       apiConfigured: true,
@@ -331,7 +666,10 @@ export async function registerRoutes(
       // We should fetch fresh from DB to be safe and match types.
 
       const dbPlayers = await storage.getPlayers();
-      const generatedBets = generatePotentialBets(dbPlayers);
+
+      // Generate bets from actual PrizePicks lines
+      console.log("Fetching PrizePicks projections to sync bets...");
+      const generatedBets = await generateBetsFromPrizePicks(dbPlayers);
 
       await storage.clearPotentialBets();
       for (const bet of generatedBets) {
@@ -492,12 +830,19 @@ export async function registerRoutes(
         try {
           // Get today's injuries
           const injuries = await fetchTodaysGameInjuries();
-          injuredPlayers = injuries
-            .filter(inj => inj.status === 'out')
-            .map(inj => inj.playerName);
+
+          const injuredMinutesMap: Record<string, number> = {};
+
+          injuries.forEach(inj => {
+            if (inj.status === 'out') {
+              // Default to 25 minutes for now until we lookup actual averages
+              injuredMinutesMap[inj.playerName] = 25.0;
+              injuredPlayers.push(inj.playerName);
+            }
+          });
 
           if (injuredPlayers.length > 0) {
-            args.push("--injuries", ...injuredPlayers);
+            args.push("--injured_minutes", JSON.stringify(injuredMinutesMap));
           }
         } catch (injError) {
           console.warn("Could not fetch injuries for projections:", injError);
@@ -1397,6 +1742,54 @@ export async function registerRoutes(
     }
   });
 
+  // Get injury alerts with betting impact for dashboard widget
+  app.get("/api/injuries/alerts", async (_req, res) => {
+    try {
+      const { injuryImpactService } = await import("./injury-impact-service");
+
+      // Get all current injuries from injury watcher
+      const allInjuries = injuryWatcher.getKnownInjuries();
+      const outInjuries = allInjuries.filter(inj => inj.status === 'out');
+
+      // Get unique teams with injured players
+      const affectedTeams = [...new Set(outInjuries.map(inj => inj.team))];
+
+      // Get injury impact data for each team
+      const alerts = await Promise.all(
+        affectedTeams.map(async (team) => {
+          const impact = await injuryImpactService.getTeamInjuryImpact(team);
+          return {
+            team,
+            injuries: impact.injuries,
+            beneficiaries: impact.beneficiaries.slice(0, 3), // Top 3 beneficiaries
+            impactLevel: impact.injuries.length >= 2 ? 'high' : impact.injuries.length === 1 ? 'medium' : 'low',
+          };
+        })
+      );
+
+      // Sort by impact level and number of beneficiaries
+      const sortedAlerts = alerts
+        .filter(a => a.beneficiaries.length > 0)
+        .sort((a, b) => {
+          const impactOrder = { high: 3, medium: 2, low: 1 };
+          const aScore = impactOrder[a.impactLevel as keyof typeof impactOrder] * 100 + a.beneficiaries.length;
+          const bScore = impactOrder[b.impactLevel as keyof typeof impactOrder] * 100 + b.beneficiaries.length;
+          return bScore - aScore;
+        });
+
+      res.json({
+        alerts: sortedAlerts,
+        totalInjuries: outInjuries.length,
+        teamsAffected: affectedTeams.length,
+        highImpactAlerts: sortedAlerts.filter(a => a.impactLevel === 'high').length,
+        fetchedAt: new Date().toISOString(),
+      });
+    } catch (error) {
+      console.error("Error fetching injury alerts:", error);
+      res.status(500).json({ error: "Failed to fetch injury alerts" });
+    }
+  });
+
   // Projection with injury context (POST version for more flexibility)
   app.post("/api/projections/with-injuries", async (req, res) => {
     try {
@@ -1466,10 +1859,32 @@ export async function registerRoutes(
         return res.status(400).json({ error: "Player ID is required" });
       }
 
-      const splits = await onOffService.getSplitsForPlayer(
+      let splits = await onOffService.getSplitsForPlayer(
         parseInt(playerId),
         season as string | undefined
       );
+
+      // Auto-calculate if no data found
+      if (splits.length === 0) {
+        try {
+          const player = await storage.getPlayer(parseInt(playerId));
+          if (player) {
+            console.log(`No splits found for ${player.player_name}. Auto-calculating...`);
+            await onOffService.calculateSplitsForPlayer(
+              player.player_id,
+              player.player_name,
+              player.team
+            );
+            // Re-fetch after calculation
+            splits = await onOffService.getSplitsForPlayer(
+              parseInt(playerId),
+              season as string | undefined
+            );
+          }
+        } catch (calcError) {
+          console.error("Auto-calculation failed:", calcError);
+        }
+      }
 
       // Filter out entries with insufficient sample size
       const validSplits = splits.filter(s => s.gamesWithoutTeammate >= 3);

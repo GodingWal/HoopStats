@@ -206,14 +206,17 @@ export async function fetchGameBoxScore(gameId: string): Promise<GameBoxScore | 
         const data = await response.json();
 
         const boxscore = data.boxscore;
-        if (!boxscore || !boxscore.teams || boxscore.teams.length < 2) {
+        // Player data is in boxscore.players[], team aggregate stats are in boxscore.teams[]
+        if (!boxscore || !boxscore.players || boxscore.players.length < 2) {
             return null;
         }
 
-        const parseTeamStats = (teamData: ESPNBoxScoreTeamData, isHome: boolean) => {
-            const team = teamData.team;
-            const players = teamData.statistics?.[0]?.athletes || [];
-            const labels = teamData.statistics?.[0]?.labels || [];
+        // Find players data for each team from boxscore.players[]
+        const parsePlayerStats = (playersData: any, isHome: boolean) => {
+            const team = playersData.team;
+            const statsData = playersData.statistics?.[0];
+            const athletes = statsData?.athletes || [];
+            const labels = statsData?.labels || [];
 
             return {
                 id: team.id,
@@ -221,7 +224,7 @@ export async function fetchGameBoxScore(gameId: string): Promise<GameBoxScore | 
                 displayName: team.displayName,
                 logo: team.logo,
                 score: data.header?.competitions?.[0]?.competitors?.find((c: ESPNCompetitor) => c.homeAway === (isHome ? "home" : "away"))?.score || "0",
-                players: players.map((p) => {
+                players: athletes.map((p: any) => {
                     const statsMap: { [key: string]: string } = {};
                     labels.forEach((label: string, index: number) => {
                         if (p.stats && index < p.stats.length) {
@@ -240,14 +243,14 @@ export async function fetchGameBoxScore(gameId: string): Promise<GameBoxScore | 
             };
         };
 
-        // ESPN returns teams in order [away, home]
-        const awayTeamData = boxscore.teams[0];
-        const homeTeamData = boxscore.teams[1];
+        // ESPN returns players in order [away, home] in boxscore.players[]
+        const awayPlayersData = boxscore.players[0];
+        const homePlayersData = boxscore.players[1];
 
         return {
             gameId,
-            homeTeam: parseTeamStats(homeTeamData, true),
-            awayTeam: parseTeamStats(awayTeamData, false),
+            homeTeam: parsePlayerStats(homePlayersData, true),
+            awayTeam: parsePlayerStats(awayPlayersData, false),
         };
 
     } catch (error) {
@@ -716,4 +719,102 @@ export async function getTeamOutPlayers(teamAbbr: string): Promise<string[]> {
     return injuries
         .filter(inj => inj.status === 'out')
         .map(inj => inj.playerName);
+}
+
+// Fetch NBA Standings to get real team records
+export interface TeamStandings {
+    teamId: string;
+    abbreviation: string;
+    displayName: string;
+    wins: number;
+    losses: number;
+    winPct: number;
+    gamesPlayed: number;
+    streak: string;
+    conferenceRank: number;
+    divisionRank: number;
+    homeRecord: string;
+    awayRecord: string;
+}
+
+export async function fetchNBAStandings(): Promise<TeamStandings[]> {
+    const cacheKey = 'nba-standings';
+    const cached = apiCache.get<TeamStandings[]>(cacheKey);
+    if (cached) {
+        apiLogger.debug("Cache hit for NBA standings");
+        return cached;
+    }
+
+    try {
+        const url = 'https://site.api.espn.com/apis/v2/sports/basketball/nba/standings';
+        apiLogger.info("Fetching NBA standings", { url });
+
+        const response = await fetch(url);
+        if (!response.ok) {
+            throw new Error(`ESPN API error: ${response.status} ${response.statusText}`);
+        }
+
+        const data: any = await response.json();
+
+        const standings: TeamStandings[] = [];
+
+        // ESPN standings API returns data grouped by division/conference
+        // Navigate through the nested structure
+        if (data.children) {
+            for (const conference of data.children) {
+                if (conference.standings?.entries) {
+                    for (const entry of conference.standings.entries) {
+                        const team = entry.team;
+                        const stats = entry.stats;
+
+                        // Extract key stats
+                        const getStatValue = (name: string) => {
+                            const stat = stats.find((s: any) => s.name === name);
+                            return stat ? parseFloat(stat.value) : 0;
+                        };
+
+                        const getStatString = (name: string) => {
+                            const stat = stats.find((s: any) => s.name === name);
+                            return stat ? stat.displayValue : '';
+                        };
+
+                        standings.push({
+                            teamId: team.id,
+                            abbreviation: team.abbreviation || '',
+                            displayName: team.displayName || team.name || '',
+                            wins: getStatValue('wins'),
+                            losses: getStatValue('losses'),
+                            winPct: getStatValue('winPercent'),
+                            gamesPlayed: getStatValue('gamesPlayed'),
+                            streak: getStatString('streak'),
+                            conferenceRank: getStatValue('rank'),
+                            divisionRank: getStatValue('divisionRank'),
+                            homeRecord: getStatString('Home') || '0-0',
+                            awayRecord: getStatString('Road') || '0-0',
+                        });
+                    }
+                }
+            }
+        }
+
+        apiLogger.info("Fetched NBA standings", { count: standings.length });
+
+        // Cache for 1 hour
+        apiCache.set(cacheKey, standings, 60 * 60 * 1000);
+
+        return standings;
+    } catch (error) {
+        apiLogger.error("Failed to fetch NBA standings", error);
+        throw error;
+    }
+}
+
+export async function getTeamRecord(teamAbbr: string): Promise<TeamStandings | null> {
+    try {
+        const standings = await fetchNBAStandings();
+        return standings.find(t => t.abbreviation === teamAbbr) || null;
+    } catch (error) {
+        apiLogger.error(`Failed to get record for ${teamAbbr}`, error);
+        return null;
+    }
 }

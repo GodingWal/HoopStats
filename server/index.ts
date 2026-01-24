@@ -2,6 +2,8 @@ import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
+import { injuryWatcher } from "./injury-watcher";
+import { injuryImpactService } from "./injury-impact-service";
 
 const app = express();
 const httpServer = createServer(app);
@@ -92,6 +94,14 @@ app.use((req, res, next) => {
     },
     () => {
       log(`serving on port ${port}`);
+
+      // Start injury monitoring for edge detection
+      injuryWatcher.start();
+      log("Injury watcher started - monitoring for player status updates", "injury");
+
+      // Start automated injury impact calculations
+      injuryImpactService.start();
+      log("Injury impact service started - auto-updating bet edges on injury changes", "injury-impact");
     },
   );
 })();

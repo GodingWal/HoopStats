@@ -1,5 +1,5 @@
 
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Union
 import pandas as pd
 import numpy as np
 
@@ -103,7 +103,7 @@ class UsageRedistributionModel:
     def calculate_redistribution(
         self,
         player_name: str,
-        teammate_injuries: List[str],
+        teammate_injuries: Union[List[str], Dict[str, float]],
         team: Optional[str] = None
     ) -> Dict[str, float]:
         """
@@ -120,6 +120,13 @@ class UsageRedistributionModel:
         if not teammate_injuries:
             return self._neutral_modifiers()
 
+        # Normalize to list of names
+        injured_names = []
+        if isinstance(teammate_injuries, dict):
+            injured_names = list(teammate_injuries.keys())
+        else:
+            injured_names = teammate_injuries
+
         # Try to find historical patterns
         total_boosts = {
             'pts': 0.0,
@@ -135,7 +142,7 @@ class UsageRedistributionModel:
         if team and team in self._redistribution_matrix:
             team_patterns = self._redistribution_matrix[team]
 
-            for injured_teammate in teammate_injuries:
+            for injured_teammate in injured_names:
                 if injured_teammate in team_patterns:
                     player_patterns = team_patterns[injured_teammate]
 
@@ -149,7 +156,7 @@ class UsageRedistributionModel:
 
         # If no historical pattern found, use generic heuristics
         if not found_any_pattern:
-            return self._generic_redistribution(len(teammate_injuries))
+            return self._generic_redistribution(len(injured_names))
 
         # Convert absolute boosts to multipliers
         return {

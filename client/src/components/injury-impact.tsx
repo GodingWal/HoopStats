@@ -152,10 +152,15 @@ export function InjuryImpact({ injuredPlayerId, injuredPlayerName, season }: Inj
           <div className="flex flex-col items-center justify-center py-8 text-center">
             <AlertCircle className="w-8 h-8 text-muted-foreground mb-2" />
             <p className="text-sm text-muted-foreground">
-              No splits data available yet.
+              No splits data available for this player.
             </p>
-            <p className="text-xs text-muted-foreground mt-1">
-              Data will be calculated when {injuredPlayerName} misses games.
+            <p className="text-xs text-muted-foreground mt-2 max-w-sm">
+              This feature requires a database connection with historical on/off splits data.
+              To calculate splits, use the <code className="bg-muted px-1 rounded text-xs">/api/splits/calculate/{'{playerId}'}</code> endpoint
+              or run the historical splits script.
+            </p>
+            <p className="text-xs text-muted-foreground mt-2">
+              If DATABASE_URL is not set, splits cannot be stored or retrieved.
             </p>
           </div>
         </CardContent>

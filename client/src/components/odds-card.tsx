@@ -2,7 +2,12 @@ import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { TrendingUp, TrendingDown, DollarSign, AlertCircle } from "lucide-react";
+import { TrendingUp, TrendingDown, DollarSign, AlertCircle, Wand2, Calculator } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { useState } from "react";
+import { apiRequest } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 
 interface PropLine {
     bookmaker: string;
@@ -62,6 +67,11 @@ const BOOKMAKER_COLORS: Record<string, string> = {
 };
 
 export function OddsCard({ eventId, playerName, statFilter }: OddsCardProps) {
+    const { toast } = useToast();
+    const [explanation, setExplanation] = useState<string | null>(null);
+    const [isExplaining, setIsExplaining] = useState(false);
+    const [explainOpen, setExplainOpen] = useState(false);
+
     // Check if odds API is configured
     const { data: status, isLoading: statusLoading } = useQuery<OddsStatus>({
         queryKey: ["/api/odds/status"],
@@ -124,8 +134,71 @@ export function OddsCard({ eventId, playerName, statFilter }: OddsCardProps) {
         );
     }
 
+    const handleExplain = async (propLabel: string, line: number, side: "OVER" | "UNDER") => {
+        if (!playerName) return;
+
+        setIsExplaining(true);
+        setExplainOpen(true);
+        setExplanation(null);
+
+        try {
+            const res = await apiRequest("POST", "/api/explain", {
+                player_name: playerName,
+                prop: propLabel,
+                line,
+                side,
+                // In a real app we'd pass actual stats here, 
+                // simplifying for now or relying on backend matching
+                season_average: 0,
+                last_5_average: 0,
+                hit_rate: 0,
+                opponent: propsData?.awayTeam === "Unknown" ? "Opponent" : propsData?.awayTeam
+            });
+            const data = await res.json();
+            setExplanation(data.explanation);
+        } catch (error) {
+            console.error(error);
+            setExplanation("Failed to generate explanation. Please try again.");
+            toast({
+                title: "Error",
+                description: "Could not generate analysis",
+                variant: "destructive"
+            });
+        } finally {
+            setIsExplaining(false);
+        }
+    };
+
     return (
         <div className="space-y-4">
+            <Dialog open={explainOpen} onOpenChange={setExplainOpen}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle className="flex items-center gap-2">
+                            <Wand2 className="w-5 h-5 text-purple-500" />
+                            Smart Analysis
+                        </DialogTitle>
+                        <DialogDescription>
+                            AI-powered reasoning for this pick based on recent performance and matchup data.
+                        </DialogDescription>
+                    </DialogHeader>
+
+                    <div className="mt-4">
+                        {isExplaining ? (
+                            <div className="space-y-3">
+                                <Skeleton className="h-4 w-full" />
+                                <Skeleton className="h-4 w-[90%]" />
+                                <Skeleton className="h-4 w-[95%]" />
+                            </div>
+                        ) : (
+                            <div className="text-sm leading-relaxed whitespace-pre-line">
+                                {explanation}
+                            </div>
+                        )}
+                    </div>
+                </DialogContent>
+            </Dialog>
+
             {filteredProps.map((prop) => (
                 <Card key={prop.market} className="premium-card">
                     <CardHeader className="pb-2">
@@ -144,7 +217,7 @@ export function OddsCard({ eventId, playerName, statFilter }: OddsCardProps) {
                             {prop.lines.slice(0, 5).map((line) => (
                                 <div
                                     key={line.bookmaker}
-                                    className="flex items-center justify-between p-2 rounded-lg bg-muted/30 hover:bg-muted/50 transition-colors"
+                                    className="flex items-center justify-between p-2 rounded-lg bg-muted/30 hover:bg-muted/50 transition-colors group"
                                 >
                                     <div className="flex items-center gap-2">
                                         <div className={`w-2 h-2 rounded-full ${BOOKMAKER_COLORS[line.bookmaker] || "bg-gray-500"}`} />
@@ -154,12 +227,22 @@ export function OddsCard({ eventId, playerName, statFilter }: OddsCardProps) {
                                     <div className="flex items-center gap-4">
                                         {/* Over */}
                                         {line.over && (
-                                            <div className="flex items-center gap-1 text-sm">
-                                                <TrendingUp className="w-3 h-3 text-green-500" />
-                                                <span className="font-mono text-muted-foreground">O {line.over.point}</span>
-                                                <span className={`font-mono font-bold ${getOddsColor(line.over.price)}`}>
-                                                    {formatOdds(line.over.price)}
-                                                </span>
+                                            <div className="flex items-center gap-2">
+                                                <div className="flex items-center gap-1 text-sm">
+                                                    <TrendingUp className="w-3 h-3 text-green-500" />
+                                                    <span className="font-mono text-muted-foreground">O {line.over.point}</span>
+                                                    <span className={`font-mono font-bold ${getOddsColor(line.over.price)}`}>
+                                                        {formatOdds(line.over.price)}
+                                                    </span>
+                                                </div>
+                                                <Button
+                                                    variant="ghost"
+                                                    size="icon"
+                                                    className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
+                                                    onClick={() => handleExplain(prop.marketLabel, line.over!.point, "OVER")}
+                                                >
+                                                    <Wand2 className="w-3 h-3 text-purple-500" />
+                                                </Button>
                                             </div>
                                         )}
 
@@ -168,12 +251,22 @@ export function OddsCard({ eventId, playerName, statFilter }: OddsCardProps) {
 
                                         {/* Under */}
                                         {line.under && (
-                                            <div className="flex items-center gap-1 text-sm">
-                                                <TrendingDown className="w-3 h-3 text-red-400" />
-                                                <span className="font-mono text-muted-foreground">U {line.under.point}</span>
-                                                <span className={`font-mono font-bold ${getOddsColor(line.under.price)}`}>
-                                                    {formatOdds(line.under.price)}
-                                                </span>
+                                            <div className="flex items-center gap-2">
+                                                <div className="flex items-center gap-1 text-sm">
+                                                    <TrendingDown className="w-3 h-3 text-red-400" />
+                                                    <span className="font-mono text-muted-foreground">U {line.under.point}</span>
+                                                    <span className={`font-mono font-bold ${getOddsColor(line.under.price)}`}>
+                                                        {formatOdds(line.under.price)}
+                                                    </span>
+                                                </div>
+                                                <Button
+                                                    variant="ghost"
+                                                    size="icon"
+                                                    className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
+                                                    onClick={() => handleExplain(prop.marketLabel, line.under!.point, "UNDER")}
+                                                >
+                                                    <Wand2 className="w-3 h-3 text-purple-500" />
+                                                </Button>
                                             </div>
                                         )}
                                     </div>

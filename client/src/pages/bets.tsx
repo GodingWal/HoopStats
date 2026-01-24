@@ -16,7 +16,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { TrendingUp, TrendingDown, RefreshCw, Target, Flame, ArrowLeft, Swords, Clock, Loader2, Plus, ShoppingCart } from "lucide-react";
+import { TrendingUp, TrendingDown, RefreshCw, Target, Flame, ArrowLeft, Swords, Clock, Loader2, Plus, ShoppingCart, AlertCircle } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useMutation } from "@tanstack/react-query";
 import { useParlayCart } from "@/contexts/parlay-cart";
@@ -71,10 +71,12 @@ function formatGameTime(dateStr: string) {
 function BetRow({ bet }: { bet: PotentialBet }) {
   const isOver = bet.recommendation === "OVER";
   const hasEdge = bet.edge_score && bet.edge_score > 0;
+  const isInjuryEdge = bet.edge_type === "STAR_OUT" || bet.edge_type === "STAR_OUT_POTENTIAL";
 
   const getEdgeBadgeColor = (edgeType: string | undefined) => {
     if (!edgeType) return "";
     if (edgeType === "STAR_OUT") return "bg-purple-500/20 text-purple-400 border-purple-500/30";
+    if (edgeType === "STAR_OUT_POTENTIAL") return "bg-purple-500/10 text-purple-300 border-purple-500/20";
     if (edgeType === "BACK_TO_BACK") return "bg-blue-500/20 text-blue-400 border-blue-500/30";
     if (edgeType === "BLOWOUT_RISK") return "bg-orange-500/20 text-orange-400 border-orange-500/30";
     if (edgeType === "PACE_MATCHUP") return "bg-cyan-500/20 text-cyan-400 border-cyan-500/30";
@@ -90,15 +92,23 @@ function BetRow({ bet }: { bet: PotentialBet }) {
   };
 
   return (
-    <div className={`p-3 rounded-lg transition-all ${hasEdge ? 'bg-gradient-to-r from-primary/10 to-transparent border border-primary/30' : 'bg-muted/30'} hover:bg-muted/50`}>
+    <div className={`p-3 rounded-lg transition-all ${hasEdge ? isInjuryEdge ? 'bg-gradient-to-r from-purple-500/15 to-transparent border border-purple-500/40' : 'bg-gradient-to-r from-primary/10 to-transparent border border-primary/30' : 'bg-muted/30'} hover:bg-muted/50`}>
       <div className="flex items-start justify-between gap-3">
         <div className="flex-1 min-w-0 space-y-1">
-          <div className="font-medium text-sm">{bet.player_name}</div>
+          <div className="flex items-center gap-2">
+            <div className="font-medium text-sm">{bet.player_name}</div>
+            {isInjuryEdge && (
+              <div className="flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-rose-500/20 border border-rose-500/30">
+                <AlertCircle className="w-3 h-3 text-rose-400" />
+                <span className="text-[10px] font-bold text-rose-400">INJURY</span>
+              </div>
+            )}
+          </div>
           <div className="text-xs text-muted-foreground flex items-center gap-1">
             {getStatLabel(bet.stat_type)} <span className="font-mono font-bold text-foreground">{bet.line}</span>
           </div>
           {hasEdge && bet.edge_description && (
-            <div className="text-xs text-muted-foreground italic mt-1">
+            <div className={`text-xs italic mt-1 ${isInjuryEdge ? 'text-purple-300 font-medium' : 'text-muted-foreground'}`}>
               {bet.edge_description}
             </div>
           )}

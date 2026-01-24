@@ -1,5 +1,5 @@
-import type { Player, PotentialBet, InsertPlayer, InsertPotentialBet, SeasonAverages, HitRates, VsTeamStats, GameLog, SplitAverages, InsertProjection, DbProjection, InsertRecommendation, DbRecommendation, InsertTeamDefense, DbTeamDefense, TrackRecord, PropEvaluation, InsertSportsbook, DbSportsbook, InsertPlayerPropLine, DbPlayerPropLine, InsertLineMovement, DbLineMovement, InsertBestLine, DbBestLine, InsertUserBet, DbUserBet, LineComparison, InsertPlayerOnOffSplit, DbPlayerOnOffSplit, InsertParlay, DbParlay, InsertParlayPick, DbParlayPick } from "@shared/schema";
-import { players, potentialBets, projections, recommendations, teamDefense, sportsbooks, playerPropLines, lineMovements, bestLines, userBets, playerOnOffSplits, parlays, parlayPicks } from "@shared/schema";
+import type { Player, PotentialBet, InsertPlayer, InsertPotentialBet, SeasonAverages, HitRates, VsTeamStats, GameLog, SplitAverages, InsertProjection, DbProjection, InsertRecommendation, DbRecommendation, InsertTeamDefense, DbTeamDefense, TrackRecord, PropEvaluation, InsertSportsbook, DbSportsbook, InsertPlayerPropLine, DbPlayerPropLine, InsertLineMovement, DbLineMovement, InsertBestLine, DbBestLine, InsertUserBet, DbUserBet, LineComparison, InsertPlayerOnOffSplit, DbPlayerOnOffSplit, InsertParlay, DbParlay, InsertParlayPick, DbParlayPick, Alert, InsertAlert } from "@shared/schema";
+import { players, potentialBets, projections, recommendations, teamDefense, sportsbooks, playerPropLines, lineMovements, bestLines, userBets, playerOnOffSplits, parlays, parlayPicks, alerts } from "@shared/schema";
 import { db } from "./db";
 import { eq, ilike, or, desc, and, gte, sql, inArray, avg, max, min, count } from "drizzle-orm";
 
@@ -10,6 +10,7 @@ export interface IStorage {
   createPlayer(player: InsertPlayer): Promise<Player>;
   getPotentialBets(): Promise<PotentialBet[]>;
   createPotentialBet(bet: InsertPotentialBet): Promise<PotentialBet>;
+  updatePotentialBet(id: number, updates: Partial<InsertPotentialBet>): Promise<PotentialBet>;
   clearPotentialBets(): Promise<void>;
   clearPlayers(): Promise<void>;
   seedPlayers(data: Player[]): Promise<void>;
@@ -71,6 +72,11 @@ export interface IStorage {
   getTopBeneficiaries(withoutPlayerId: number, stat: 'pts' | 'reb' | 'ast', limit: number): Promise<DbPlayerOnOffSplit[]>;
   getOnOffSplitsByTeam(teamAbbr: string, season?: string): Promise<DbPlayerOnOffSplit[]>;
   deleteStaleOnOffSplits(olderThanDays: number): Promise<void>;
+
+  // Alerts
+  getAlerts(params?: { unreadOnly?: boolean; limit?: number }): Promise<Alert[]>;
+  createAlert(alert: InsertAlert): Promise<Alert>;
+  markAlertAsRead(id: number): Promise<void>;
 }
 
 function dbPlayerToPlayer(dbPlayer: typeof players.$inferSelect): Player {
@@ -151,6 +157,16 @@ export class DatabaseStorage implements IStorage {
   async createPotentialBet(bet: InsertPotentialBet): Promise<PotentialBet> {
     if (!db) throw new Error("Database not initialized");
     const [result] = await db.insert(potentialBets).values(bet).returning();
+    return dbBetToPotentialBet(result);
+  }
+
+  async updatePotentialBet(id: number, updates: Partial<InsertPotentialBet>): Promise<PotentialBet> {
+    if (!db) throw new Error("Database not initialized");
+    const [result] = await db
+      .update(potentialBets)
+      .set(updates)
+      .where(eq(potentialBets.id, id))
+      .returning();
     return dbBetToPotentialBet(result);
   }
 
@@ -891,9 +907,36 @@ export class DatabaseStorage implements IStorage {
     const cutoffDate = new Date();
     cutoffDate.setDate(cutoffDate.getDate() - olderThanDays);
 
-    await db
-      .delete(playerOnOffSplits)
-      .where(sql`${playerOnOffSplits.updatedAt} < ${cutoffDate}`);
+    await db.delete(playerOnOffSplits).where(sql`${playerOnOffSplits.updatedAt} < ${cutoffDate}`);
+  }
+
+  // Alerts
+  async getAlerts(params?: { unreadOnly?: boolean; limit?: number }): Promise<Alert[]> {
+    if (!db) throw new Error("Database not initialized");
+
+    // Simple query since we can't easily do dynamic filtering with this ORM pattern in one line
+    // Accessing raw query builder
+    const result = await db.select().from(alerts).orderBy(desc(alerts.created_at));
+
+    let filtered = result;
+    if (params?.unreadOnly) {
+      filtered = filtered.filter(a => !a.read);
+    }
+    if (params?.limit) {
+      filtered = filtered.slice(0, params.limit);
+    }
+    return filtered;
+  }
+
+  async createAlert(alert: InsertAlert): Promise<Alert> {
+    if (!db) throw new Error("Database not initialized");
+    const [result] = await db.insert(alerts).values(alert).returning();
+    return result;
+  }
+
+  async markAlertAsRead(id: number): Promise<void> {
+    if (!db) throw new Error("Database not initialized");
+    await db.update(alerts).set({ read: true }).where(eq(alerts.id, id));
   }
 }
 
@@ -910,6 +953,9 @@ export class MemStorage implements IStorage {
   private parlayIdCounter: number;
   private parlayPickIdCounter: number;
 
+  private splitsMap: Map<number, DbPlayerOnOffSplit[]>;
+  private splitsIdCounter: number;
+
   constructor() {
     this.players = new Map();
     this.bets = new Map();
@@ -922,6 +968,8 @@ export class MemStorage implements IStorage {
     this.parlaysMap = new Map();
     this.parlayIdCounter = 1;
     this.parlayPickIdCounter = 1;
+    this.splitsMap = new Map();
+    this.splitsIdCounter = 1;
   }
 
   async getPlayers(): Promise<Player[]> {
@@ -994,6 +1042,22 @@ export class MemStorage implements IStorage {
     };
     this.bets.set(id, newBet);
     return newBet;
+  }
+
+  async updatePotentialBet(id: number, updates: Partial<InsertPotentialBet>): Promise<PotentialBet> {
+    const existingBet = this.bets.get(id);
+    if (!existingBet) {
+      throw new Error(`Bet with id ${id} not found`);
+    }
+    const updatedBet: PotentialBet = {
+      ...existingBet,
+      ...updates,
+      id,
+      recommendation: (updates.recommendation as "OVER" | "UNDER") ?? existingBet.recommendation,
+      confidence: (updates.confidence as "HIGH" | "MEDIUM" | "LOW") ?? existingBet.confidence,
+    };
+    this.bets.set(id, updatedBet);
+    return updatedBet;
   }
 
   async clearPotentialBets(): Promise<void> {
@@ -1270,11 +1334,110 @@ export class MemStorage implements IStorage {
 
   async compareLines(playerId: number, stat: string, gameDate: string): Promise<LineComparison> { throw new Error("Not implemented in MemStorage"); }
 
-  async savePlayerOnOffSplit(split: InsertPlayerOnOffSplit): Promise<DbPlayerOnOffSplit> { throw new Error("Not implemented in MemStorage"); }
-  async getPlayerOnOffSplits(withoutPlayerId: number, season?: string): Promise<DbPlayerOnOffSplit[]> { return []; }
-  async getTopBeneficiaries(withoutPlayerId: number, stat: 'pts' | 'reb' | 'ast', limit: number): Promise<DbPlayerOnOffSplit[]> { return []; }
-  async getOnOffSplitsByTeam(teamAbbr: string, season?: string): Promise<DbPlayerOnOffSplit[]> { return []; }
-  async deleteStaleOnOffSplits(olderThanDays: number): Promise<void> { }
+  async savePlayerOnOffSplit(split: InsertPlayerOnOffSplit): Promise<DbPlayerOnOffSplit> {
+    const id = this.splitsIdCounter++;
+    const newSplit: DbPlayerOnOffSplit = {
+      id,
+      ...split,
+      ptsWithTeammate: split.ptsWithTeammate ?? null,
+      rebWithTeammate: split.rebWithTeammate ?? null,
+      astWithTeammate: split.astWithTeammate ?? null,
+      minWithTeammate: split.minWithTeammate ?? null,
+      fgaWithTeammate: split.fgaWithTeammate ?? null,
+      ptsDelta: split.ptsDelta ?? null,
+      rebDelta: split.rebDelta ?? null,
+      astDelta: split.astDelta ?? null,
+      minDelta: split.minDelta ?? null,
+      fgaDelta: split.fgaDelta ?? null,
+      calculatedAt: new Date()
+    };
+
+    // Store by withoutPlayerId
+    const existing = this.splitsMap.get(split.withoutPlayerId) || [];
+    existing.push(newSplit);
+    this.splitsMap.set(split.withoutPlayerId, existing);
+
+    return newSplit;
+  }
+
+  async getPlayerOnOffSplits(withoutPlayerId: number, season?: string): Promise<DbPlayerOnOffSplit[]> {
+    let splits = this.splitsMap.get(withoutPlayerId) || [];
+    if (season) {
+      splits = splits.filter(s => s.season === season);
+    }
+    return splits;
+  }
+
+  async getTopBeneficiaries(withoutPlayerId: number, stat: 'pts' | 'reb' | 'ast', limit: number): Promise<DbPlayerOnOffSplit[]> {
+    const splits = await this.getPlayerOnOffSplits(withoutPlayerId);
+
+    // Filter significant sample size
+    const validSplits = splits.filter(s => s.gamesWithoutTeammate >= 3);
+
+    return validSplits.sort((a, b) => {
+      // Map stat to delta field
+      let valA = 0;
+      let valB = 0;
+
+      switch (stat) {
+        case 'pts': valA = a.ptsDelta ?? 0; valB = b.ptsDelta ?? 0; break;
+        case 'reb': valA = a.rebDelta ?? 0; valB = b.rebDelta ?? 0; break;
+        case 'ast': valA = a.astDelta ?? 0; valB = b.astDelta ?? 0; break;
+      }
+
+      return valB - valA; // Descending
+    }).slice(0, limit);
+  }
+
+  async getOnOffSplitsByTeam(teamAbbr: string, season?: string): Promise<DbPlayerOnOffSplit[]> {
+    const allSplits: DbPlayerOnOffSplit[] = [];
+    for (const splits of this.splitsMap.values()) {
+      allSplits.push(...splits.filter(s => s.team === teamAbbr && (season ? s.season === season : true)));
+    }
+    return allSplits;
+  }
+
+  async deleteStaleOnOffSplits(olderThanDays: number): Promise<void> {
+    // Basic cleanup logic could go here
+  }
+
+  // Alerts
+  alerts: Alert[] = [];
+  alertIdCounter = 1;
+
+  async getAlerts(params?: { unreadOnly?: boolean; limit?: number }): Promise<Alert[]> {
+    let filtered = this.alerts;
+    if (params?.unreadOnly) {
+      filtered = filtered.filter(a => !a.read);
+    }
+    filtered = filtered.sort((a, b) =>
+      (b.created_at?.getTime() ?? 0) - (a.created_at?.getTime() ?? 0)
+    );
+    if (params?.limit) {
+      filtered = filtered.slice(0, params.limit);
+    }
+    return filtered;
+  }
+
+  async createAlert(alert: InsertAlert): Promise<Alert> {
+    const newAlert: Alert = {
+      ...alert,
+      id: this.alertIdCounter++,
+      created_at: new Date(),
+      read: false,
+      metadata: alert.metadata ?? null,
+      severity: alert.severity ?? "INFO",
+    };
+    this.alerts.push(newAlert);
+    return newAlert;
+  }
+
+  async markAlertAsRead(id: number): Promise<void> {
+    const alert = this.alerts.find(a => a.id === id);
+    if (alert) {
+      alert.read = true;
+    }
+  }
 }
 
 

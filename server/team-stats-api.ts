@@ -7,9 +7,11 @@ import {
   fetchAllTeams,
   getTeamIdByAbbreviation,
   getTeamAbbreviationById,
+  getTeamRecord,
   type LiveGame,
   type ESPNAthlete,
 } from "./espn-api";
+import { injuryWatcher } from "./injury-watcher";
 import type {
   TeamStats,
   TeamBasicStats,
@@ -382,11 +384,25 @@ export async function fetchTeamRotation(teamAbbr: string, games: GameContext[]):
       }
     }
 
+    // Get currently injured players to filter them out
+    const injuredPlayerNames = injuryWatcher.getTeamOutPlayers(teamAbbr);
+
     const rotation: PlayerRotationStats[] = [];
 
     for (const [playerId, stats] of playerStatsMap.entries()) {
       // Only include players with meaningful minutes (e.g. > 5 min total in last 10 games)
       if (stats.minutes < 5) continue;
+
+      // Filter out currently injured players
+      const isInjured = injuredPlayerNames.some(injuredName =>
+        stats.name.toLowerCase().includes(injuredName.toLowerCase()) ||
+        injuredName.toLowerCase().includes(stats.name.toLowerCase())
+      );
+
+      if (isInjured) {
+        apiLogger.debug(`Excluding injured player from rotation: ${stats.name}`);
+        continue;
+      }
 
       const mpg = stats.minutes / stats.games;
 
@@ -476,24 +492,49 @@ export async function fetchTeamStats(teamAbbr: string): Promise<TeamStats | null
       throw new Error(`Team not found: ${teamAbbr}`);
     }
 
-    // Fetch recent games
-    const recentGames = await fetchTeamRecentGames(teamAbbr, 15);
+    // Fetch recent games AND real team record in parallel
+    const [recentGames, realRecord] = await Promise.all([
+      fetchTeamRecentGames(teamAbbr, 15),
+      getTeamRecord(teamAbbr)
+    ]);
 
-    // Calculate stats
+    // Calculate stats from recent games
     const basicStats = calculateBasicStats(recentGames);
+
+    // Override wins/losses/winPct with REAL season record from standings
+    if (realRecord) {
+      basicStats.wins = realRecord.wins;
+      basicStats.losses = realRecord.losses;
+      basicStats.winPct = realRecord.winPct;
+      basicStats.gamesPlayed = realRecord.gamesPlayed;
+      basicStats.homeRecord = realRecord.homeRecord;
+      basicStats.awayRecord = realRecord.awayRecord;
+    }
+
     const advancedStats = calculateAdvancedStats(basicStats);
 
     // Fetch rotation
     const rotation = await fetchTeamRotation(teamAbbr, recentGames);
 
-    // Calculate streak
+    // Calculate streak from standings if available, otherwise from recent games
     let streakType: 'W' | 'L' = recentGames[0]?.result || 'W';
     let streakCount = 0;
-    for (const game of recentGames) {
-      if (game.result === streakType) {
-        streakCount++;
-      } else {
-        break;
+
+    if (realRecord && realRecord.streak) {
+      // Parse streak like "W3" or "L2"
+      const match = realRecord.streak.match(/^([WL])(\d+)$/);
+      if (match) {
+        streakType = match[1] as 'W' | 'L';
+        streakCount = parseInt(match[2]);
+      }
+    } else {
+      // Calculate from recent games as fallback
+      for (const game of recentGames) {
+        if (game.result === streakType) {
+          streakCount++;
+        } else {
+          break;
+        }
       }
     }
 
@@ -529,7 +570,7 @@ export async function fetchTeamStats(teamAbbr: string): Promise<TeamStats | null
   }
 }
 
-// Compare two teams
+// Compare two teams with advanced analytics
 export async function compareTeams(team1Abbr: string, team2Abbr: string): Promise<TeamComparison | null> {
   try {
     const [team1Stats, team2Stats] = await Promise.all([
@@ -548,7 +589,13 @@ export async function compareTeams(team1Abbr: string, team2Abbr: string): Promis
       ? team1VsTeam2.reduce((sum, g) => sum + g.pointDifferential, 0) / team1VsTeam2.length
       : 0;
 
-    return {
+    // Advanced matchup analysis
+    const t1 = team1Stats.basicStats;
+    const t2 = team2Stats.basicStats;
+    const t1Adv = team1Stats.advancedStats || calculateAdvancedStats(t1);
+    const t2Adv = team2Stats.advancedStats || calculateAdvancedStats(t2);
+
+    const comparison = {
       team1: team1Stats,
       team2: team2Stats,
       headToHead: {
@@ -561,7 +608,86 @@ export async function compareTeams(team1Abbr: string, team2Abbr: string): Promis
           score: g.finalScore,
         })),
       },
+      // Advanced comparative analytics
+      advancedComparison: {
+        // Offensive efficiency edge
+        offensiveEdge: {
+          team1OffRating: t1Adv.offRating,
+          team2OffRating: t2Adv.offRating,
+          differential: t1Adv.offRating - t2Adv.offRating,
+          advantage: t1Adv.offRating > t2Adv.offRating ? team1Abbr : team2Abbr,
+        },
+        // Defensive efficiency edge
+        defensiveEdge: {
+          team1DefRating: t1Adv.defRating,
+          team2DefRating: t2Adv.defRating,
+          differential: t2Adv.defRating - t1Adv.defRating, // Lower is better for defense
+          advantage: t1Adv.defRating < t2Adv.defRating ? team1Abbr : team2Abbr,
+        },
+        // Pace matchup
+        paceMatchup: {
+          team1Pace: t1Adv.pace,
+          team2Pace: t2Adv.pace,
+          differential: Math.abs(t1Adv.pace - t2Adv.pace),
+          expectedPace: (t1Adv.pace + t2Adv.pace) / 2,
+          style: t1Adv.pace > 102 && t2Adv.pace > 102 ? 'fast' :
+                 t1Adv.pace < 98 && t2Adv.pace < 98 ? 'slow' : 'mixed',
+        },
+        // Scoring trends
+        scoringTrends: {
+          team1Ppg: t1.ppg,
+          team2Ppg: t2.ppg,
+          team1OppPpg: t1.oppPpg,
+          team2OppPpg: t2.oppPpg,
+          projectedTotal: ((t1.ppg + t2.oppPpg) / 2 + (t2.ppg + t1.oppPpg) / 2),
+        },
+        // Shooting efficiency
+        shootingEdge: {
+          team1FgPct: t1.fgPct,
+          team2FgPct: t2.fgPct,
+          team1Fg3Pct: t1.fg3Pct,
+          team2Fg3Pct: t2.fg3Pct,
+          team1EfgPct: t1Adv.efgPct,
+          team2EfgPct: t2Adv.efgPct,
+          advantage: t1Adv.efgPct > t2Adv.efgPct ? team1Abbr : team2Abbr,
+        },
+        // Rebounding edge
+        reboundingEdge: {
+          team1Rpg: t1.rpg,
+          team2Rpg: t2.rpg,
+          differential: t1.rpg - t2.rpg,
+          advantage: t1.rpg > t2.rpg ? team1Abbr : team2Abbr,
+        },
+        // Turnover battle
+        turnoverBattle: {
+          team1Tpg: t1.tpg,
+          team2Tpg: t2.tpg,
+          team1TovPct: t1Adv.tovPct,
+          team2TovPct: t2Adv.tovPct,
+          advantage: t1Adv.tovPct < t2Adv.tovPct ? team1Abbr : team2Abbr,
+        },
+        // Home/Away context
+        homeAwayFactor: {
+          team1HomeRecord: t1.homeRecord,
+          team1AwayRecord: t1.awayRecord,
+          team2HomeRecord: t2.homeRecord,
+          team2AwayRecord: t2.awayRecord,
+          team1HomePpg: t1.homePpg,
+          team1AwayPpg: t1.awayPpg,
+          team2HomePpg: t2.homePpg,
+          team2AwayPpg: t2.awayPpg,
+        },
+        // Overall ratings
+        powerRatings: {
+          team1NetRating: t1Adv.offRating - t1Adv.defRating,
+          team2NetRating: t2Adv.offRating - t2Adv.defRating,
+          differential: (t1Adv.offRating - t1Adv.defRating) - (t2Adv.offRating - t2Adv.defRating),
+          advantage: (t1Adv.offRating - t1Adv.defRating) > (t2Adv.offRating - t2Adv.defRating) ? team1Abbr : team2Abbr,
+        },
+      },
     };
+
+    return comparison as TeamComparison;
 
   } catch (error) {
     apiLogger.error(`Error comparing teams ${team1Abbr} vs ${team2Abbr}`, error);

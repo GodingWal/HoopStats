@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PropCard } from "@/components/prop-card";
 import { Badge } from "@/components/ui/badge";
+import { InjuryAlertsWidget } from "@/components/injury-alerts-widget";
 import type { PotentialBet } from "@shared/schema";
 import { Loader2, Flame, TrendingUp, TrendingDown } from "lucide-react";
 
@@ -95,6 +96,9 @@ export default function Dashboard() {
           Last updated: {new Date().toLocaleTimeString()}
         </p>
       </div>
+
+      {/* Injury Alerts Widget */}
+      <InjuryAlertsWidget />
 
       {/* Track Record Summary */}
       <Card>

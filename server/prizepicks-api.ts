@@ -230,40 +230,59 @@ export async function fetchPrizePicksProjections(): Promise<PrizePicksProjection
     }
 }
 
+// Helper to normalize player names for comparison
+function normalizeName(name: string): string {
+    return name
+        .toLowerCase()
+        .replace(/\./g, "")      // Remove dots (C.J. -> cj)
+        .replace(/'/g, "")       // Remove apostrophes (O'Neale -> oneale)
+        .replace(/jr\.?|sr\.?|iii|ii|iv/g, "") // Remove suffixes
+        .replace(/[^a-z0-9\s]/g, "") // Remove other special chars
+        .trim()
+        .replace(/\s+/g, " ");   // Normalize whitespace
+}
+
 /**
  * Get projections for a specific player
  */
 export async function fetchPlayerPrizePicksProps(playerName: string): Promise<PrizePicksProjection[]> {
     const allProjections = await fetchPrizePicksProjections();
 
-    // Normalize the search name
-    const searchName = playerName.toLowerCase().trim();
-    const searchParts = searchName.split(/\s+/);
+    const searchName = normalizeName(playerName);
+
+    // Split search name into parts for fuzzy matching if needed
+    const searchParts = searchName.split(" ");
 
     return allProjections.filter(p => {
-        const propName = p.playerName.toLowerCase().trim();
+        const propName = normalizeName(p.playerName);
 
-        // Exact match (case insensitive)
+        // 1. Exact match after normalization
         if (propName === searchName) {
             return true;
         }
 
-        // Check if all parts of search name are in the player name
-        // This handles "LeBron James" matching "LeBron James" but not "James Harden"
-        const propParts = propName.split(/\s+/);
-
-        // Both names should have similar parts
-        if (searchParts.length >= 2 && propParts.length >= 2) {
-            // First name and last name must both match
-            const firstMatch = propParts[0].includes(searchParts[0]) || searchParts[0].includes(propParts[0]);
-            const lastMatch = propParts[propParts.length - 1].includes(searchParts[searchParts.length - 1]) ||
-                searchParts[searchParts.length - 1].includes(propParts[propParts.length - 1]);
-            return firstMatch && lastMatch;
+        // 2. Contains match (e.g. "Luka Doncic" matches "Luka Doncic (Probable)")
+        if (propName.includes(searchName) || searchName.includes(propName)) {
+            // Be careful with short names, but generally safe for full names
+            if (searchName.length > 4) return true;
         }
 
-        // Single word search - must match a full word
-        if (searchParts.length === 1) {
-            return propParts.some(part => part === searchParts[0] || part.startsWith(searchParts[0]));
+        // 3. Last name + First initial match (common in sports data)
+        // Not robust enough alone, usually handled by database sync, 
+        // but simple "LeBron James" vs "James, LeBron" check
+
+        // 4. Part Matching
+        // Ensure all parts of the shorter name are present in the longer name
+        const propParts = propName.split(" ");
+
+        // If we have at least 2 parts (First Last)
+        if (searchParts.length >= 2 && propParts.length >= 2) {
+            // Check if first part matches
+            const firstMatch = propParts[0] === searchParts[0];
+            // Check if last part matches (last element of array)
+            const lastMatch = propParts[propParts.length - 1] === searchParts[searchParts.length - 1];
+
+            if (firstMatch && lastMatch) return true;
         }
 
         return false;

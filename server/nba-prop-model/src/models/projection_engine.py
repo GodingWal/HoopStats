@@ -34,7 +34,7 @@ class GameContext:
     total: float
     opponent_def_rating: float
     opponent_pace: float
-    teammate_injuries: List[str]  # Names of injured teammates
+    teammate_injuries: Dict[str, float]  # Name -> Vacated Minutes
 
 
 @dataclass
@@ -479,5 +479,5 @@ def create_sample_context(
         total=225.5,
         opponent_def_rating=110.0,
         opponent_pace=100.0,
-        teammate_injuries=[]
+        teammate_injuries={}
     )

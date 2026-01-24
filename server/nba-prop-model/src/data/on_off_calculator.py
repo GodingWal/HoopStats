@@ -74,10 +74,11 @@ class OnOffSplitsCalculator:
             }
         """
         # Get team ID
-        team_list = teams.find_teams_by_abbreviation(team_abbr)
-        if not team_list:
+        all_teams = teams.get_teams()
+        team_info = next((t for t in all_teams if t['abbreviation'] == team_abbr.upper()), None)
+        if not team_info:
             raise ValueError(f"Team not found: {team_abbr}")
-        team_id = team_list[0]['id']
+        team_id = team_info['id']
 
         # Get star player name
         star_player_name = self._get_player_name(star_player_id)
@@ -86,7 +87,7 @@ class OnOffSplitsCalculator:
 
         # Process each season
         for season in seasons:
-            print(f"Processing season {season}...")
+            print(f"Processing season {season}...", file=sys.stderr)
 
             # Get games where star player was out
             missed_games, played_games = self._get_missed_games(
@@ -94,10 +95,10 @@ class OnOffSplitsCalculator:
             )
 
             if len(missed_games) < 3:
-                print(f"  Skipping {season}: Only {len(missed_games)} games missed (need 3+)")
+                print(f"  Skipping {season}: Only {len(missed_games)} games missed (need 3+)", file=sys.stderr)
                 continue
 
-            print(f"  Star player missed {len(missed_games)} games, played {len(played_games)}")
+            print(f"  Star player missed {len(missed_games)} games, played {len(played_games)}", file=sys.stderr)
 
             # Get team roster
             roster = self._get_team_roster(team_id, season)
@@ -128,10 +129,10 @@ class OnOffSplitsCalculator:
                             "season": season,
                             "team": team_abbr
                         })
-                        print(f"    {teammate_name}: {splits['pts_delta']:+.1f} PPG delta")
+                        print(f"    {teammate_name}: {splits['pts_delta']:+.1f} PPG delta", file=sys.stderr)
 
                 except Exception as e:
-                    print(f"    Error processing {teammate_name}: {e}")
+                    print(f"    Error processing {teammate_name}: {e}", file=sys.stderr)
                     continue
 
         return {
@@ -179,7 +180,7 @@ class OnOffSplitsCalculator:
             player_game_ids = set(player_games_df['Game_ID'].tolist())
         except Exception as e:
             # Player didn't play any games this season
-            print(f"    Player {player_id} has no games in {season}: {e}")
+            print(f"    Player {player_id} has no games in {season}: {e}", file=sys.stderr)
             return list(team_game_ids), []
 
         # Games player missed = team games - player games
@@ -277,7 +278,7 @@ class OnOffSplitsCalculator:
             roster_df = roster_endpoint.get_data_frames()[0]
             return roster_df.to_dict('records')
         except Exception as e:
-            print(f"Error getting roster: {e}")
+            print(f"Error getting roster: {e}", file=sys.stderr)
             return []
 
     def _get_player_name(self, player_id: str) -> str:

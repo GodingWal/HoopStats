@@ -3,7 +3,7 @@ import argparse
 import sys
 import json
 import pandas as pd
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Union
 from datetime import datetime
 
 # Ensure src is in path
@@ -82,19 +82,19 @@ def get_team_defensive_rating(client: NBADataClient, team_abbr: str) -> tuple:
     
     return float(def_rating), float(pace)
 
-def create_dynamic_context(client: NBADataClient, team_abbr: str, teammate_injuries: List[str] = None) -> tuple:
+def create_dynamic_context(client: NBADataClient, team_abbr: str, teammate_injuries: Dict[str, float] = None) -> tuple:
     """Create a real game context based on today's schedule.
 
     Args:
         client: NBA data client
         team_abbr: Team abbreviation (e.g., 'LAL')
-        teammate_injuries: List of teammate names who are OUT
+        teammate_injuries: Dict of teammate names who are OUT mapped to minutes
 
     Returns:
         Tuple of (GameContext, is_real_data)
     """
     if teammate_injuries is None:
-        teammate_injuries = []
+        teammate_injuries = {}
 
     game_info = find_player_game(client, team_abbr)
 
@@ -173,19 +173,19 @@ def format_recent_games(game_log: pd.DataFrame, n_games: int = 5) -> List[Dict]:
         })
     return games
 
-def get_projections(players: List[str], teammate_injuries: List[str] = None):
+def get_projections(players: List[str], teammate_injuries: Dict[str, float] = None):
     """Generate projections for players.
 
     Args:
         players: List of player names to project
-        teammate_injuries: List of injured teammate names (players who are OUT)
+        teammate_injuries: Dict of injured teammate names mapped to minutes
                           These injuries are factored into usage redistribution
 
     Returns:
         Dictionary of projections keyed by player name
     """
     if teammate_injuries is None:
-        teammate_injuries = []
+        teammate_injuries = {}
 
     try:
         client = NBADataClient()
@@ -332,7 +332,9 @@ def main():
     parser.add_argument('--players', nargs='+', required=False,
                         help='List of player names to project')
     parser.add_argument('--injuries', nargs='*', default=[],
-                        help='List of injured teammate names (players who are OUT)')
+                        help='List of injured teammate names (legacy) or JSON dict string')
+    parser.add_argument('--injured_minutes', type=str, default="{}",
+                        help='JSON string of injured players and their vacated minutes')
     parser.add_argument('--advanced-stats', action='store_true',
                         help='Fetch league-wide advanced stats')
     args = parser.parse_args()
@@ -346,8 +348,24 @@ def main():
         print(json.dumps({"error": "No players specified"}))
         return
 
+    # Parse injuries
+    injuries_map = {}
+    
+    # Try parsing --injured_minutes as JSON first (Preferred)
+    if args.injured_minutes and args.injured_minutes != "{}":
+        try:
+            injuries_map = json.loads(args.injured_minutes)
+        except:
+            pass
+            
+    # If empty, try legacy --injuries list
+    if not injuries_map and args.injuries:
+        # Fallback: assign 25 minutes to each listed player
+        for player in args.injuries:
+            injuries_map[player] = 25.0
+
     # Run projections with injury context
-    data = get_projections(args.players, args.injuries)
+    data = get_projections(args.players, injuries_map)
 
     # Print ONLY the JSON to stdout
     print(json.dumps(data))

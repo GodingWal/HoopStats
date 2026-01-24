@@ -983,3 +983,17 @@ export const teamComparisonSchema = z.object({
 });
 
 export type TeamComparison = z.infer<typeof teamComparisonSchema>;
+
+export const alerts = pgTable("alerts", {
+  id: serial("id").primaryKey(),
+  title: text("title").notNull(),
+  message: text("message").notNull(),
+  type: text("type").notNull(), // 'EDGE', 'INJURY', 'SYSTEM'
+  severity: text("severity").default("INFO"), // 'INFO', 'HIGH', 'CRITICAL'
+  created_at: timestamp("created_at").defaultNow(),
+  read: boolean("read").default(false),
+  metadata: jsonb("metadata"), // Store bet info or player info
+});
+
+export type Alert = typeof alerts.$inferSelect;
+export type InsertAlert = typeof alerts.$inferInsert;

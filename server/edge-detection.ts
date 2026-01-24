@@ -1,4 +1,5 @@
 import type { Player } from "@shared/schema";
+import { injuryWatcher } from "./injury-watcher";
 
 export interface Edge {
   type: string;
@@ -76,21 +77,42 @@ export function analyzeEdges(
 
 function detectStarOutEdge(player: Player, statType: string): Edge | null {
   // Check if this player has a significant on/off split showing they benefit from a star being out
-  // This requires checking on/off splits data
   const onOffSplits = player.on_off_splits;
   if (!onOffSplits || onOffSplits.length === 0) return null;
 
-  // Find the biggest beneficiary relationship
+  // Get currently injured players from the team
+  const teamOutPlayers = injuryWatcher.getTeamOutPlayers(player.team);
+
+  // Find the biggest beneficiary relationship where the star is actually OUT
   // on_off_splits format: [{ without_player: "LeBron James", with_pct: 15.2, without_pct: 25.8, impact: 10.6, stat: "pts" }]
   for (const split of onOffSplits) {
     if (split.stat === statType.toLowerCase() && split.impact > 5.0) {
-      // Significant positive impact when star is out
-      return {
-        type: "STAR_OUT",
-        score: 10, // Tier 1, highest score
-        description: `${split.without_player} OUT: ${player.player_name} averages +${split.impact.toFixed(1)} ${statType.toUpperCase()} without them`,
-        tier: 1,
-      };
+      // Check if this star player is actually OUT today
+      const starIsOut = teamOutPlayers.some(injury =>
+        injury.playerName.toLowerCase().includes(split.without_player.toLowerCase()) ||
+        split.without_player.toLowerCase().includes(injury.playerName.toLowerCase())
+      );
+
+      if (starIsOut) {
+        // CONFIRMED: Star is out and this player historically benefits
+        return {
+          type: "STAR_OUT",
+          score: 10, // Tier 1, highest score - THE BEST EDGE
+          description: `${split.without_player} OUT: ${player.player_name} averages +${split.impact.toFixed(1)} ${statType.toUpperCase()} without them`,
+          tier: 1,
+        };
+      } else {
+        // Star is not injured - check if there's potential value anyway
+        // This could still be useful if the split is very significant (7.0+)
+        if (split.impact > 7.0) {
+          return {
+            type: "STAR_OUT_POTENTIAL",
+            score: 6, // Lower tier edge - star not currently out but watch for it
+            description: `Monitor: ${player.player_name} gains +${split.impact.toFixed(1)} ${statType.toUpperCase()} when ${split.without_player} sits`,
+            tier: 2,
+          };
+        }
+      }
     }
   }
 

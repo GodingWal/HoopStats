@@ -7,7 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ShoppingCart, X, TrendingUp, TrendingDown, Send, Loader2 } from "lucide-react";
+import { ShoppingCart, X, TrendingUp, TrendingDown, Send, Loader2, ChevronUp, ChevronDown } from "lucide-react";
 import { useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 
@@ -25,6 +25,7 @@ export function ParlayCart() {
   const [showSubmit, setShowSubmit] = useState(false);
   const [parlayType, setParlayType] = useState<"flex" | "power">("flex");
   const [entryAmount, setEntryAmount] = useState("");
+  const [isCollapsed, setIsCollapsed] = useState(false);
 
   const numPicks = picks.length;
   const payoutMultiplier = numPicks >= 2 && numPicks <= 6
@@ -66,6 +67,27 @@ export function ParlayCart() {
 
   if (picks.length === 0) return null;
 
+  // Collapsed view - just a small floating button
+  if (isCollapsed) {
+    return (
+      <div className="fixed bottom-6 right-6 z-50 animate-in slide-in-from-bottom-5">
+        <Button
+          onClick={() => setIsCollapsed(false)}
+          className="h-14 w-14 rounded-full shadow-2xl shadow-primary/30 p-0"
+        >
+          <div className="relative">
+            <ShoppingCart className="w-6 h-6" />
+            <Badge
+              className="absolute -top-2 -right-2 h-5 w-5 p-0 flex items-center justify-center text-xs"
+            >
+              {picks.length}
+            </Badge>
+          </div>
+        </Button>
+      </div>
+    );
+  }
+
   return (
     <>
       <div className="fixed bottom-6 right-6 z-50 animate-in slide-in-from-bottom-5">
@@ -76,9 +98,20 @@ export function ParlayCart() {
                 <ShoppingCart className="w-5 h-5 text-primary" />
                 Parlay Cart
               </div>
-              <Badge variant="outline" className="text-primary border-primary/50">
-                {picks.length} {picks.length === 1 ? "pick" : "picks"}
-              </Badge>
+              <div className="flex items-center gap-1">
+                <Badge variant="outline" className="text-primary border-primary/50">
+                  {picks.length} {picks.length === 1 ? "pick" : "picks"}
+                </Badge>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 w-6 p-0 hover:bg-muted"
+                  onClick={() => setIsCollapsed(true)}
+                  title="Minimize cart"
+                >
+                  <ChevronDown className="w-4 h-4" />
+                </Button>
+              </div>
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
