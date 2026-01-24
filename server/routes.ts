@@ -1893,8 +1893,8 @@ export async function registerRoutes(
         }
       }
 
-      // Filter out entries with insufficient sample size
-      const validSplits = splits.filter(s => s.gamesWithoutTeammate >= 3);
+      // Filter out entries with insufficient sample size (at least 2 games without)
+      const validSplits = splits.filter(s => s.gamesWithoutTeammate >= 2);
 
       // Sort by points delta descending (biggest beneficiaries first)
       const sortedSplits = validSplits.sort((a, b) => {
