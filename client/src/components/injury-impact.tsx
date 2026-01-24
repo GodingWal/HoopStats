@@ -91,13 +91,18 @@ function StatDelta({ label, withValue, withoutValue, delta }: StatDeltaProps) {
   );
 }
 
-export function InjuryImpact({ injuredPlayerId, injuredPlayerName, season }: InjuryImpactProps) {
+export function InjuryImpact({ injuredPlayerId, injuredPlayerName, team, season }: InjuryImpactProps) {
   const { data, isLoading, error } = useQuery<{ splits: PlayerSplit[]; count: number }>({
     queryKey: ['splits', injuredPlayerId, season],
     queryFn: async () => {
-      const url = season
-        ? `/api/splits/without-player/${injuredPlayerId}?season=${season}`
-        : `/api/splits/without-player/${injuredPlayerId}`;
+      const params = new URLSearchParams();
+      if (season) params.append('season', season);
+      if (injuredPlayerName) params.append('playerName', injuredPlayerName);
+      if (team) params.append('team', team);
+
+      const queryString = params.toString();
+      const url = `/api/splits/without-player/${injuredPlayerId}${queryString ? `?${queryString}` : ''}`;
+
       const response = await fetch(url);
       if (!response.ok) throw new Error('Failed to fetch splits');
       return response.json();

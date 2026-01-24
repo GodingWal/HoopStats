@@ -128,16 +128,16 @@ function generatePotentialBets(players: Player[]) {
         let confidence: "HIGH" | "MEDIUM" | "LOW" = "LOW";
         let recommendation: "OVER" | "UNDER" = "OVER";
 
-        if (rate >= 80) {
+        if (rate >= 70) {
           confidence = "HIGH";
           recommendation = "OVER";
-        } else if (rate >= 65) {
+        } else if (rate >= 55) {
           confidence = "MEDIUM";
           recommendation = "OVER";
-        } else if (rate <= 25) {
+        } else if (rate <= 30) {
           confidence = "HIGH";
           recommendation = "UNDER";
-        } else if (rate <= 35) {
+        } else if (rate <= 45) {
           confidence = "MEDIUM";
           recommendation = "UNDER";
         }
@@ -256,16 +256,16 @@ async function generateBetsFromPrizePicks(players: Player[]) {
       let confidence: "HIGH" | "MEDIUM" | "LOW" = "LOW";
       let recommendation: "OVER" | "UNDER" = "OVER";
 
-      if (hitRate >= 80) {
+      if (hitRate >= 70) {
         confidence = "HIGH";
         recommendation = "OVER";
-      } else if (hitRate >= 65) {
+      } else if (hitRate >= 55) {
         confidence = "MEDIUM";
         recommendation = "OVER";
-      } else if (hitRate <= 25) {
+      } else if (hitRate <= 30) {
         confidence = "HIGH";
         recommendation = "UNDER";
-      } else if (hitRate <= 35) {
+      } else if (hitRate <= 45) {
         confidence = "MEDIUM";
         recommendation = "UNDER";
       }
@@ -1868,18 +1868,25 @@ export async function registerRoutes(
       if (splits.length === 0) {
         try {
           const player = await storage.getPlayer(parseInt(playerId));
-          if (player) {
-            console.log(`No splits found for ${player.player_name}. Auto-calculating...`);
+
+          // Use player from DB if found, otherwise use query params
+          const playerName = player?.player_name || req.query.playerName as string;
+          const team = player?.team || req.query.team as string;
+
+          if (playerName && team) {
+            console.log(`No splits found for ${playerName}. Auto-calculating...`);
             await onOffService.calculateSplitsForPlayer(
-              player.player_id,
-              player.player_name,
-              player.team
+              parseInt(playerId),
+              playerName,
+              team
             );
             // Re-fetch after calculation
             splits = await onOffService.getSplitsForPlayer(
               parseInt(playerId),
               season as string | undefined
             );
+          } else {
+            console.log(`Cannot auto-calculate splits: Player ${playerId} not in DB and no playerName/team provided in query`);
           }
         } catch (calcError) {
           console.error("Auto-calculation failed:", calcError);
