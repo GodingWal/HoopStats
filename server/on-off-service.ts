@@ -196,7 +196,12 @@ export class OnOffSplitsService {
         ...seasons,
       ];
 
-      const pythonProcess = spawn("python", args);
+      // Use venv python on Linux (production), fallback to 'python' on Windows (dev)
+      const pythonCmd = process.platform === 'win32'
+        ? 'python'
+        : path.join(process.cwd(), '.venv', 'bin', 'python');
+
+      const pythonProcess = spawn(pythonCmd, args);
 
       let dataString = "";
       let errorString = "";
