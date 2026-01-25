@@ -623,6 +623,7 @@ function PrizePicksView() {
 export default function Bets() {
   const [dataSource, setDataSource] = useState<"prizepicks" | "generated">("prizepicks");
   const [selectedGame, setSelectedGame] = useState<{ home: string; away: string } | null>(null);
+  const [generatedSearch, setGeneratedSearch] = useState<string>("");
 
   const { data: bets, isLoading: betsLoading } = useQuery<PotentialBet[]>({
     queryKey: ["/api/bets"],
@@ -688,6 +689,21 @@ export default function Bets() {
       return b.hit_rate - a.hit_rate;
     });
   }, [selectedGame, bets]);
+
+  // Search results for generated bets
+  const generatedSearchResults = useMemo(() => {
+    if (!bets || !generatedSearch.trim()) return [];
+
+    const searchTerm = generatedSearch.toLowerCase().trim();
+    return bets.filter(b =>
+      b.player_name.toLowerCase().includes(searchTerm) ||
+      b.team.toLowerCase().includes(searchTerm)
+    ).sort((a, b) => {
+      if (a.confidence === "HIGH" && b.confidence !== "HIGH") return -1;
+      if (a.confidence !== "HIGH" && b.confidence === "HIGH") return 1;
+      return b.hit_rate - a.hit_rate;
+    });
+  }, [bets, generatedSearch]);
 
   const totalBets = bets?.length || 0;
   const highConfidenceBets = bets?.filter(b => b.confidence === "HIGH").length || 0;
@@ -782,32 +798,86 @@ export default function Bets() {
           <PrizePicksView />
         ) : betsLoading ? (
           <BetsSkeleton />
-        ) : gameMatchups.length > 0 ? (
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 stagger-fade">
-            {gameMatchups.map((matchup: any) => (
-              <GameCard
-                key={`${matchup.awayTeam}-${matchup.homeTeam}`}
-                homeTeam={matchup.homeTeam}
-                awayTeam={matchup.awayTeam}
-                homeLogo={matchup.homeLogo}
-                awayLogo={matchup.awayLogo}
-                status={matchup.status}
-                bets={matchup.bets}
-                onClick={() => setSelectedGame({ home: matchup.homeTeam, away: matchup.awayTeam })}
-              />
-            ))}
-          </div>
         ) : (
-          <Card className="rounded-xl border-border/50">
-            <CardContent className="py-16 text-center">
-              <div className="relative w-20 h-20 mx-auto mb-6">
-                <div className="absolute inset-0 rounded-full bg-gradient-to-br from-primary/20 to-primary/5 animate-pulse" />
-                <Target className="w-10 h-10 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-primary/60" />
+          <div className="space-y-4">
+            {/* Player Search Bar for Generated Bets */}
+            <div className="relative">
+              <Input
+                type="text"
+                placeholder="Search players by name or team..."
+                value={generatedSearch}
+                onChange={(e) => setGeneratedSearch(e.target.value)}
+                className="w-full pl-10"
+              />
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
+              {generatedSearch && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 h-6 w-6 p-0"
+                  onClick={() => setGeneratedSearch("")}
+                >
+                  ×
+                </Button>
+              )}
+            </div>
+
+            {/* Show search results if searching */}
+            {generatedSearch.trim() ? (
+              <div className="space-y-2">
+                <div className="text-sm text-muted-foreground mb-2">
+                  {generatedSearchResults.length} results for "{generatedSearch}"
+                </div>
+                {generatedSearchResults.length > 0 ? (
+                  <div className="space-y-2 max-h-[500px] overflow-y-auto">
+                    {generatedSearchResults.map((bet) => (
+                      <BetRow key={`${bet.player_id}-${bet.stat_type}-${bet.line}`} bet={bet} />
+                    ))}
+                  </div>
+                ) : (
+                  <Card className="rounded-xl border-border/50">
+                    <CardContent className="py-8 text-center">
+                      <p className="text-muted-foreground">No players found matching "{generatedSearch}"</p>
+                    </CardContent>
+                  </Card>
+                )}
               </div>
-              <h3 className="text-xl font-bold mb-2">No Games Found</h3>
-              <p className="text-muted-foreground">Try refreshing to load betting opportunities</p>
-            </CardContent>
-          </Card>
+            ) : gameMatchups.length > 0 ? (
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 stagger-fade">
+                {gameMatchups.map((matchup: any) => (
+                  <GameCard
+                    key={`${matchup.awayTeam}-${matchup.homeTeam}`}
+                    homeTeam={matchup.homeTeam}
+                    awayTeam={matchup.awayTeam}
+                    homeLogo={matchup.homeLogo}
+                    awayLogo={matchup.awayLogo}
+                    status={matchup.status}
+                    bets={matchup.bets}
+                    onClick={() => setSelectedGame({ home: matchup.homeTeam, away: matchup.awayTeam })}
+                  />
+                ))}
+              </div>
+            ) : (
+              <Card className="rounded-xl border-border/50">
+                <CardContent className="py-16 text-center">
+                  <div className="relative w-20 h-20 mx-auto mb-6">
+                    <div className="absolute inset-0 rounded-full bg-gradient-to-br from-primary/20 to-primary/5 animate-pulse" />
+                    <Target className="w-10 h-10 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-primary/60" />
+                  </div>
+                  <h3 className="text-xl font-bold mb-2">No Games Found</h3>
+                  <p className="text-muted-foreground">Try refreshing to load betting opportunities</p>
+                </CardContent>
+              </Card>
+            )}
+          </div>
         )}
       </div>
     </div>
