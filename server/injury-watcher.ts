@@ -443,7 +443,15 @@ export async function calculateInjuryAdjustedProjection(
       args.push("--injuries", ...teammateInjuries);
     }
 
-    const pythonProcess = spawn("python", [scriptPath, ...args]);
+    // Get the Python command - use venv on Linux (production), system python on Windows (dev)
+    const getPythonCommand = (): string => {
+      if (process.platform === 'win32') {
+        return 'python';
+      }
+      return path.join(process.cwd(), '.venv', 'bin', 'python');
+    };
+
+    const pythonProcess = spawn(getPythonCommand(), [scriptPath, ...args]);
 
     let dataString = "";
     let errorString = "";

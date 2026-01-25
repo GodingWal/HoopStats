@@ -52,6 +52,15 @@ const currentDir = getDirname();
 const samplePlayersPath = path.join(currentDir, "data", "sample-players.json");
 const SAMPLE_PLAYERS: Player[] = JSON.parse(readFileSync(samplePlayersPath, "utf-8"));
 
+// Get the Python command - use venv on Linux (production), system python on Windows (dev)
+function getPythonCommand(): string {
+  if (process.platform === 'win32') {
+    return 'python';
+  }
+  // On Linux, use the venv Python
+  return path.join(process.cwd(), '.venv', 'bin', 'python');
+}
+
 // ========================================
 // PROBABILITY HELPER FUNCTIONS
 // ========================================
@@ -855,7 +864,7 @@ export async function registerRoutes(
         console.log(`  Injuries factored in: ${injuredPlayers.join(", ")}`);
       }
 
-      const pythonProcess = spawn("python", [scriptPath, ...args]);
+      const pythonProcess = spawn(getPythonCommand(), [scriptPath, ...args]);
 
       let dataString = "";
       let errorString = "";
@@ -930,7 +939,7 @@ export async function registerRoutes(
 
       // Call Python model to get projection with distribution
       const scriptPath = path.join(process.cwd(), "server", "nba-prop-model", "api.py");
-      const pythonProcess = spawn("python", [scriptPath, "--players", player.player_name]);
+      const pythonProcess = spawn(getPythonCommand(), [scriptPath, "--players", player.player_name]);
 
       let dataString = "";
       let errorString = "";
@@ -1017,7 +1026,7 @@ export async function registerRoutes(
 
         // Call Python model for this player
         const scriptPath = path.join(process.cwd(), "server", "nba-prop-model", "api.py");
-        const pythonProcess = spawn("python", [scriptPath, "--players", player.player_name]);
+        const pythonProcess = spawn(getPythonCommand(), [scriptPath, "--players", player.player_name]);
 
         const projection = await new Promise<number>((resolve, reject) => {
           let dataString = "";
@@ -1386,7 +1395,7 @@ export async function registerRoutes(
       }
 
       console.log("Fetching advanced stats from Python...");
-      const pythonProcess = spawn("python", [
+      const pythonProcess = spawn(getPythonCommand(), [
         "server/nba-prop-model/api.py",
         "--advanced-stats"
       ]);
@@ -1809,7 +1818,7 @@ export async function registerRoutes(
 
       console.log(`Running python script with injuries: ${args.join(' ')}`);
 
-      const pythonProcess = spawn("python", [scriptPath, ...args]);
+      const pythonProcess = spawn(getPythonCommand(), [scriptPath, ...args]);
 
       let dataString = "";
       let errorString = "";
