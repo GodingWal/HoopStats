@@ -59,6 +59,14 @@ function getStatLabel(stat: string) {
     case "AST": return "Assists";
     case "PRA": return "PTS+REB+AST";
     case "FG3M": return "3-Pointers";
+    case "FPTS": return "Fantasy Score";
+    case "Fantasy Score": return "Fantasy Score";
+    case "STL": return "Steals";
+    case "BLK": return "Blocks";
+    case "TO": return "Turnovers";
+    case "PR": return "PTS+REB";
+    case "PA": return "PTS+AST";
+    case "RA": return "REB+AST";
     default: return stat;
   }
 }
