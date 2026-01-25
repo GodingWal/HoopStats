@@ -171,13 +171,12 @@ function PrizePicksRow({ prop }: { prop: PrizePicksProjection }) {
 
   return (
     <div
-      className={`p-3 rounded-lg transition-all flex items-center justify-between gap-3 cursor-pointer group ${
-        isInCart
-          ? 'bg-primary/10 border border-primary/50'
-          : justAdded
+      className={`p-3 rounded-lg transition-all flex items-center justify-between gap-3 cursor-pointer group ${isInCart
+        ? 'bg-primary/10 border border-primary/50'
+        : justAdded
           ? 'bg-emerald-500/10 border border-emerald-500/50'
           : 'bg-muted/30 hover:bg-muted/50 hover:border hover:border-primary/30'
-      }`}
+        }`}
       onClick={handleAddToCart}
     >
       <div className="flex items-center gap-3 flex-1 min-w-0">
@@ -206,13 +205,12 @@ function PrizePicksRow({ prop }: { prop: PrizePicksProjection }) {
         <Button
           size="sm"
           variant="ghost"
-          className={`transition-opacity ${
-            isInCart
-              ? 'opacity-100 text-primary'
-              : justAdded
+          className={`transition-opacity ${isInCart
+            ? 'opacity-100 text-primary'
+            : justAdded
               ? 'opacity-100 text-emerald-400'
               : 'opacity-0 group-hover:opacity-100'
-          }`}
+            }`}
           onClick={(e) => {
             e.stopPropagation();
             handleAddToCart();
@@ -367,6 +365,7 @@ function PrizePicksGameCard({ gameTime, props, onClick }: PrizePicksGameCardProp
 function PrizePicksView() {
   const [selectedGame, setSelectedGame] = useState<string | null>(null);
   const [statFilter, setStatFilter] = useState<string>("all");
+  const [playerSearch, setPlayerSearch] = useState<string>("");
 
   const { data: projections, isLoading, error } = useQuery<PrizePicksProjection[]>({
     queryKey: ["/api/prizepicks/projections"],
@@ -388,6 +387,29 @@ function PrizePicksView() {
     return Array.from(groups.entries())
       .sort((a, b) => new Date(a[0]).getTime() - new Date(b[0]).getTime());
   }, [projections]);
+
+  // Search results across all games
+  const searchResults = useMemo(() => {
+    if (!projections || !playerSearch.trim()) return [];
+
+    const searchTerm = playerSearch.toLowerCase().trim();
+    const filtered = projections.filter(p =>
+      p.playerName.toLowerCase().includes(searchTerm) ||
+      p.teamAbbr.toLowerCase().includes(searchTerm)
+    );
+
+    // Deduplicate: keep only one line per player per stat type
+    const seen = new Set<string>();
+    const deduped: PrizePicksProjection[] = [];
+    for (const prop of filtered) {
+      const key = `${prop.playerName}|${prop.statType}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        deduped.push(prop);
+      }
+    }
+    return deduped;
+  }, [projections, playerSearch]);
 
   const selectedProps = useMemo(() => {
     if (!selectedGame || !projections) return [];
@@ -517,20 +539,74 @@ function PrizePicksView() {
   // Game cards grid view
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 stagger-fade">
-        {gameGroups.map(([gameTime, props]) => (
-          <PrizePicksGameCard
-            key={gameTime}
-            gameTime={gameTime}
-            props={props}
-            onClick={() => setSelectedGame(gameTime)}
-          />
-        ))}
+      {/* Player Search Bar */}
+      <div className="relative">
+        <Input
+          type="text"
+          placeholder="Search players by name or team..."
+          value={playerSearch}
+          onChange={(e) => setPlayerSearch(e.target.value)}
+          className="w-full pl-10"
+        />
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground"
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke="currentColor"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+        </svg>
+        {playerSearch && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="absolute right-2 top-1/2 -translate-y-1/2 h-6 w-6 p-0"
+            onClick={() => setPlayerSearch("")}
+          >
+            ×
+          </Button>
+        )}
       </div>
 
-      <div className="text-xs text-muted-foreground text-center pt-4">
-        Data from PrizePicks • {projections.length} total props • Lines update every 10 minutes
-      </div>
+      {/* Show search results if searching */}
+      {playerSearch.trim() ? (
+        <div className="space-y-2">
+          <div className="text-sm text-muted-foreground mb-2">
+            {searchResults.length} results for "{playerSearch}"
+          </div>
+          {searchResults.length > 0 ? (
+            <div className="space-y-2 max-h-[500px] overflow-y-auto">
+              {searchResults.map((prop) => (
+                <PrizePicksRow key={prop.id} prop={prop} />
+              ))}
+            </div>
+          ) : (
+            <Card className="rounded-xl border-border/50">
+              <CardContent className="py-8 text-center">
+                <p className="text-muted-foreground">No players found matching "{playerSearch}"</p>
+              </CardContent>
+            </Card>
+          )}
+        </div>
+      ) : (
+        <>
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 stagger-fade">
+            {gameGroups.map(([gameTime, props]) => (
+              <PrizePicksGameCard
+                key={gameTime}
+                gameTime={gameTime}
+                props={props}
+                onClick={() => setSelectedGame(gameTime)}
+              />
+            ))}
+          </div>
+
+          <div className="text-xs text-muted-foreground text-center pt-4">
+            Data from PrizePicks • {projections.length} total props • Lines update every 10 minutes
+          </div>
+        </>
+      )}
     </div>
   );
 }
