@@ -76,6 +76,188 @@ function formatGameTime(dateStr: string) {
   return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 }
 
+// Parse PrizePicks transaction log text format
+// Format: Player Name, then "More/Less than X.X Stat", repeating
+function parsePrizePicksLog(text: string): Array<{
+  playerName: string;
+  line: number;
+  stat: string;
+  statAbbr: string;
+  side: "over" | "under";
+}> {
+  const lines = text.trim().split('\n').filter(line => line.trim());
+  const picks: Array<{
+    playerName: string;
+    line: number;
+    stat: string;
+    statAbbr: string;
+    side: "over" | "under";
+  }> = [];
+
+  // Stat type mapping from PrizePicks format to abbreviations
+  const statMapping: Record<string, string> = {
+    "points": "PTS",
+    "rebounds": "REB",
+    "assists": "AST",
+    "pts+rebs+asts": "PRA",
+    "pts+rebs": "PR",
+    "pts+asts": "PA",
+    "rebs+asts": "RA",
+    "3-pointers made": "FG3M",
+    "3-pointers": "FG3M",
+    "steals": "STL",
+    "blocks": "BLK",
+    "turnovers": "TO",
+    "fantasy score": "FPTS",
+  };
+
+  for (let i = 0; i < lines.length - 1; i += 2) {
+    const playerName = lines[i].trim();
+    const betLine = lines[i + 1]?.trim().toLowerCase() || "";
+
+    // Parse "More than 23.5 Points" or "Less than 10.5 Rebs+Asts"
+    const moreMatch = betLine.match(/more than\s+([\d.]+)\s+(.+)/);
+    const lessMatch = betLine.match(/less than\s+([\d.]+)\s+(.+)/);
+
+    const match = moreMatch || lessMatch;
+    if (match) {
+      const lineValue = parseFloat(match[1]);
+      const statText = match[2].trim();
+      const side: "over" | "under" = moreMatch ? "over" : "under";
+
+      // Find matching stat abbreviation
+      const statAbbr = statMapping[statText] || statText.toUpperCase().replace(/\s+/g, "");
+
+      picks.push({
+        playerName,
+        line: lineValue,
+        stat: statText,
+        statAbbr,
+        side,
+      });
+    }
+  }
+
+  return picks;
+}
+
+// Import dialog component
+function ImportBetsDialog({
+  open,
+  onOpenChange
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const [logText, setLogText] = useState("");
+  const [parsedPicks, setParsedPicks] = useState<ReturnType<typeof parsePrizePicksLog>>([]);
+  const [error, setError] = useState<string | null>(null);
+  const { addMultiplePicks } = useParlayCart();
+
+  const handleParse = () => {
+    try {
+      const picks = parsePrizePicksLog(logText);
+      if (picks.length === 0) {
+        setError("Couldn't parse any bets. Make sure the format is correct.");
+      } else {
+        setParsedPicks(picks);
+        setError(null);
+      }
+    } catch (e) {
+      setError("Failed to parse transaction log. Check the format.");
+    }
+  };
+
+  const handleImport = () => {
+    const today = new Date().toISOString().split('T')[0];
+    const cartPicks = parsedPicks.map(pick => ({
+      playerId: pick.playerName.toLowerCase().replace(/\s+/g, '-'),
+      playerName: pick.playerName,
+      team: "", // Unknown from transaction log
+      stat: pick.stat,
+      statTypeAbbr: pick.statAbbr,
+      line: pick.line,
+      gameDate: today,
+    }));
+
+    addMultiplePicks(cartPicks);
+    setLogText("");
+    setParsedPicks([]);
+    onOpenChange(false);
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Import PrizePicks Bets</DialogTitle>
+          <DialogDescription>
+            Paste your PrizePicks transaction log to import bets
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4">
+          <div>
+            <Label htmlFor="log-text">Transaction Log</Label>
+            <textarea
+              id="log-text"
+              className="w-full h-40 p-3 mt-1 rounded-lg border bg-background text-sm font-mono resize-none"
+              placeholder={`Peyton Watson\nMore than 23.5 Points\nAl Horford\nMore than 10.5 Rebs+Asts\n...`}
+              value={logText}
+              onChange={(e) => {
+                setLogText(e.target.value);
+                setParsedPicks([]);
+                setError(null);
+              }}
+            />
+          </div>
+
+          {error && (
+            <div className="text-sm text-destructive flex items-center gap-2">
+              <AlertCircle className="w-4 h-4" />
+              {error}
+            </div>
+          )}
+
+          {parsedPicks.length > 0 && (
+            <div className="space-y-2">
+              <div className="text-sm font-medium text-muted-foreground">
+                Found {parsedPicks.length} bets:
+              </div>
+              <div className="max-h-40 overflow-y-auto space-y-1">
+                {parsedPicks.map((pick, i) => (
+                  <div key={i} className="flex items-center justify-between text-sm p-2 rounded bg-muted/50">
+                    <span className="font-medium">{pick.playerName}</span>
+                    <span className={pick.side === "over" ? "text-emerald-500" : "text-rose-500"}>
+                      {pick.side === "over" ? "O" : "U"} {pick.line} {pick.statAbbr}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        <DialogFooter className="gap-2">
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          {parsedPicks.length > 0 ? (
+            <Button onClick={handleImport}>
+              <Plus className="w-4 h-4 mr-2" />
+              Import {parsedPicks.length} Bets
+            </Button>
+          ) : (
+            <Button onClick={handleParse} disabled={!logText.trim()}>
+              Parse Bets
+            </Button>
+          )}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function BetRow({ bet }: { bet: PotentialBet }) {
   const isOver = bet.recommendation === "OVER";
   const hasEdge = bet.edge_score && bet.edge_score > 0;
@@ -624,6 +806,7 @@ export default function Bets() {
   const [dataSource, setDataSource] = useState<"prizepicks" | "generated">("prizepicks");
   const [selectedGame, setSelectedGame] = useState<{ home: string; away: string } | null>(null);
   const [generatedSearch, setGeneratedSearch] = useState<string>("");
+  const [showImportDialog, setShowImportDialog] = useState(false);
 
   const { data: bets, isLoading: betsLoading } = useQuery<PotentialBet[]>({
     queryKey: ["/api/bets"],
@@ -743,6 +926,7 @@ export default function Bets() {
   return (
     <div className="min-h-screen bg-background">
       <ParlayCart />
+      <ImportBetsDialog open={showImportDialog} onOpenChange={setShowImportDialog} />
       <div className="container mx-auto px-4 py-8 max-w-5xl fade-in">
         <div className="flex items-center justify-between gap-4 mb-6 flex-wrap">
           <div className="flex items-center gap-3">
@@ -755,130 +939,141 @@ export default function Bets() {
             </div>
           </div>
 
-          {dataSource === "generated" && (
-            <div className="flex items-center gap-3">
-              {totalBets > 0 && (
-                <div className="text-right text-sm">
-                  <div className="text-muted-foreground">{totalBets} bets</div>
-                  {highConfidenceBets > 0 && (
-                    <div className="text-emerald-400 flex items-center gap-1 justify-end">
-                      <Flame className="w-3 h-3" />
-                      {highConfidenceBets} high
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setShowImportDialog(true)}
+              className="hover:border-primary/50"
+            >
+              <Plus className="w-4 h-4 mr-2" />
+              Import Bets
+            </Button>
+
+            {dataSource === "generated" && (
+              <div className="flex items-center gap-3">
+                {totalBets > 0 && (
+                  <div className="text-right text-sm">
+                    <div className="text-muted-foreground">{totalBets} bets</div>
+                    {highConfidenceBets > 0 && (
+                      <div className="text-emerald-400 flex items-center gap-1 justify-end">
+                        <Flame className="w-3 h-3" />
+                        {highConfidenceBets} high
+                      </div>
+                    )}
+                  </div>
+                )}
+                <Button
+                  variant="outline"
+                  onClick={() => refreshMutation.mutate()}
+                  disabled={refreshMutation.isPending}
+                  className="hover:border-primary/50"
+                >
+                  <RefreshCw className={`w-4 h-4 mr-2 ${refreshMutation.isPending ? "animate-spin" : ""}`} />
+                  Refresh
+                </Button>
+              </div>
+            )}
+          </div>
+
+          <Tabs value={dataSource} onValueChange={(v) => setDataSource(v as "prizepicks" | "generated")} className="mb-6">
+            <TabsList className="grid w-full max-w-md grid-cols-2">
+              <TabsTrigger value="prizepicks" className="flex items-center gap-2">
+                <img src="https://prizepicks.com/favicon.ico" alt="PP" className="w-4 h-4" onError={(e) => e.currentTarget.style.display = 'none'} />
+                PrizePicks Lines
+              </TabsTrigger>
+              <TabsTrigger value="generated" className="flex items-center gap-2">
+                <Target className="w-4 h-4" />
+                Our Analysis
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
+
+          {dataSource === "prizepicks" ? (
+            <PrizePicksView />
+          ) : betsLoading ? (
+            <BetsSkeleton />
+          ) : (
+            <div className="space-y-4">
+              {/* Player Search Bar for Generated Bets */}
+              <div className="relative">
+                <Input
+                  type="text"
+                  placeholder="Search players by name or team..."
+                  value={generatedSearch}
+                  onChange={(e) => setGeneratedSearch(e.target.value)}
+                  className="w-full pl-10"
+                />
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+                {generatedSearch && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="absolute right-2 top-1/2 -translate-y-1/2 h-6 w-6 p-0"
+                    onClick={() => setGeneratedSearch("")}
+                  >
+                    ×
+                  </Button>
+                )}
+              </div>
+
+              {/* Show search results if searching */}
+              {generatedSearch.trim() ? (
+                <div className="space-y-2">
+                  <div className="text-sm text-muted-foreground mb-2">
+                    {generatedSearchResults.length} results for "{generatedSearch}"
+                  </div>
+                  {generatedSearchResults.length > 0 ? (
+                    <div className="space-y-2 max-h-[500px] overflow-y-auto">
+                      {generatedSearchResults.map((bet) => (
+                        <BetRow key={`${bet.player_id}-${bet.stat_type}-${bet.line}`} bet={bet} />
+                      ))}
                     </div>
+                  ) : (
+                    <Card className="rounded-xl border-border/50">
+                      <CardContent className="py-8 text-center">
+                        <p className="text-muted-foreground">No players found matching "{generatedSearch}"</p>
+                      </CardContent>
+                    </Card>
                   )}
                 </div>
+              ) : gameMatchups.length > 0 ? (
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 stagger-fade">
+                  {gameMatchups.map((matchup: any) => (
+                    <GameCard
+                      key={`${matchup.awayTeam}-${matchup.homeTeam}`}
+                      homeTeam={matchup.homeTeam}
+                      awayTeam={matchup.awayTeam}
+                      homeLogo={matchup.homeLogo}
+                      awayLogo={matchup.awayLogo}
+                      status={matchup.status}
+                      bets={matchup.bets}
+                      onClick={() => setSelectedGame({ home: matchup.homeTeam, away: matchup.awayTeam })}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <Card className="rounded-xl border-border/50">
+                  <CardContent className="py-16 text-center">
+                    <div className="relative w-20 h-20 mx-auto mb-6">
+                      <div className="absolute inset-0 rounded-full bg-gradient-to-br from-primary/20 to-primary/5 animate-pulse" />
+                      <Target className="w-10 h-10 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-primary/60" />
+                    </div>
+                    <h3 className="text-xl font-bold mb-2">No Games Found</h3>
+                    <p className="text-muted-foreground">Try refreshing to load betting opportunities</p>
+                  </CardContent>
+                </Card>
               )}
-              <Button
-                variant="outline"
-                onClick={() => refreshMutation.mutate()}
-                disabled={refreshMutation.isPending}
-                className="hover:border-primary/50"
-              >
-                <RefreshCw className={`w-4 h-4 mr-2 ${refreshMutation.isPending ? "animate-spin" : ""}`} />
-                Refresh
-              </Button>
             </div>
           )}
         </div>
-
-        <Tabs value={dataSource} onValueChange={(v) => setDataSource(v as "prizepicks" | "generated")} className="mb-6">
-          <TabsList className="grid w-full max-w-md grid-cols-2">
-            <TabsTrigger value="prizepicks" className="flex items-center gap-2">
-              <img src="https://prizepicks.com/favicon.ico" alt="PP" className="w-4 h-4" onError={(e) => e.currentTarget.style.display = 'none'} />
-              PrizePicks Lines
-            </TabsTrigger>
-            <TabsTrigger value="generated" className="flex items-center gap-2">
-              <Target className="w-4 h-4" />
-              Our Analysis
-            </TabsTrigger>
-          </TabsList>
-        </Tabs>
-
-        {dataSource === "prizepicks" ? (
-          <PrizePicksView />
-        ) : betsLoading ? (
-          <BetsSkeleton />
-        ) : (
-          <div className="space-y-4">
-            {/* Player Search Bar for Generated Bets */}
-            <div className="relative">
-              <Input
-                type="text"
-                placeholder="Search players by name or team..."
-                value={generatedSearch}
-                onChange={(e) => setGeneratedSearch(e.target.value)}
-                className="w-full pl-10"
-              />
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-              </svg>
-              {generatedSearch && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="absolute right-2 top-1/2 -translate-y-1/2 h-6 w-6 p-0"
-                  onClick={() => setGeneratedSearch("")}
-                >
-                  ×
-                </Button>
-              )}
-            </div>
-
-            {/* Show search results if searching */}
-            {generatedSearch.trim() ? (
-              <div className="space-y-2">
-                <div className="text-sm text-muted-foreground mb-2">
-                  {generatedSearchResults.length} results for "{generatedSearch}"
-                </div>
-                {generatedSearchResults.length > 0 ? (
-                  <div className="space-y-2 max-h-[500px] overflow-y-auto">
-                    {generatedSearchResults.map((bet) => (
-                      <BetRow key={`${bet.player_id}-${bet.stat_type}-${bet.line}`} bet={bet} />
-                    ))}
-                  </div>
-                ) : (
-                  <Card className="rounded-xl border-border/50">
-                    <CardContent className="py-8 text-center">
-                      <p className="text-muted-foreground">No players found matching "{generatedSearch}"</p>
-                    </CardContent>
-                  </Card>
-                )}
-              </div>
-            ) : gameMatchups.length > 0 ? (
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 stagger-fade">
-                {gameMatchups.map((matchup: any) => (
-                  <GameCard
-                    key={`${matchup.awayTeam}-${matchup.homeTeam}`}
-                    homeTeam={matchup.homeTeam}
-                    awayTeam={matchup.awayTeam}
-                    homeLogo={matchup.homeLogo}
-                    awayLogo={matchup.awayLogo}
-                    status={matchup.status}
-                    bets={matchup.bets}
-                    onClick={() => setSelectedGame({ home: matchup.homeTeam, away: matchup.awayTeam })}
-                  />
-                ))}
-              </div>
-            ) : (
-              <Card className="rounded-xl border-border/50">
-                <CardContent className="py-16 text-center">
-                  <div className="relative w-20 h-20 mx-auto mb-6">
-                    <div className="absolute inset-0 rounded-full bg-gradient-to-br from-primary/20 to-primary/5 animate-pulse" />
-                    <Target className="w-10 h-10 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-primary/60" />
-                  </div>
-                  <h3 className="text-xl font-bold mb-2">No Games Found</h3>
-                  <p className="text-muted-foreground">Try refreshing to load betting opportunities</p>
-                </CardContent>
-              </Card>
-            )}
-          </div>
-        )}
       </div>
     </div>
   );

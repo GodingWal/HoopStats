@@ -15,6 +15,7 @@ export interface CartPick {
 interface ParlayCartContextType {
   picks: CartPick[];
   addPick: (pick: Omit<CartPick, "side">) => void;
+  addMultiplePicks: (picks: Omit<CartPick, "side">[]) => void;
   removePick: (index: number) => void;
   updatePickSide: (index: number, side: "over" | "under") => void;
   clearCart: () => void;
@@ -28,6 +29,12 @@ export function ParlayCartProvider({ children }: { children: ReactNode }) {
   const addPick = (pick: Omit<CartPick, "side">) => {
     // Default to "over"
     setPicks((prev) => [...prev, { ...pick, side: "over" }]);
+  };
+
+  const addMultiplePicks = (newPicks: Omit<CartPick, "side">[]) => {
+    // Add multiple picks at once (for bulk import)
+    const picksWithSide = newPicks.map(pick => ({ ...pick, side: "over" as const }));
+    setPicks((prev) => [...prev, ...picksWithSide]);
   };
 
   const removePick = (index: number) => {
@@ -46,7 +53,7 @@ export function ParlayCartProvider({ children }: { children: ReactNode }) {
 
   return (
     <ParlayCartContext.Provider
-      value={{ picks, addPick, removePick, updatePickSide, clearCart }}
+      value={{ picks, addPick, addMultiplePicks, removePick, updatePickSide, clearCart }}
     >
       {children}
     </ParlayCartContext.Provider>
