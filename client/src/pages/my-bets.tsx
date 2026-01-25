@@ -4,7 +4,16 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { TrendingUp, TrendingDown, DollarSign, Target, Trophy, Loader2, CheckCircle, XCircle, MinusCircle, ChevronDown, ChevronUp } from "lucide-react";
+import { Label } from "@/components/ui/label";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { TrendingUp, TrendingDown, DollarSign, Target, Trophy, Loader2, CheckCircle, XCircle, MinusCircle, ChevronDown, ChevronUp, Plus, AlertCircle } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 
 interface ParlayPick {
@@ -33,6 +42,173 @@ interface Parlay {
   settledAt?: string;
   notes?: string;
   picks: ParlayPick[];
+}
+
+// Parse PrizePicks transaction log text format
+function parsePrizePicksLog(text: string): Array<{
+  playerName: string;
+  line: number;
+  stat: string;
+  statAbbr: string;
+  side: "over" | "under";
+}> {
+  const lines = text.trim().split('\n').filter(line => line.trim());
+  const picks: Array<{
+    playerName: string;
+    line: number;
+    stat: string;
+    statAbbr: string;
+    side: "over" | "under";
+  }> = [];
+
+  const statMapping: Record<string, string> = {
+    "points": "PTS",
+    "rebounds": "REB",
+    "assists": "AST",
+    "pts+rebs+asts": "PRA",
+    "pts+rebs": "PR",
+    "pts+asts": "PA",
+    "rebs+asts": "RA",
+    "3-pointers made": "FG3M",
+    "3-pointers": "FG3M",
+    "steals": "STL",
+    "blocks": "BLK",
+    "turnovers": "TO",
+    "fantasy score": "FPTS",
+  };
+
+  for (let i = 0; i < lines.length - 1; i += 2) {
+    const playerName = lines[i].trim();
+    const betLine = lines[i + 1]?.trim().toLowerCase() || "";
+
+    const moreMatch = betLine.match(/more than\s+([\d.]+)\s+(.+)/);
+    const lessMatch = betLine.match(/less than\s+([\d.]+)\s+(.+)/);
+
+    const match = moreMatch || lessMatch;
+    if (match) {
+      const lineValue = parseFloat(match[1]);
+      const statText = match[2].trim();
+      const side: "over" | "under" = moreMatch ? "over" : "under";
+      const statAbbr = statMapping[statText] || statText.toUpperCase().replace(/\s+/g, "");
+
+      picks.push({
+        playerName,
+        line: lineValue,
+        stat: statText,
+        statAbbr,
+        side,
+      });
+    }
+  }
+
+  return picks;
+}
+
+// Import dialog component
+function ImportBetsDialog({
+  open,
+  onOpenChange,
+  onImport,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onImport: (picks: Array<{ playerName: string; line: number; stat: string; statAbbr: string; side: "over" | "under" }>) => void;
+}) {
+  const [logText, setLogText] = useState("");
+  const [parsedPicks, setParsedPicks] = useState<ReturnType<typeof parsePrizePicksLog>>([]);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleParse = () => {
+    try {
+      const picks = parsePrizePicksLog(logText);
+      if (picks.length === 0) {
+        setError("Couldn't parse any bets. Make sure the format is correct.");
+      } else {
+        setParsedPicks(picks);
+        setError(null);
+      }
+    } catch (e) {
+      setError("Failed to parse transaction log. Check the format.");
+    }
+  };
+
+  const handleImport = () => {
+    onImport(parsedPicks);
+    setLogText("");
+    setParsedPicks([]);
+    onOpenChange(false);
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Import PrizePicks Bets</DialogTitle>
+          <DialogDescription>
+            Paste your PrizePicks transaction log to create a parlay
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4">
+          <div>
+            <Label htmlFor="log-text">Transaction Log</Label>
+            <textarea
+              id="log-text"
+              className="w-full h-40 p-3 mt-1 rounded-lg border bg-background text-sm font-mono resize-none"
+              placeholder={`Peyton Watson\nMore than 23.5 Points\nAl Horford\nMore than 10.5 Rebs+Asts\n...`}
+              value={logText}
+              onChange={(e) => {
+                setLogText(e.target.value);
+                setParsedPicks([]);
+                setError(null);
+              }}
+            />
+          </div>
+
+          {error && (
+            <div className="text-sm text-destructive flex items-center gap-2">
+              <AlertCircle className="w-4 h-4" />
+              {error}
+            </div>
+          )}
+
+          {parsedPicks.length > 0 && (
+            <div className="space-y-2">
+              <div className="text-sm font-medium text-muted-foreground">
+                Found {parsedPicks.length} bets:
+              </div>
+              <div className="max-h-40 overflow-y-auto space-y-1">
+                {parsedPicks.map((pick, i) => (
+                  <div key={i} className="flex items-center justify-between text-sm p-2 rounded bg-muted/50">
+                    <span className="font-medium">{pick.playerName}</span>
+                    <span className={pick.side === "over" ? "text-emerald-500" : "text-rose-500"}>
+                      {pick.side === "over" ? "O" : "U"} {pick.line} {pick.statAbbr}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        <DialogFooter className="gap-2">
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          {parsedPicks.length > 0 ? (
+            <Button onClick={handleImport}>
+              <Plus className="w-4 h-4 mr-2" />
+              Create Parlay ({parsedPicks.length} picks)
+            </Button>
+          ) : (
+            <Button onClick={handleParse} disabled={!logText.trim()}>
+              Parse Bets
+            </Button>
+          )}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
 }
 
 function StatCard({ title, value, icon: Icon, color, subtitle }: { title: string; value: string | number; icon: any; color: string; subtitle?: string }) {
@@ -185,15 +361,14 @@ function ParlayCard({ parlay, onUpdateResult, onUpdatePickResult }: { parlay: Pa
                   return (
                     <div
                       key={pick.id}
-                      className={`p-2 rounded-lg border text-sm ${
-                        pickResult === "hit"
-                          ? "bg-emerald-500/10 border-emerald-500/30"
-                          : pickResult === "miss"
+                      className={`p-2 rounded-lg border text-sm ${pickResult === "hit"
+                        ? "bg-emerald-500/10 border-emerald-500/30"
+                        : pickResult === "miss"
                           ? "bg-rose-500/10 border-rose-500/30"
                           : pickResult === "push"
-                          ? "bg-yellow-500/10 border-yellow-500/30"
-                          : "bg-muted/30 border-border/50"
-                      }`}
+                            ? "bg-yellow-500/10 border-yellow-500/30"
+                            : "bg-muted/30 border-border/50"
+                        }`}
                     >
                       <div className="flex items-center justify-between gap-2">
                         <div className="flex-1 min-w-0">
@@ -228,6 +403,7 @@ function ParlayCard({ parlay, onUpdateResult, onUpdatePickResult }: { parlay: Pa
 
 export default function MyBets() {
   const [filter, setFilter] = useState<"all" | "pending" | "settled">("all");
+  const [showImportDialog, setShowImportDialog] = useState(false);
 
   const { data: parlays, isLoading } = useQuery<Parlay[]>({
     queryKey: ["/api/parlays"],
@@ -259,6 +435,55 @@ export default function MyBets() {
     },
   });
 
+  const createParlayMutation = useMutation({
+    mutationFn: async (parlayData: {
+      parlayType: "flex" | "power";
+      numPicks: number;
+      entryAmount: number;
+      payoutMultiplier: number;
+      picks: Array<{ playerName: string; team: string; stat: string; line: number; side: "over" | "under"; gameDate: string }>;
+    }) => {
+      const res = await apiRequest("POST", "/api/parlays", parlayData);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/parlays"] });
+    },
+  });
+
+  const handleImportPicks = async (picks: Array<{ playerName: string; line: number; stat: string; statAbbr: string; side: "over" | "under" }>) => {
+    const today = new Date().toISOString().split('T')[0];
+
+    // Calculate payout multiplier based on number of picks (typical PrizePicks payouts)
+    const payoutMultipliers: Record<number, number> = {
+      2: 3,
+      3: 5,
+      4: 10,
+      5: 20,
+      6: 25,
+    };
+
+    const numPicks = picks.length;
+    const payoutMultiplier = payoutMultipliers[numPicks] || numPicks * 3;
+
+    const parlayData = {
+      parlayType: "flex" as const,
+      numPicks,
+      entryAmount: 10, // Default entry amount
+      payoutMultiplier,
+      picks: picks.map(pick => ({
+        playerName: pick.playerName,
+        team: "",
+        stat: pick.statAbbr,
+        line: pick.line,
+        side: pick.side,
+        gameDate: today,
+      })),
+    };
+
+    await createParlayMutation.mutateAsync(parlayData);
+  };
+
   const filteredParlays = useMemo(() => {
     if (!parlays) return [];
     if (filter === "pending") return parlays.filter(p => !p.result || p.result === "pending");
@@ -285,6 +510,11 @@ export default function MyBets() {
 
   return (
     <div className="min-h-screen bg-background">
+      <ImportBetsDialog
+        open={showImportDialog}
+        onOpenChange={setShowImportDialog}
+        onImport={handleImportPicks}
+      />
       <div className="container mx-auto px-4 py-8 max-w-6xl fade-in">
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-3">
@@ -296,6 +526,14 @@ export default function MyBets() {
               <p className="text-muted-foreground">Track your PrizePicks parlays</p>
             </div>
           </div>
+          <Button
+            variant="outline"
+            onClick={() => setShowImportDialog(true)}
+            className="hover:border-primary/50"
+          >
+            <Plus className="w-4 h-4 mr-2" />
+            Import Bets
+          </Button>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
