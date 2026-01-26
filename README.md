@@ -1,8 +1,8 @@
-# 🏀 HoopStats
+# 🏀 Courtside Edge
 
 > **Advanced NBA Props Betting Analytics Platform**
 
-HoopStats is a comprehensive sports betting analytics platform that combines probabilistic projections, real-time line tracking, and data-driven recommendations to help bettors make informed decisions on NBA player prop bets.
+Courtside Edge is a comprehensive sports betting analytics platform that combines probabilistic projections, real-time line tracking, and data-driven recommendations to help bettors make informed decisions on NBA player prop bets.
 
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.6-blue)](https://www.typescriptlang.org/)
 [![Node.js](https://img.shields.io/badge/Node.js-20-green)](https://nodejs.org/)
@@ -63,8 +63,8 @@ HoopStats is a comprehensive sports betting analytics platform that combines pro
 
 1. **Clone the repository**
    ```bash
-   git clone https://github.com/yourusername/hoopstats.git
-   cd hoopstats
+   git clone https://github.com/yourusername/courtside-edge.git
+   cd courtside-edge
    ```
 
 2. **Install dependencies**
@@ -132,7 +132,7 @@ Create a `.env` file with the following:
 
 ```env
 # Database
-DATABASE_URL=postgresql://user:password@localhost:5432/hoopstats
+DATABASE_URL=postgresql://user:password@localhost:5432/courtside_edge
 
 # Server
 PORT=5000
@@ -172,7 +172,7 @@ npm run check        # Type check
 ## 🏗️ Project Structure
 
 ```
-hoopstats/
+courtside-edge/
 ├── client/           # React frontend
 │   └── src/
 │       ├── pages/    # Route pages
@@ -188,7 +188,7 @@ hoopstats/
 ├── shared/           # Shared TypeScript schemas
 ├── tests/            # Test files
 ├── migrations/       # Database migrations
-└── docs/             # Documentation
+│   └── docs/             # Documentation
 ```
 
 ## 🧪 Testing
@@ -297,9 +297,9 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 📞 Support
 
-- **Issues**: [GitHub Issues](https://github.com/yourusername/hoopstats/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/yourusername/hoopstats/discussions)
-- **Email**: support@hoopstats.com
+- **Issues**: [GitHub Issues](https://github.com/yourusername/courtside-edge/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/yourusername/courtside-edge/discussions)
+- **Email**: support@courtside-edge.com
 
 ## ⚠️ Disclaimer
 
@@ -315,4 +315,4 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ---
 
-Built with ❤️ by the HoopStats Team
+Built with ❤️ by the Courtside Edge Team

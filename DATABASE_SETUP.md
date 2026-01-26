@@ -2,7 +2,7 @@
 
 ## Overview
 
-HoopStats uses PostgreSQL as its primary database with Drizzle ORM for schema management and migrations.
+Courtside Edge uses PostgreSQL as its primary database with Drizzle ORM for schema management and migrations.
 
 ## Prerequisites
 
@@ -38,16 +38,16 @@ Download and install from: https://www.postgresql.org/download/windows/
 psql postgres
 
 # Create database and user
-CREATE DATABASE hoopstats;
-CREATE USER hoopstats_user WITH ENCRYPTED PASSWORD 'your_secure_password';
-GRANT ALL PRIVILEGES ON DATABASE hoopstats TO hoopstats_user;
+CREATE DATABASE courtside_edge;
+CREATE USER courtside_edge_user WITH ENCRYPTED PASSWORD 'your_secure_password';
+GRANT ALL PRIVILEGES ON DATABASE courtside_edge TO courtside_edge_user;
 
 # Connect to the database
-\c hoopstats
+\c courtside_edge
 
 # Grant schema permissions
-GRANT ALL ON SCHEMA public TO hoopstats_user;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO hoopstats_user;
+GRANT ALL ON SCHEMA public TO courtside_edge_user;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO courtside_edge_user;
 
 # Exit psql
 \q
@@ -59,7 +59,7 @@ Create a `.env` file in the project root:
 
 ```env
 # Database Configuration
-DATABASE_URL=postgresql://hoopstats_user:your_secure_password@localhost:5432/hoopstats
+DATABASE_URL=postgresql://courtside_edge_user:your_secure_password@localhost:5432/courtside_edge
 
 # Server Configuration
 PORT=5000
@@ -185,17 +185,17 @@ User-placed bets for tracking.
 
 ```bash
 # Create a backup
-pg_dump hoopstats > hoopstats_backup_$(date +%Y%m%d).sql
+pg_dump courtside_edge > courtside_edge_backup_$(date +%Y%m%d).sql
 
 # Restore from backup
-psql hoopstats < hoopstats_backup_20240115.sql
+psql courtside_edge < courtside_edge_backup_20240115.sql
 ```
 
 ### Monitor Database Size
 
 ```sql
 SELECT
-    pg_size_pretty(pg_database_size('hoopstats')) as db_size;
+    pg_size_pretty(pg_database_size('courtside_edge')) as db_size;
 ```
 
 ### Clean Old Data
@@ -226,8 +226,8 @@ VACUUM ANALYZE "playerPropLines";
 
 **Solution:**
 ```sql
-GRANT ALL ON SCHEMA public TO hoopstats_user;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO hoopstats_user;
+GRANT ALL ON SCHEMA public TO courtside_edge_user;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO courtside_edge_user;
 ```
 
 ### Migration Failures
@@ -239,7 +239,7 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO hoopstats_user;
 ```sql
 DROP SCHEMA public CASCADE;
 CREATE SCHEMA public;
-GRANT ALL ON SCHEMA public TO hoopstats_user;
+GRANT ALL ON SCHEMA public TO courtside_edge_user;
 ```
 
 2. Then run migrations again:
@@ -277,7 +277,7 @@ CREATE INDEX idx_projections_player_date ON projections(player_id, game_date);
 For production, configure connection pooling in your environment:
 
 ```env
-DATABASE_URL=postgresql://user:password@host:5432/hoopstats?pool_timeout=30&max_connections=20
+DATABASE_URL=postgresql://user:password@host:5432/courtside_edge?pool_timeout=30&max_connections=20
 ```
 
 ## Production Deployment
@@ -293,7 +293,7 @@ Recommended providers:
 ### Environment Variables for Production
 
 ```env
-DATABASE_URL=postgresql://user:password@prod-host:5432/hoopstats?sslmode=require
+DATABASE_URL=postgresql://user:password@prod-host:5432/courtside_edge?sslmode=require
 NODE_ENV=production
 ```
 
@@ -303,7 +303,7 @@ Set up automated backups using `pg_dump` with cron:
 
 ```bash
 # Add to crontab (runs daily at 2 AM)
-0 2 * * * pg_dump hoopstats | gzip > /backups/hoopstats_$(date +\%Y\%m\%d).sql.gz
+0 2 * * * pg_dump courtside_edge | gzip > /backups/courtside_edge_$(date +\%Y\%m\%d).sql.gz
 ```
 
 ## Schema Evolution
@@ -333,6 +333,6 @@ npm run db:push
 ## Support
 
 For issues or questions:
-- Check existing issues: https://github.com/yourusername/hoopstats/issues
+- Check existing issues: https://github.com/yourusername/courtside-edge/issues
 - Database schema reference: `shared/schema.ts`
 - Drizzle ORM docs: https://orm.drizzle.team/

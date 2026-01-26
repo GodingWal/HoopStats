@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 
-const FAVORITES_KEY = "hoop-stats-favorites";
+const FAVORITES_KEY = "courtside-edge-favorites";
 
 /**
  * Custom hook for managing player favorites in localStorage

@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useToast } from "@/hooks/use-toast";
 
-const ALERTS_KEY = "hoop-stats-alerts";
+const ALERTS_KEY = "courtside-edge-alerts";
 
 export interface PlayerAlert {
     id: string;

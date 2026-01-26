@@ -1,6 +1,6 @@
 # Docker Deployment Guide
 
-This guide covers deploying HoopStats using Docker and Docker Compose.
+This guide covers deploying Courtside Edge using Docker and Docker Compose.
 
 ## Prerequisites
 
@@ -41,7 +41,7 @@ This guide covers deploying HoopStats using Docker and Docker Compose.
 
 1. **Build the production image:**
    ```bash
-   docker build -t hoopstats:latest .
+   docker build -t courtside-edge:latest .
    ```
 
 2. **Run with production environment:**
@@ -57,7 +57,7 @@ Create a `.env` file in the project root:
 
 ```env
 # Database
-DATABASE_URL=postgresql://hoopstats_user:secure_password@postgres:5432/hoopstats
+DATABASE_URL=postgresql://courtside_edge_user:secure_password@postgres:5432/courtside_edge
 
 # Application
 NODE_ENV=production
@@ -88,20 +88,20 @@ The database is automatically initialized on first run. To manually run migratio
 
 ```bash
 # Enter the database container
-docker-compose exec postgres psql -U hoopstats_user -d hoopstats
+docker-compose exec postgres psql -U courtside_edge_user -d courtside_edge
 
 # Or run migrations from host
-docker-compose exec postgres psql -U hoopstats_user -d hoopstats -f /docker-entrypoint-initdb.d/setup.sql
+docker-compose exec postgres psql -U courtside_edge_user -d courtside_edge -f /docker-entrypoint-initdb.d/setup.sql
 ```
 
 ### Backup Database
 
 ```bash
 # Create backup
-docker-compose exec postgres pg_dump -U hoopstats_user hoopstats > backup_$(date +%Y%m%d).sql
+docker-compose exec postgres pg_dump -U courtside_edge_user courtside_edge > backup_$(date +%Y%m%d).sql
 
 # Restore backup
-docker-compose exec -T postgres psql -U hoopstats_user hoopstats < backup_20240115.sql
+docker-compose exec -T postgres psql -U courtside_edge_user courtside_edge < backup_20240115.sql
 ```
 
 ### View Application Logs
@@ -171,7 +171,7 @@ Check health status:
 
 ```bash
 # Using Docker
-docker inspect hoopstats-app | grep -A 10 Health
+docker inspect courtside-edge-app | grep -A 10 Health
 
 # Using curl
 curl http://localhost:5000/api/health
@@ -181,10 +181,10 @@ curl http://localhost:5000/api/health
 
 ```bash
 # View resource usage
-docker stats hoopstats-app hoopstats-db
+docker stats courtside-edge-app courtside-edge-db
 
 # Detailed inspection
-docker inspect hoopstats-app
+docker inspect courtside-edge-app
 ```
 
 ## Troubleshooting
@@ -206,7 +206,7 @@ docker-compose logs app
 **Test connection:**
 ```bash
 docker-compose exec app sh -c 'echo $DATABASE_URL'
-docker-compose exec postgres pg_isready -U hoopstats_user
+docker-compose exec postgres pg_isready -U courtside_edge_user
 ```
 
 **Reset database:**
@@ -233,7 +233,7 @@ docker system prune -a
 
 **Check resource usage:**
 ```bash
-docker stats hoopstats-app
+docker stats courtside-edge-app
 ```
 
 **Increase memory:**
@@ -280,13 +280,13 @@ services:
 Create an external network for production:
 
 ```bash
-docker network create --driver bridge hoopstats-prod
+docker network create --driver bridge courtside-edge-prod
 
 # In docker-compose.yml
 networks:
   default:
     external:
-      name: hoopstats-prod
+      name: courtside-edge-prod
 ```
 
 ### Automated Backups
@@ -302,10 +302,10 @@ services:
     volumes:
       - ./backups:/backups
     environment:
-      PGPASSWORD: hoopstats_dev_password
+      PGPASSWORD: courtside_edge_dev_password
     entrypoint: |
       sh -c 'while true; do
-        pg_dump -h postgres -U hoopstats_user hoopstats > /backups/backup_$$(date +%Y%m%d_%H%M%S).sql
+        pg_dump -h postgres -U courtside_edge_user courtside_edge > /backups/backup_$$(date +%Y%m%d_%H%M%S).sql
         find /backups -name "backup_*.sql" -mtime +7 -delete
         sleep 86400
       done'
@@ -355,12 +355,12 @@ jobs:
       - uses: actions/checkout@v3
 
       - name: Build Docker image
-        run: docker build -t hoopstats:${{ github.sha }} .
+        run: docker build -t courtside-edge:${{ github.sha }} .
 
       - name: Push to registry
         run: |
           echo ${{ secrets.DOCKER_PASSWORD }} | docker login -u ${{ secrets.DOCKER_USERNAME }} --password-stdin
-          docker push hoopstats:${{ github.sha }}
+          docker push courtside-edge:${{ github.sha }}
 
       - name: Deploy to server
         uses: appleboy/ssh-action@master
@@ -369,7 +369,7 @@ jobs:
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_KEY }}
           script: |
-            cd /app/hoopstats
+            cd /app/courtside-edge
             docker-compose pull
             docker-compose up -d
 ```
@@ -409,4 +409,4 @@ Connect your GitHub repository and use `render.yaml` for configuration.
 For issues or questions:
 - Docker Hub: https://hub.docker.com/
 - Docker Docs: https://docs.docker.com/
-- Project Issues: https://github.com/yourusername/hoopstats/issues
+- Project Issues: https://github.com/yourusername/courtside-edge/issues

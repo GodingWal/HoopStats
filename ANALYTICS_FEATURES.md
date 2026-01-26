@@ -1,10 +1,10 @@
 # NBA Props Analytics Platform - New Features
 
-This document describes the enhanced betting analytics features added to HoopStats.
+This document describes the enhanced betting analytics features added to Courtside Edge.
 
 ## Overview
 
-HoopStats has been transformed from a basic stats display into a comprehensive betting analytics platform with:
+Courtside Edge has been transformed from a basic stats display into a comprehensive betting analytics platform with:
 
 - **Probabilistic projections** with full distributions
 - **Edge calculation** for finding +EV bets
@@ -465,7 +465,7 @@ For questions or issues:
 
 ## License & Attribution
 
-This analytics platform builds on the existing HoopStats foundation and integrates:
+This analytics platform builds on the existing Courtside Edge foundation and integrates:
 - NBA stats via ESPN and NBA.com APIs
 - Odds data via TheOddsAPI
 - Player projections via custom ML models

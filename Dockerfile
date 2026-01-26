@@ -1,4 +1,4 @@
-# Multi-stage build for HoopStats
+# Multi-stage build for Courtside Edge
 
 # Stage 1: Build the application
 FROM node:20-alpine AS builder
@@ -32,8 +32,8 @@ COPY --from=builder /app/shared ./shared
 
 # Create non-root user
 RUN addgroup -g 1001 -S nodejs && \
-    adduser -S nodejs -u 1001 && \
-    chown -R nodejs:nodejs /app
+  adduser -S nodejs -u 1001 && \
+  chown -R nodejs:nodejs /app
 
 USER nodejs
 

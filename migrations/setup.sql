@@ -1,32 +1,32 @@
--- Complete database setup script for HoopStats
+-- Complete database setup script for Courtside Edge
 -- This script creates the database, user, and grants necessary permissions
 
 -- Note: Run this as a PostgreSQL superuser (e.g., postgres)
 -- Usage: psql postgres -f migrations/setup.sql
 
 -- Create database (if it doesn't exist)
-SELECT 'CREATE DATABASE hoopstats'
-WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'hoopstats')\gexec
+SELECT 'CREATE DATABASE courtside_edge'
+WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'courtside_edge')\gexec
 
 -- Create user (if doesn't exist)
 DO $$
 BEGIN
-  IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'hoopstats_user') THEN
-    CREATE USER hoopstats_user WITH ENCRYPTED PASSWORD 'change_me_in_production';
+  IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'courtside_edge_user') THEN
+    CREATE USER courtside_edge_user WITH ENCRYPTED PASSWORD 'change_me_in_production';
   END IF;
 END
 $$;
 
 -- Grant privileges
-GRANT ALL PRIVILEGES ON DATABASE hoopstats TO hoopstats_user;
+GRANT ALL PRIVILEGES ON DATABASE courtside_edge TO courtside_edge_user;
 
 -- Connect to the database
-\c hoopstats
+\c courtside_edge
 
 -- Grant schema permissions
-GRANT ALL ON SCHEMA public TO hoopstats_user;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO hoopstats_user;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO hoopstats_user;
+GRANT ALL ON SCHEMA public TO courtside_edge_user;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO courtside_edge_user;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO courtside_edge_user;
 
 -- Create extensions
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";

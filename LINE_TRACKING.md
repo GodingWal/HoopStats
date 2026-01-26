@@ -1,6 +1,6 @@
 # Line Tracking & Betting Data System
 
-Comprehensive documentation for HoopStats' line tracking system - capturing, storing, and analyzing betting lines from all major sportsbooks.
+Comprehensive documentation for Courtside Edge's line tracking system - capturing, storing, and analyzing betting lines from all major sportsbooks.
 
 ## Overview
 
