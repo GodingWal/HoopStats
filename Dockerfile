@@ -1,7 +1,7 @@
 # Multi-stage build for Courtside Edge
 
 # Stage 1: Build the application
-FROM node:20-alpine AS builder
+FROM node:25-alpine AS builder
 
 WORKDIR /app
 
@@ -18,7 +18,7 @@ COPY . .
 RUN npm run build
 
 # Stage 2: Production image
-FROM node:20-alpine AS production
+FROM node:25-alpine AS production
 
 WORKDIR /app
 
