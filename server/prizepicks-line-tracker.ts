@@ -192,21 +192,26 @@ export class PrizePicksLineTracker extends EventEmitter {
 
     // Save to storage if available
     if (this.storage) {
-      await this.storage.savePrizePicksLine({
-        prizePicksId: lineData.prizePicksId,
-        prizePicksPlayerId: lineData.prizePicksPlayerId,
-        playerName: lineData.playerName,
-        team: lineData.team,
-        teamAbbr: lineData.teamAbbr,
-        position: lineData.position,
-        gameTime: new Date(lineData.gameTime),
-        opponent: lineData.opponent,
-        statType: lineData.statType,
-        statTypeAbbr: lineData.statTypeAbbr,
-        line: lineData.line,
-        imageUrl: lineData.imageUrl,
-        isActive: true,
-      });
+      try {
+        await this.storage.savePrizePicksLine({
+          prizePicksId: lineData.prizePicksId,
+          prizePicksPlayerId: lineData.prizePicksPlayerId,
+          playerName: lineData.playerName,
+          team: lineData.team,
+          teamAbbr: lineData.teamAbbr,
+          position: lineData.position,
+          gameTime: new Date(lineData.gameTime),
+          opponent: lineData.opponent,
+          statType: lineData.statType,
+          statTypeAbbr: lineData.statTypeAbbr,
+          line: lineData.line,
+          imageUrl: lineData.imageUrl,
+          isActive: true,
+        });
+      } catch (dbError) {
+        // Log but don't crash - database schema issues shouldn't kill the server
+        apiLogger.warn(`[PrizePicks Tracker] Failed to save line for ${lineData.playerName}: ${dbError instanceof Error ? dbError.message : String(dbError)}`);
+      }
     }
 
     let movement: PrizePicksMovement | null = null;
@@ -217,20 +222,25 @@ export class PrizePicksLineTracker extends EventEmitter {
 
       // Save movement to storage
       if (this.storage && movement) {
-        await this.storage.savePrizePicksLineMovement({
-          prizePicksPlayerId: movement.prizePicksPlayerId,
-          playerName: movement.playerName,
-          statType: movement.statType,
-          statTypeAbbr: movement.statTypeAbbr,
-          gameTime: new Date(movement.gameTime),
-          opponent: movement.opponent,
-          oldLine: movement.oldLine,
-          newLine: movement.newLine,
-          lineChange: movement.lineChange,
-          direction: movement.direction,
-          magnitude: movement.magnitude,
-          isSignificant: movement.isSignificant,
-        });
+        try {
+          await this.storage.savePrizePicksLineMovement({
+            prizePicksPlayerId: movement.prizePicksPlayerId,
+            playerName: movement.playerName,
+            statType: movement.statType,
+            statTypeAbbr: movement.statTypeAbbr,
+            gameTime: new Date(movement.gameTime),
+            opponent: movement.opponent,
+            oldLine: movement.oldLine,
+            newLine: movement.newLine,
+            lineChange: movement.lineChange,
+            direction: movement.direction,
+            magnitude: movement.magnitude,
+            isSignificant: movement.isSignificant,
+          });
+        } catch (dbError) {
+          // Log but don't crash
+          apiLogger.warn(`[PrizePicks Tracker] Failed to save movement for ${movement.playerName}: ${dbError instanceof Error ? dbError.message : String(dbError)}`);
+        }
       }
 
       // Emit event for significant movements
