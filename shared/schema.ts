@@ -997,3 +997,141 @@ export const alerts = pgTable("alerts", {
 
 export type Alert = typeof alerts.$inferSelect;
 export type InsertAlert = typeof alerts.$inferInsert;
+
+// ========================================
+// PRIZEPICKS LINE HISTORY TRACKING
+// ========================================
+
+// Store every PrizePicks line snapshot for historical analysis
+export const prizePicksLines = pgTable("prizepicks_lines", {
+  id: serial("id").primaryKey(),
+
+  // PrizePicks-specific IDs
+  prizePicksId: varchar("prizepicks_id", { length: 50 }).notNull(), // PrizePicks projection ID
+  prizePicksPlayerId: varchar("prizepicks_player_id", { length: 50 }).notNull(),
+
+  // Player info
+  playerName: text("player_name").notNull(),
+  team: text("team").notNull(),
+  teamAbbr: varchar("team_abbr", { length: 10 }),
+  position: varchar("position", { length: 10 }),
+
+  // Game info
+  gameTime: timestamp("game_time").notNull(),
+  opponent: text("opponent"),
+
+  // Line details
+  statType: varchar("stat_type", { length: 50 }).notNull(), // 'Points', 'Rebounds', etc.
+  statTypeAbbr: varchar("stat_type_abbr", { length: 10 }), // 'PTS', 'REB', etc.
+  line: real("line").notNull(),
+
+  // Player image (for UI)
+  imageUrl: text("image_url"),
+
+  // Metadata
+  capturedAt: timestamp("captured_at").defaultNow().notNull(),
+  isActive: boolean("is_active").default(true), // False once game starts/completes
+});
+
+export const insertPrizePicksLineSchema = createInsertSchema(prizePicksLines).omit({ id: true, capturedAt: true });
+export type InsertPrizePicksLine = z.infer<typeof insertPrizePicksLineSchema>;
+export type DbPrizePicksLine = typeof prizePicksLines.$inferSelect;
+
+// Track line movements specifically for PrizePicks
+export const prizePicksLineMovements = pgTable("prizepicks_line_movements", {
+  id: serial("id").primaryKey(),
+
+  // Reference to player/stat
+  prizePicksPlayerId: varchar("prizepicks_player_id", { length: 50 }).notNull(),
+  playerName: text("player_name").notNull(),
+  statType: varchar("stat_type", { length: 50 }).notNull(),
+  statTypeAbbr: varchar("stat_type_abbr", { length: 10 }),
+
+  // Game context
+  gameTime: timestamp("game_time").notNull(),
+  opponent: text("opponent"),
+
+  // Line movement
+  oldLine: real("old_line").notNull(),
+  newLine: real("new_line").notNull(),
+  lineChange: real("line_change").notNull(), // newLine - oldLine
+
+  // Movement metadata
+  direction: varchar("direction", { length: 10 }).notNull(), // 'up' or 'down'
+  magnitude: real("magnitude").notNull(), // Absolute value of line change
+  isSignificant: boolean("is_significant").notNull(), // True if movement >= 0.5
+
+  // Timestamps
+  detectedAt: timestamp("detected_at").defaultNow().notNull(),
+});
+
+export const insertPrizePicksLineMovementSchema = createInsertSchema(prizePicksLineMovements).omit({ id: true, detectedAt: true });
+export type InsertPrizePicksLineMovement = z.infer<typeof insertPrizePicksLineMovementSchema>;
+export type DbPrizePicksLineMovement = typeof prizePicksLineMovements.$inferSelect;
+
+// Aggregated daily line history for quick analysis
+export const prizePicksDailyLines = pgTable("prizepicks_daily_lines", {
+  id: serial("id").primaryKey(),
+
+  // Player/stat identification
+  prizePicksPlayerId: varchar("prizepicks_player_id", { length: 50 }).notNull(),
+  playerName: text("player_name").notNull(),
+  team: text("team").notNull(),
+  statType: varchar("stat_type", { length: 50 }).notNull(),
+  statTypeAbbr: varchar("stat_type_abbr", { length: 10 }),
+
+  // Date and game info
+  gameDate: date("game_date").notNull(),
+  gameTime: timestamp("game_time").notNull(),
+  opponent: text("opponent"),
+
+  // Opening and closing lines
+  openingLine: real("opening_line").notNull(), // First captured line of the day
+  closingLine: real("closing_line"), // Last captured line before game
+  openingCapturedAt: timestamp("opening_captured_at").notNull(),
+  closingCapturedAt: timestamp("closing_captured_at"),
+
+  // Line movement summary
+  totalMovement: real("total_movement").default(0), // Sum of all line changes
+  netMovement: real("net_movement").default(0), // closingLine - openingLine
+  numMovements: integer("num_movements").default(0), // Count of line changes
+  highLine: real("high_line"), // Highest line seen
+  lowLine: real("low_line"), // Lowest line seen
+
+  // Outcome (filled after game)
+  actualValue: real("actual_value"),
+  hitOver: boolean("hit_over"),
+
+  // Metadata
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertPrizePicksDailyLineSchema = createInsertSchema(prizePicksDailyLines).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertPrizePicksDailyLine = z.infer<typeof insertPrizePicksDailyLineSchema>;
+export type DbPrizePicksDailyLine = typeof prizePicksDailyLines.$inferSelect;
+
+// PrizePicks line history query schemas
+export const prizePicksLineHistorySchema = z.object({
+  playerId: z.string(),
+  playerName: z.string(),
+  statType: z.string(),
+  gameTime: z.string(),
+  opponent: z.string().optional(),
+  lines: z.array(z.object({
+    line: z.number(),
+    capturedAt: z.string(),
+  })),
+  openingLine: z.number(),
+  currentLine: z.number(),
+  netMovement: z.number(),
+  movements: z.array(z.object({
+    oldLine: z.number(),
+    newLine: z.number(),
+    change: z.number(),
+    direction: z.string(),
+    detectedAt: z.string(),
+  })),
+});
+
+export type PrizePicksLineHistory = z.infer<typeof prizePicksLineHistorySchema>;
