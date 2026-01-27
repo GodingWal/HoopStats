@@ -18,6 +18,7 @@ import type {
 // Re-export individual storage modules
 export * from "./player-storage";
 export * from "./bet-storage";
+export * from "./prizepicks-storage";
 export * from "./base";
 
 // Import the full storage implementation for backward compatibility

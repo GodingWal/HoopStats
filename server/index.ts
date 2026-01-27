@@ -4,6 +4,8 @@ import { serveStatic } from "./static";
 import { createServer } from "http";
 import { injuryWatcher } from "./injury-watcher";
 import { injuryImpactService } from "./injury-impact-service";
+import { prizePicksLineTracker } from "./prizepicks-line-tracker";
+import { prizePicksStorage } from "./storage/prizepicks-storage";
 import { serverLogger } from "./logger";
 import {
   corsMiddleware,
@@ -137,6 +139,16 @@ app.use((req, res, next) => {
       // Start automated injury impact calculations
       injuryImpactService.start();
       serverLogger.info("Injury impact service started - auto-updating bet edges on injury changes");
+
+      // Start PrizePicks line tracking (polls every 5 minutes by default)
+      prizePicksLineTracker.setStorage(prizePicksStorage);
+      prizePicksLineTracker.start(300000); // 5 minutes
+      serverLogger.info("PrizePicks line tracker started - capturing historical line data");
+
+      // Log significant line movements
+      prizePicksLineTracker.on('significant-movement', (movement) => {
+        serverLogger.info(`PrizePicks line movement: ${movement.playerName} ${movement.statType} ${movement.oldLine} -> ${movement.newLine}`);
+      });
     },
   );
 })();
