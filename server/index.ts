@@ -4,6 +4,15 @@ import { serveStatic } from "./static";
 import { createServer } from "http";
 import { injuryWatcher } from "./injury-watcher";
 import { injuryImpactService } from "./injury-impact-service";
+import { serverLogger } from "./logger";
+import {
+  corsMiddleware,
+  apiRateLimiter,
+  expensiveRateLimiter,
+  securityHeaders,
+  healthCheck,
+} from "./middleware";
+import { setupApiDocs } from "./api-docs";
 
 const app = express();
 const httpServer = createServer(app);
@@ -14,6 +23,13 @@ declare module "http" {
   }
 }
 
+// Security headers
+app.use(securityHeaders);
+
+// CORS configuration
+app.use(corsMiddleware);
+
+// Body parsing
 app.use(
   express.json({
     verify: (req, _res, buf) => {
@@ -24,6 +40,19 @@ app.use(
 
 app.use(express.urlencoded({ extended: false }));
 
+// Health check endpoint (no rate limiting)
+app.get("/health", healthCheck);
+app.get("/api/health", healthCheck);
+
+// Rate limiting for API routes
+app.use("/api", apiRateLimiter);
+
+// Stricter rate limiting for expensive operations
+app.use("/api/admin/sync-rosters", expensiveRateLimiter);
+app.use("/api/sync/players", expensiveRateLimiter);
+app.use("/api/projections", expensiveRateLimiter);
+app.use("/api/stats/advanced", expensiveRateLimiter);
+
 export function log(message: string, source = "express") {
   const formattedTime = new Date().toLocaleTimeString("en-US", {
     hour: "numeric",
@@ -32,9 +61,11 @@ export function log(message: string, source = "express") {
     hour12: true,
   });
 
-  console.log(`${formattedTime} [${source}] ${message}`);
+  // Use logger instead of console.log
+  serverLogger.info(`[${source}] ${message}`);
 }
 
+// Request logging middleware
 app.use((req, res, next) => {
   const start = Date.now();
   const path = req.path;
@@ -50,8 +81,9 @@ app.use((req, res, next) => {
     const duration = Date.now() - start;
     if (path.startsWith("/api")) {
       let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
-      if (capturedJsonResponse) {
-        logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
+      // Only log response body for errors or in verbose mode
+      if (res.statusCode >= 400 && capturedJsonResponse) {
+        logLine += ` :: ${JSON.stringify(capturedJsonResponse).slice(0, 200)}`;
       }
 
       log(logLine);
@@ -62,6 +94,9 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  // Setup API documentation (available at /api-docs)
+  setupApiDocs(app);
+
   await registerRoutes(httpServer, app);
 
   app.use((err: Error & { status?: number; statusCode?: number }, _req: Request, res: Response, _next: NextFunction) => {
@@ -93,15 +128,15 @@ app.use((req, res, next) => {
       host: "127.0.0.1",
     },
     () => {
-      log(`serving on port ${port}`);
+      serverLogger.info(`Server listening on port ${port}`);
 
       // Start injury monitoring for edge detection
       injuryWatcher.start();
-      log("Injury watcher started - monitoring for player status updates", "injury");
+      serverLogger.info("Injury watcher started - monitoring for player status updates");
 
       // Start automated injury impact calculations
       injuryImpactService.start();
-      log("Injury impact service started - auto-updating bet edges on injury changes", "injury-impact");
+      serverLogger.info("Injury impact service started - auto-updating bet edges on injury changes");
     },
   );
 })();

@@ -575,21 +575,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/bets/refresh", async (req, res) => {
-    try {
-      const players = await storage.getPlayers();
-      const generatedBets = generatePotentialBets(players);
-      await storage.clearPotentialBets();
-      for (const bet of generatedBets) {
-        await storage.createPotentialBet(bet);
-      }
-      const bets = await storage.getPotentialBets();
-      res.json(bets);
-    } catch (error) {
-      console.error("Error refreshing bets:", error);
-      res.status(500).json({ error: "Failed to refresh bets" });
-    }
-  });
+  // NOTE: Duplicate /api/bets/refresh route removed - using PrizePicks version above
 
   app.post("/api/explain", async (req, res) => {
     try {
