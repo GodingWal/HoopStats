@@ -6,6 +6,7 @@ import { Express } from "express";
 import { Server } from "http";
 import playerRoutes from "./player-routes";
 import betsRoutes from "./bets-routes";
+import screenshotRoutes from "./screenshot-routes";
 import { lineWatcher } from "../services/line-watcher";
 import { apiLogger } from "../logger";
 
@@ -21,6 +22,7 @@ export async function registerRoutes(
   // Mount modular routes
   app.use("/api/players", playerRoutes);
   app.use("/api/bets", betsRoutes);
+  app.use("/api/screenshots", screenshotRoutes);
 
   // Search endpoint (attached to root since it's /api/search not /api/players/search)
   app.get("/api/search", async (req, res) => {

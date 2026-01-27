@@ -13,8 +13,9 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { TrendingUp, TrendingDown, DollarSign, Target, Trophy, Loader2, CheckCircle, XCircle, MinusCircle, ChevronDown, ChevronUp, Plus, AlertCircle } from "lucide-react";
+import { TrendingUp, TrendingDown, DollarSign, Target, Trophy, Loader2, CheckCircle, XCircle, MinusCircle, ChevronDown, ChevronUp, Plus, AlertCircle, Camera } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { ScreenshotUpload } from "@/components/screenshot-upload";
 
 interface ParlayPick {
   id: number;
@@ -404,6 +405,7 @@ function ParlayCard({ parlay, onUpdateResult, onUpdatePickResult }: { parlay: Pa
 export default function MyBets() {
   const [filter, setFilter] = useState<"all" | "pending" | "settled">("all");
   const [showImportDialog, setShowImportDialog] = useState(false);
+  const [showScreenshotUpload, setShowScreenshotUpload] = useState(false);
 
   const { data: parlays, isLoading } = useQuery<Parlay[]>({
     queryKey: ["/api/parlays"],
@@ -526,15 +528,36 @@ export default function MyBets() {
               <p className="text-muted-foreground">Track your PrizePicks parlays</p>
             </div>
           </div>
-          <Button
-            variant="outline"
-            onClick={() => setShowImportDialog(true)}
-            className="hover:border-primary/50"
-          >
-            <Plus className="w-4 h-4 mr-2" />
-            Import Bets
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setShowScreenshotUpload(!showScreenshotUpload)}
+              className={`hover:border-primary/50 ${showScreenshotUpload ? 'border-primary bg-primary/10' : ''}`}
+            >
+              <Camera className="w-4 h-4 mr-2" />
+              Screenshot
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => setShowImportDialog(true)}
+              className="hover:border-primary/50"
+            >
+              <Plus className="w-4 h-4 mr-2" />
+              Import Text
+            </Button>
+          </div>
         </div>
+
+        {/* Screenshot Upload Section */}
+        {showScreenshotUpload && (
+          <div className="mb-6">
+            <ScreenshotUpload
+              onParlayAdded={() => {
+                queryClient.invalidateQueries({ queryKey: ["/api/parlays"] });
+              }}
+            />
+          </div>
+        )}
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
           <StatCard
