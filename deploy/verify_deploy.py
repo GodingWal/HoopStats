@@ -35,15 +35,21 @@ def run_command(client, command):
 def main():
     client = create_ssh_client()
     try:
-        print("Checking PM2 Status:")
-        run_command(client, "pm2 status")
+        print("--- VERIFICATION START ---")
         
-        print("\nChecking Internal Access (Port 5000):")
-        run_command(client, "curl -I http://localhost:5000")
+        # Check backend code
+        print("Checking backend code:")
+        run_command(client, "grep -c 'upload-screenshot' /var/www/hoopstats/server/routes/bets-routes.ts || echo 'NOT FOUND'")
         
-        print("\nChecking Internal Access (Port 80 via Domain/Nginx):")
-        run_command(client, "curl -I -H 'Host: courtside-edge.com' http://localhost:80")
+        # Check frontend build assets (grep for string in built JS files)
+        print("Checking frontend assets for ImportBetsDialog:")
+        run_command(client, "grep -r 'Screenshot' /var/www/hoopstats/dist/public/assets/ || echo 'NOT FOUND'")
 
+        # Check build time
+        print("Checking build timestamp:")
+        run_command(client, "stat -c '%y' /var/www/hoopstats/dist/index.cjs")
+        
+        print("--- VERIFICATION END ---")
     finally:
         client.close()
 

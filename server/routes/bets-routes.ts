@@ -7,7 +7,7 @@ import { storage } from "../storage";
 import { apiLogger } from "../logger";
 import { analyzeEdges } from "../edge-detection";
 import { fetchPrizePicksProjections } from "../prizepicks-api";
-import { generateBetExplanation } from "../services/openai";
+import { generateBetExplanation, parseBetScreenshot } from "../services/openai";
 import { BETTING_CONFIG } from "../constants";
 import { validateBody, betSchema } from "../validation";
 import type { Player } from "@shared/schema";
@@ -371,6 +371,28 @@ router.post("/explain", async (req, res) => {
   } catch (error) {
     apiLogger.error("Error generating explanation", error);
     res.status(500).json({ error: "Failed to generate explanation" });
+  }
+});
+
+/**
+ * POST /api/bets/upload-screenshot
+ * Parse a screenshot of a betting slip
+ */
+router.post("/upload-screenshot", async (req, res) => {
+  try {
+    const { image } = req.body;
+    if (!image) {
+      return res.status(400).json({ error: "Missing image data" });
+    }
+
+    // Remove data URL prefix if present
+    const base64Image = image.replace(/^data:image\/\w+;base64,/, "");
+
+    const bets = await parseBetScreenshot(base64Image);
+    res.json(bets);
+  } catch (error) {
+    apiLogger.error("Error parsing screenshot", error);
+    res.status(500).json({ error: "Failed to parse screenshot" });
   }
 });
 

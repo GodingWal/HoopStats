@@ -54,6 +54,10 @@ def main():
         print("Installing dependencies...")
         run_command(client, f"cd {REMOTE_DIR} && npm install")
 
+        # 2a. Run Database Options
+        print("Running database migrations...")
+        run_command(client, f"cd {REMOTE_DIR} && npm run db:push")
+
         # 3. Build the application
         print("Building application...")
         run_command(client, f"cd {REMOTE_DIR} && npm run build")

@@ -55,3 +55,40 @@ export async function generateBetExplanation(
         throw new Error("Failed to generate explanation");
     }
 }
+
+export async function parseBetScreenshot(base64Image: string): Promise<any[]> {
+    try {
+        const response = await openai.chat.completions.create({
+            model: "gpt-4o",
+            messages: [
+                {
+                    role: "system",
+                    content: "You are an expert at extracting data from images. You will be given a screenshot of a PrizePicks (or similar) betting slip. Extract the bets into a JSON array. Return ONLY valid JSON.",
+                },
+                {
+                    role: "user",
+                    content: [
+                        { type: "text", text: "Extract the bets from this image. Return a JSON array where each object has: 'playerName' (string), 'line' (number), 'stat' (string - e.g. 'Points', 'Rebs+Asts'), 'side' ('over' or 'under'). If the side is not explicit, assume 'over' (More) if the arrow is green or pointing up, and 'under' (Less) if red or pointing down. If you cannot determine, default to 'over'." },
+                        {
+                            type: "image_url",
+                            image_url: {
+                                "url": `data:image/jpeg;base64,${base64Image}`,
+                            },
+                        },
+                    ],
+                },
+            ],
+            response_format: { type: "json_object" },
+            max_tokens: 1000,
+        });
+
+        const content = response.choices[0].message.content;
+        if (!content) return [];
+
+        const result = JSON.parse(content);
+        return result.bets || result.picks || result; // Handle potential variations in JSON structure
+    } catch (error) {
+        console.error("OpenAI Vision Error:", error);
+        throw new Error("Failed to parse screenshot");
+    }
+}
