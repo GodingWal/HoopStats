@@ -37,17 +37,10 @@ def main():
     try:
         print("--- VERIFICATION START ---")
         
-        # Check backend code
-        print("Checking backend code:")
-        run_command(client, "grep -c 'upload-screenshot' /var/www/hoopstats/server/routes/bets-routes.ts || echo 'NOT FOUND'")
-        
-        # Check frontend build assets (grep for string in built JS files)
-        print("Checking frontend assets for ImportBetsDialog:")
-        run_command(client, "grep -r 'Screenshot' /var/www/hoopstats/dist/public/assets/ || echo 'NOT FOUND'")
-
-        # Check build time
-        print("Checking build timestamp:")
-        run_command(client, "stat -c '%y' /var/www/hoopstats/dist/index.cjs")
+        print("Checking remote git status:")
+        run_command(client, "cd /var/www/hoopstats && git status")
+        print("---")
+        run_command(client, "cd /var/www/hoopstats && git log -1 --format='%H %s'")
         
         print("--- VERIFICATION END ---")
     finally:

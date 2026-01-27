@@ -1,8 +1,13 @@
-
 import OpenAI from "openai";
 
-// the newest OpenAI model is "gpt-4o" which was released May 13, 2024
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+// Lazy initialization to prevent startup crashes if key is missing
+function getOpenAI() {
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) {
+        throw new Error("OPENAI_API_KEY is not set in environment variables");
+    }
+    return new OpenAI({ apiKey });
+}
 
 interface ExplanationRequest {
     player_name: string;
@@ -19,6 +24,7 @@ export async function generateBetExplanation(
     request: ExplanationRequest
 ): Promise<string> {
     try {
+        const openai = getOpenAI();
         const prompt = `
       You are an expert NBA sports bettor and analyst.
       Explain why taking the ${request.side} on ${request.player_name} for ${request.line} ${request.prop} is a good bet.
@@ -52,12 +58,14 @@ export async function generateBetExplanation(
         );
     } catch (error) {
         console.error("OpenAI API Error:", error);
-        throw new Error("Failed to generate explanation");
+        // Return a safe fallback message instead of crashing or throwing 500
+        return "AI analysis unavailable (Missing API configuration).";
     }
 }
 
 export async function parseBetScreenshot(base64Image: string): Promise<any[]> {
     try {
+        const openai = getOpenAI();
         const response = await openai.chat.completions.create({
             model: "gpt-4o",
             messages: [
@@ -89,6 +97,6 @@ export async function parseBetScreenshot(base64Image: string): Promise<any[]> {
         return result.bets || result.picks || result; // Handle potential variations in JSON structure
     } catch (error) {
         console.error("OpenAI Vision Error:", error);
-        throw new Error("Failed to parse screenshot");
+        throw new Error("Failed to parse screenshot. Please ensure OpenAI API key is configured.");
     }
 }
