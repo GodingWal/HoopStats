@@ -85,7 +85,7 @@ export async function parsePrizePicksScreenshot(
       "homeTeam": "string - 3-letter abbreviation",
       "awayScore": "number or null if not shown",
       "homeScore": "number or null if not shown",
-      "status": "string - 'Final' or game clock like 'Q2 00:42'"
+      "status": "string - 'Final', 'Scheduled', or game clock like 'Q2 00:42'"
     }
   ],
   "picks": [
@@ -97,19 +97,21 @@ export async function parsePrizePicksScreenshot(
       "stat": "string - the stat type (Fantasy Score, Points, PRA, etc.)",
       "line": "number - the betting line",
       "side": "string - 'over' or 'under' based on the arrow direction (↑ = over, ↓ = under)",
-      "actualValue": "number or null - the actual stat value if shown (the green number)",
-      "result": "string - 'hit' if green progress bar is full/past line, 'miss' if red, 'pending' if game in progress"
+      "actualValue": "number or null - the actual stat value if shown in the progress bar, null if game hasn't started",
+      "result": "string - 'hit' if green and past line, 'miss' if red, 'pending' if no result shown or game not started"
     }
   ]
 }
 
 Important notes:
 - The arrow ↑ means OVER, arrow ↓ means UNDER
+- If no progress bar or actual value is shown, the game hasn't started - set actualValue to null and result to 'pending'
 - Green progress bars indicate the pick is winning/won
-- Look for actual values shown (like 12.4, 40, 24.4 in the progress bars)
+- If actual values are shown (numbers in the progress bars like 12.4, 40, 24.4), include them
 - PRA means Points + Rebounds + Assists combined
 - Extract ALL picks shown in the screenshot
 - The format shows "Team • Position • #Number" under each player name
+- Games that haven't started will show a scheduled time instead of a score
 
 Return ONLY valid JSON, no markdown or explanation.`;
 
