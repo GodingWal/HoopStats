@@ -100,6 +100,37 @@ export interface IStorage {
   getAlerts(params?: { unreadOnly?: boolean; limit?: number }): Promise<Alert[]>;
   createAlert(alert: InsertAlert): Promise<Alert>;
   markAlertAsRead(id: number): Promise<void>;
+
+  // PrizePicks Historical Data
+  getPrizePicksDailyLines(date: Date): Promise<Array<{
+    playerName: string;
+    team: string;
+    statType: string;
+    openingLine: number;
+    closingLine?: number;
+    netMovement: number;
+    numMovements: number;
+    gameTime: Date;
+  }>>;
+  getPrizePicksLineHistoryRange(startDate: Date, endDate: Date): Promise<any[]>;
+  getRecentPrizePicksMovements(limit?: number): Promise<Array<{
+    playerName: string;
+    statType: string;
+    oldLine: number;
+    newLine: number;
+    lineChange: number;
+    direction: string;
+    isSignificant: boolean;
+    detectedAt: Date;
+  }>>;
+  getPlayerLineTrend(playerName: string, statType: string, days?: number): Promise<Array<{
+    gameDate: string;
+    openingLine: number;
+    closingLine?: number;
+    actualValue?: number;
+    hitOver?: boolean;
+  }>>;
+  getPrizePicksAvailableDates(limit?: number): Promise<string[]>;
 }
 
 // Export the storage instance (uses database if available, otherwise memory)
