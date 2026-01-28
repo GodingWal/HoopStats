@@ -87,9 +87,25 @@ export function ImportBetsDialog({ open, onOpenChange }: ImportBetsDialogProps) 
           } else {
             setError("Unexpected response format from server.");
           }
-        } catch (err) {
+        } catch (err: any) {
           console.error(err);
-          setError("Failed to process image. Please try again.");
+          // Try to extract the server error message
+          let errorMessage = "Failed to process image. Please try again.";
+          try {
+            // Error message format from apiRequest: "500: {\"error\":\"message\"}"
+            const errStr = err?.message || "";
+            const jsonStart = errStr.indexOf("{");
+            if (jsonStart !== -1) {
+              const jsonPart = errStr.slice(jsonStart);
+              const parsed = JSON.parse(jsonPart);
+              if (parsed.error) {
+                errorMessage = parsed.error;
+              }
+            }
+          } catch {
+            // Keep the default error message
+          }
+          setError(errorMessage);
         } finally {
           setIsUploading(false);
         }

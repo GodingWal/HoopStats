@@ -64,6 +64,12 @@ export async function generateBetExplanation(
 }
 
 export async function parseBetScreenshot(base64Image: string): Promise<any[]> {
+    // Check for API key first to give a helpful error message
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) {
+        throw new Error("OpenAI API key is not configured. Please add OPENAI_API_KEY to your environment variables.");
+    }
+
     try {
         const openai = getOpenAI();
         const response = await openai.chat.completions.create({
@@ -95,8 +101,18 @@ export async function parseBetScreenshot(base64Image: string): Promise<any[]> {
 
         const result = JSON.parse(content);
         return result.bets || result.picks || result; // Handle potential variations in JSON structure
-    } catch (error) {
+    } catch (error: any) {
         console.error("OpenAI Vision Error:", error);
-        throw new Error("Failed to parse screenshot. Please ensure OpenAI API key is configured.");
+        // Provide more specific error messages
+        if (error?.status === 401 || error?.code === 'invalid_api_key') {
+            throw new Error("Invalid OpenAI API key. Please check your OPENAI_API_KEY configuration.");
+        }
+        if (error?.status === 429) {
+            throw new Error("OpenAI API rate limit exceeded. Please try again later.");
+        }
+        if (error?.status === 400) {
+            throw new Error("Unable to process this image. Please try a clearer screenshot.");
+        }
+        throw new Error(error?.message || "Failed to parse screenshot. Please try again.");
     }
 }
