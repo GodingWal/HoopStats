@@ -12,7 +12,7 @@ import Home from "@/pages/home";
 import Bets from "@/pages/bets";
 import MyBets from "@/pages/my-bets";
 import LiveGames from "@/pages/live-games";
-import LiveOdds from "@/pages/live-odds";
+import LineHistory from "@/pages/line-history";
 import ProjectionsPage from "@/pages/projections";
 import Dashboard from "@/pages/dashboard";
 import TrackRecord from "@/pages/track-record";
@@ -33,7 +33,7 @@ import {
   SidebarFooter,
 } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
-import { Users, Target, TrendingUp, RefreshCw, CloudDownload, AlertCircle, Tv, BrainCircuit, DollarSign, LayoutDashboard, Award, BarChart3, Wallet } from "lucide-react";
+import { Users, Target, TrendingUp, RefreshCw, CloudDownload, AlertCircle, Tv, BrainCircuit, History, LayoutDashboard, Award, BarChart3, Wallet } from "lucide-react";
 
 function Router() {
   return (
@@ -44,7 +44,7 @@ function Router() {
       <Route path="/my-bets" component={MyBets} />
       <Route path="/track-record" component={TrackRecord} />
       <Route path="/live" component={LiveGames} />
-      <Route path="/odds" component={LiveOdds} />
+      <Route path="/line-history" component={LineHistory} />
       <Route path="/projections" component={ProjectionsPage} />
       <Route path="/team-stats" component={TeamStatsPage} />
       <Route component={NotFound} />
@@ -89,9 +89,9 @@ const navItems = [
     icon: Tv,
   },
   {
-    title: "Live Odds",
-    url: "/odds",
-    icon: DollarSign,
+    title: "Line History",
+    url: "/line-history",
+    icon: History,
   },
   {
     title: "AI Projections",
