@@ -20,7 +20,7 @@ import {
   type PlayerInjuryReport,
 } from "./espn-api";
 import { fetchNbaEvents, fetchEventPlayerProps, isOddsApiConfigured, getOddsApiStatus, extractGameOdds } from "./odds-api";
-import { fetchPrizePicksProjections, fetchPlayerPrizePicksProps } from "./prizepicks-api";
+import { fetchPrizePicksProjections, fetchPlayerPrizePicksProps, getScraperStatus, rotateScraperSession } from "./prizepicks-api";
 import { prizePicksLineTracker } from "./prizepicks-line-tracker";
 import { prizePicksStorage } from "./storage/prizepicks-storage";
 import {
@@ -1429,6 +1429,32 @@ export async function registerRoutes(
   });
 
   // =============== PRIZEPICKS ROUTES ===============
+
+  // Get scraper configuration status
+  app.get("/api/prizepicks/scraper/status", async (_req, res) => {
+    try {
+      const status = getScraperStatus();
+      res.json(status);
+    } catch (error) {
+      console.error("Error fetching scraper status:", error);
+      res.status(500).json({ error: "Failed to fetch scraper status" });
+    }
+  });
+
+  // Force rotate the scraper session (useful when blocked)
+  app.post("/api/prizepicks/scraper/rotate", async (_req, res) => {
+    try {
+      const newSession = rotateScraperSession();
+      res.json({
+        success: true,
+        message: "Scraper session rotated",
+        newSession,
+      });
+    } catch (error) {
+      console.error("Error rotating scraper session:", error);
+      res.status(500).json({ error: "Failed to rotate scraper session" });
+    }
+  });
 
   // Get all NBA PrizePicks projections
   app.get("/api/prizepicks/projections", async (_req, res) => {
