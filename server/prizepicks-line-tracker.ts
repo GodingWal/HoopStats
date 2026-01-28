@@ -157,7 +157,8 @@ export class PrizePicksLineTracker extends EventEmitter {
     } catch (error) {
       this.lastError = error instanceof Error ? error.message : String(error);
       apiLogger.error("[PrizePicks Tracker] Error polling lines:", error);
-      this.emit('error', error);
+      // Don't emit error - it crashes the server if no listener is attached
+      // The error is logged above, and we'll retry on next poll interval
     }
   }
 
