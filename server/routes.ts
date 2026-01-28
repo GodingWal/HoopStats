@@ -20,7 +20,8 @@ import {
   type PlayerInjuryReport,
 } from "./espn-api";
 import { fetchNbaEvents, fetchEventPlayerProps, isOddsApiConfigured, getOddsApiStatus, extractGameOdds } from "./odds-api";
-import { fetchPrizePicksProjections, fetchPlayerPrizePicksProps } from "./prizepicks-api";
+import { fetchPrizePicksProjections, fetchPlayerPrizePicksProps, getScraperConfigStatus } from "./prizepicks-api";
+import { customScraper, getScraperStatus } from "./custom-scraper";
 import { prizePicksLineTracker } from "./prizepicks-line-tracker";
 import { prizePicksStorage } from "./storage/prizepicks-storage";
 import {
@@ -1367,6 +1368,69 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error fetching event props:", error);
       res.status(500).json({ error: "Failed to fetch event props" });
+    }
+  });
+
+  // =============== CUSTOM SCRAPER API ROUTES ===============
+
+  // Get scraper status (proxy health, queue stats)
+  app.get("/api/scraper/status", async (_req, res) => {
+    try {
+      const scraperStatus = getScraperStatus();
+      const configStatus = getScraperConfigStatus();
+      res.json({
+        ...scraperStatus,
+        config: configStatus,
+        timestamp: new Date().toISOString(),
+      });
+    } catch (error) {
+      console.error("Error fetching scraper status:", error);
+      res.status(500).json({ error: "Failed to fetch scraper status" });
+    }
+  });
+
+  // Force refresh proxy list
+  app.post("/api/scraper/refresh-proxies", async (_req, res) => {
+    try {
+      await customScraper.refreshProxies();
+      const status = getScraperStatus();
+      res.json({
+        success: true,
+        message: `Proxies refreshed: ${status.proxies.healthy} healthy proxies available`,
+        status,
+      });
+    } catch (error) {
+      console.error("Error refreshing proxies:", error);
+      res.status(500).json({ error: "Failed to refresh proxies" });
+    }
+  });
+
+  // Test scraper with a URL
+  app.post("/api/scraper/test", async (req, res) => {
+    try {
+      const { url } = req.body;
+      if (!url) {
+        return res.status(400).json({ error: "URL is required" });
+      }
+
+      const startTime = Date.now();
+      const response = await customScraper.fetch(url, { useProxy: true, maxRetries: 2 });
+      const elapsed = Date.now() - startTime;
+
+      res.json({
+        success: response.ok,
+        status: response.status,
+        usedProxy: response.usedProxy,
+        responseTime: response.responseTime,
+        totalTime: elapsed,
+        dataLength: response.text.length,
+      });
+    } catch (error) {
+      console.error("Error testing scraper:", error);
+      res.status(500).json({
+        error: "Scraper test failed",
+        message: error instanceof Error ? error.message : "Unknown error",
+      });
     }
   });
 

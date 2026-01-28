@@ -1,28 +1,56 @@
 /**
  * PrizePicks API client for fetching real player prop lines
  * @note This is an unofficial API - may break or get blocked
- * Uses ScraperAPI to bypass Cloudflare protection
+ * Uses custom scraper with proxy rotation (falls back to ScraperAPI if configured)
  */
 
 import { apiCache } from "./cache";
 import { apiLogger } from "./logger";
+import { customScraper, getScraperStatus, type ScraperResponse } from "./custom-scraper";
 
 const PRIZEPICKS_API_BASE = "https://api.prizepicks.com";
 const SCRAPERAPI_BASE = "https://api.scraperapi.com";
 const NBA_LEAGUE_ID = 7;
 
 /**
- * Get ScraperAPI key from environment
+ * Get ScraperAPI key from environment (used as fallback)
  */
 function getScraperApiKey(): string | null {
     return process.env.SCRAPER_API_KEY || null;
 }
 
 /**
- * Check if ScraperAPI is configured
+ * Check if ScraperAPI is configured (fallback option)
  */
 export function isScraperApiConfigured(): boolean {
     return !!getScraperApiKey();
+}
+
+/**
+ * Check if custom scraper is ready
+ */
+export function isCustomScraperReady(): boolean {
+    const status = getScraperStatus();
+    return status.ready;
+}
+
+/**
+ * Get scraper configuration status
+ */
+export function getScraperConfigStatus(): {
+    customScraper: { ready: boolean; healthyProxies: number };
+    scraperApi: { configured: boolean };
+} {
+    const status = getScraperStatus();
+    return {
+        customScraper: {
+            ready: status.ready,
+            healthyProxies: status.proxies.healthy,
+        },
+        scraperApi: {
+            configured: isScraperApiConfigured(),
+        },
+    };
 }
 
 // Browser-like headers (used as fallback)
@@ -107,6 +135,88 @@ interface PrizePicksApiResponse {
 }
 
 /**
+ * Fetch data using cascade: Direct -> Custom Scraper -> ScraperAPI
+ */
+async function fetchWithCascade(url: string): Promise<PrizePicksApiResponse> {
+    // Strategy 1: Try direct request first (fastest if not blocked)
+    try {
+        apiLogger.info("Attempting direct PrizePicks request...");
+        const directResponse = await fetch(url, {
+            method: "GET",
+            headers: HEADERS,
+            signal: AbortSignal.timeout(15000),
+        });
+
+        if (directResponse.ok) {
+            const data = await directResponse.json() as PrizePicksApiResponse;
+            if (data.data && data.data.length > 0) {
+                apiLogger.info("Direct request successful");
+                return data;
+            }
+        }
+
+        // Check if Cloudflare blocked us
+        if (directResponse.status === 403) {
+            apiLogger.debug("Direct request blocked (403), trying custom scraper...");
+        }
+    } catch (error) {
+        apiLogger.debug("Direct request failed, trying custom scraper...", error);
+    }
+
+    // Strategy 2: Use custom scraper with proxy rotation
+    try {
+        apiLogger.info("Attempting PrizePicks via custom scraper with proxy rotation...");
+        const scraperResponse = await customScraper.fetch(url, {
+            useProxy: true,
+            maxRetries: 3,
+            priority: 1,
+        });
+
+        if (scraperResponse.ok && scraperResponse.data) {
+            const data = scraperResponse.data as PrizePicksApiResponse;
+            if (data.data && data.data.length > 0) {
+                apiLogger.info("Custom scraper successful", {
+                    usedProxy: scraperResponse.usedProxy,
+                    responseTime: scraperResponse.responseTime,
+                });
+                return data;
+            }
+        }
+    } catch (error) {
+        apiLogger.warn("Custom scraper failed, trying ScraperAPI fallback...", error);
+    }
+
+    // Strategy 3: Fall back to ScraperAPI if configured
+    const scraperApiKey = getScraperApiKey();
+    if (scraperApiKey) {
+        try {
+            apiLogger.info("Attempting PrizePicks via ScraperAPI fallback...");
+            const scraperApiUrl = `${SCRAPERAPI_BASE}?api_key=${scraperApiKey}&url=${encodeURIComponent(url)}&render=false`;
+            const response = await fetch(scraperApiUrl, {
+                method: "GET",
+                signal: AbortSignal.timeout(30000),
+            });
+
+            if (response.ok) {
+                const data = await response.json() as PrizePicksApiResponse;
+                if (data.data && data.data.length > 0) {
+                    apiLogger.info("ScraperAPI fallback successful");
+                    return data;
+                }
+            }
+
+            if (response.status === 403) {
+                throw new Error("PrizePicks blocked - all scraping methods failed");
+            }
+        } catch (error) {
+            apiLogger.error("ScraperAPI fallback failed", error);
+        }
+    }
+
+    throw new Error("All scraping strategies failed - PrizePicks data unavailable");
+}
+
+/**
  * Fetch NBA projections from PrizePicks
  */
 export async function fetchPrizePicksProjections(): Promise<PrizePicksProjection[]> {
@@ -119,37 +229,9 @@ export async function fetchPrizePicksProjections(): Promise<PrizePicksProjection
 
     try {
         const targetUrl = `${PRIZEPICKS_API_BASE}/projections?league_id=${NBA_LEAGUE_ID}&per_page=250&single_stat=true`;
-        const scraperApiKey = getScraperApiKey();
 
-        let fetchUrl: string;
-        let fetchOptions: RequestInit;
-
-        if (scraperApiKey) {
-            // Use ScraperAPI to bypass Cloudflare
-            fetchUrl = `${SCRAPERAPI_BASE}?api_key=${scraperApiKey}&url=${encodeURIComponent(targetUrl)}&render=false`;
-            fetchOptions = { method: "GET" };
-            apiLogger.info("Fetching PrizePicks via ScraperAPI proxy", { targetUrl });
-        } else {
-            // Direct request (may be blocked by Cloudflare)
-            fetchUrl = targetUrl;
-            fetchOptions = { method: "GET", headers: HEADERS };
-            apiLogger.info("Fetching PrizePicks directly (no proxy configured)", { targetUrl });
-        }
-
-        const response = await fetch(fetchUrl, fetchOptions);
-
-        if (!response.ok) {
-            if (response.status === 403) {
-                const errorMsg = scraperApiKey
-                    ? "PrizePicks blocked even with proxy - may need premium ScraperAPI plan"
-                    : "PrizePicks blocked - configure SCRAPER_API_KEY in .env to bypass Cloudflare";
-                apiLogger.warn(errorMsg);
-                throw new Error(errorMsg);
-            }
-            throw new Error(`PrizePicks API error: ${response.status} ${response.statusText}`);
-        }
-
-        const data: PrizePicksApiResponse = await response.json();
+        // Use cascade fetch strategy
+        const data = await fetchWithCascade(targetUrl);
 
         // Debug: Log sample of raw data to find standard line indicator
         console.log(`[PrizePicks] Received ${data.data?.length || 0} projections, ${data.included?.length || 0} included items`);
