@@ -1,42 +1,71 @@
 /**
  * PrizePicks API client for fetching real player prop lines
  * @note This is an unofficial API - may break or get blocked
- * Uses ScraperAPI to bypass Cloudflare protection
+ * Uses custom scraper with anti-detection features (no paid services required)
  */
 
 import { apiCache } from "./cache";
 import { apiLogger } from "./logger";
+import { createScraper, type Scraper, type ScraperStats } from "./scraper";
 
 const PRIZEPICKS_API_BASE = "https://api.prizepicks.com";
-const SCRAPERAPI_BASE = "https://api.scraperapi.com";
 const NBA_LEAGUE_ID = 7;
 
-/**
- * Get ScraperAPI key from environment
- */
-function getScraperApiKey(): string | null {
-    return process.env.SCRAPER_API_KEY || null;
-}
+// Singleton scraper instance optimized for PrizePicks
+let prizePicksScraper: Scraper | null = null;
 
 /**
- * Check if ScraperAPI is configured
+ * Get or create the PrizePicks scraper instance
  */
-export function isScraperApiConfigured(): boolean {
-    return !!getScraperApiKey();
+function getScraper(): Scraper {
+    if (!prizePicksScraper) {
+        prizePicksScraper = createScraper({
+            // Rate limiting - be respectful to avoid blocks
+            requestsPerMinute: 20,
+            requestsPerSecond: 1,
+            minDelayMs: 1000,
+            maxDelayMs: 5000,
+
+            // Retry settings
+            maxRetries: 3,
+            retryDelayMs: 2000,
+            retryBackoffMultiplier: 2,
+            maxRetryDelayMs: 30000,
+            retryableStatuses: [403, 408, 429, 500, 502, 503, 504],
+
+            // Anti-detection
+            rotateUserAgent: true,
+            randomizeHeaders: true,
+            addJitter: true,
+            jitterPercent: 30,
+
+            // Timeouts
+            timeoutMs: 30000,
+
+            // Proxies (can be configured via addProxies)
+            useProxies: false,
+            proxyRotationStrategy: "least-failures",
+            maxProxyFailures: 3,
+        });
+
+        // Load proxies from environment if configured
+        const proxyList = process.env.PROXY_LIST;
+        if (proxyList) {
+            const proxies = proxyList.split(",").map(p => p.trim()).filter(Boolean);
+            if (proxies.length > 0) {
+                prizePicksScraper.addProxies(proxies);
+                apiLogger.info(`Loaded ${proxies.length} proxies from PROXY_LIST`);
+            }
+        }
+    }
+    return prizePicksScraper;
 }
 
-// Browser-like headers (used as fallback)
-const HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Content-Type": "application/json",
-    "Accept": "application/json",
-    "Accept-Language": "en-US,en;q=0.9",
+// PrizePicks-specific headers
+const PRIZEPICKS_HEADERS = {
     "Referer": "https://app.prizepicks.com/",
     "Origin": "https://app.prizepicks.com",
-    "Sec-Fetch-Dest": "empty",
-    "Sec-Fetch-Mode": "cors",
-    "Sec-Fetch-Site": "same-site",
-    "Connection": "keep-alive",
+    "Accept": "application/json",
 };
 
 // PrizePicks stat type mapping
@@ -118,38 +147,29 @@ export async function fetchPrizePicksProjections(): Promise<PrizePicksProjection
     }
 
     try {
+        const scraper = getScraper();
         const targetUrl = `${PRIZEPICKS_API_BASE}/projections?league_id=${NBA_LEAGUE_ID}&per_page=250&single_stat=true`;
-        const scraperApiKey = getScraperApiKey();
 
-        let fetchUrl: string;
-        let fetchOptions: RequestInit;
+        apiLogger.info("Fetching PrizePicks projections with custom scraper", {
+            targetUrl,
+            stats: scraper.getStats(),
+        });
 
-        if (scraperApiKey) {
-            // Use ScraperAPI to bypass Cloudflare
-            fetchUrl = `${SCRAPERAPI_BASE}?api_key=${scraperApiKey}&url=${encodeURIComponent(targetUrl)}&render=false`;
-            fetchOptions = { method: "GET" };
-            apiLogger.info("Fetching PrizePicks via ScraperAPI proxy", { targetUrl });
-        } else {
-            // Direct request (may be blocked by Cloudflare)
-            fetchUrl = targetUrl;
-            fetchOptions = { method: "GET", headers: HEADERS };
-            apiLogger.info("Fetching PrizePicks directly (no proxy configured)", { targetUrl });
-        }
-
-        const response = await fetch(fetchUrl, fetchOptions);
+        const response = await scraper.get(targetUrl, {
+            headers: PRIZEPICKS_HEADERS,
+        });
 
         if (!response.ok) {
-            if (response.status === 403) {
-                const errorMsg = scraperApiKey
-                    ? "PrizePicks blocked even with proxy - may need premium ScraperAPI plan"
-                    : "PrizePicks blocked - configure SCRAPER_API_KEY in .env to bypass Cloudflare";
-                apiLogger.warn(errorMsg);
-                throw new Error(errorMsg);
-            }
-            throw new Error(`PrizePicks API error: ${response.status} ${response.statusText}`);
+            const errorMsg = `PrizePicks blocked (${response.status}) - try adding proxies via PROXY_LIST env var`;
+            apiLogger.warn(errorMsg, {
+                status: response.status,
+                attempts: response.attempts,
+                timeMs: response.totalTimeMs,
+            });
+            throw new Error(errorMsg);
         }
 
-        const data: PrizePicksApiResponse = await response.json();
+        const data = response.json<PrizePicksApiResponse>();
 
         // Debug: Log sample of raw data to find standard line indicator
         console.log(`[PrizePicks] Received ${data.data?.length || 0} projections, ${data.included?.length || 0} included items`);
@@ -157,12 +177,6 @@ export async function fetchPrizePicksProjections(): Promise<PrizePicksProjection
             // Log unique odds_type values to find standard vs goblin/demon
             const oddsTypes = new Set(data.data.map(p => p.attributes.odds_type));
             console.log(`[PrizePicks] Unique odds_type values:`, Array.from(oddsTypes));
-
-            // Log samples with odds_type
-            const samples = data.data.slice(0, 5);
-            for (const s of samples) {
-                console.log(`[PrizePicks] Sample: line=${s.attributes.line_score}, stat=${s.attributes.stat_type}, odds_type=${s.attributes.odds_type}, is_promo=${s.attributes.is_promo}`);
-            }
         }
 
         // Build lookup maps for included data
@@ -218,7 +232,11 @@ export async function fetchPrizePicksProjections(): Promise<PrizePicksProjection
             });
         }
 
-        apiLogger.info("Fetched PrizePicks projections", { count: projections.length });
+        apiLogger.info("Fetched PrizePicks projections", {
+            count: projections.length,
+            attempts: response.attempts,
+            timeMs: response.totalTimeMs,
+        });
 
         // Cache for 10 minutes
         apiCache.set(cacheKey, projections, 10 * 60 * 1000);
@@ -267,11 +285,7 @@ export async function fetchPlayerPrizePicksProps(playerName: string): Promise<Pr
             if (searchName.length > 4) return true;
         }
 
-        // 3. Last name + First initial match (common in sports data)
-        // Not robust enough alone, usually handled by database sync, 
-        // but simple "LeBron James" vs "James, LeBron" check
-
-        // 4. Part Matching
+        // 3. Part Matching
         // Ensure all parts of the shorter name are present in the longer name
         const propParts = propName.split(" ");
 
@@ -329,4 +343,69 @@ function getTeamAbbr(teamName: string): string {
     };
 
     return abbrs[teamName] || teamName.substring(0, 3).toUpperCase();
+}
+
+/**
+ * Scraper status interface
+ */
+export interface ScraperStatus extends ScraperStats {
+    rateLimiter: {
+        queueLength: number;
+        requestsLastMinute: number;
+        requestsLastSecond: number;
+        canRequestNow: boolean;
+        timeUntilNextMs: number;
+    };
+}
+
+/**
+ * Get current scraper configuration status
+ * Useful for debugging and health checks
+ */
+export function getScraperStatus(): ScraperStatus {
+    const scraper = getScraper();
+    return {
+        ...scraper.getStats(),
+        rateLimiter: scraper.getRateLimiterStats(),
+    };
+}
+
+/**
+ * Add proxies to the scraper
+ * @param proxies Array of proxy strings (format: "protocol://host:port" or "host:port")
+ */
+export function addScraperProxies(proxies: string[]): void {
+    const scraper = getScraper();
+    scraper.addProxies(proxies);
+    apiLogger.info(`Added ${proxies.length} proxies to scraper`);
+}
+
+/**
+ * Reset failed proxies (give them another chance)
+ */
+export function resetFailedProxies(): void {
+    const scraper = getScraper();
+    scraper.resetFailedProxies();
+    apiLogger.info("Reset all failed proxies");
+}
+
+/**
+ * Reset scraper statistics
+ */
+export function resetScraperStats(): void {
+    const scraper = getScraper();
+    scraper.resetStats();
+    apiLogger.info("Reset scraper statistics");
+}
+
+// Legacy exports for backward compatibility
+export function isScraperApiConfigured(): boolean {
+    // Now always returns true since we use custom scraper
+    return true;
+}
+
+export function rotateScraperSession(): number {
+    // Legacy function - reset scraper stats instead
+    resetScraperStats();
+    return Math.floor(Math.random() * 1000000);
 }
