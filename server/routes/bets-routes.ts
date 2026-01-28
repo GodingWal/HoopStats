@@ -392,7 +392,9 @@ router.post("/upload-screenshot", async (req, res) => {
     res.json(bets);
   } catch (error) {
     apiLogger.error("Error parsing screenshot", error);
-    res.status(500).json({ error: "Failed to parse screenshot" });
+    // Pass through the specific error message to help users understand the issue
+    const errorMessage = error instanceof Error ? error.message : "Failed to parse screenshot";
+    res.status(500).json({ error: errorMessage });
   }
 });
 
