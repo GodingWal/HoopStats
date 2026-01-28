@@ -77,6 +77,37 @@ export interface IStorage {
   getAlerts(params?: { unreadOnly?: boolean; limit?: number }): Promise<Alert[]>;
   createAlert(alert: InsertAlert): Promise<Alert>;
   markAlertAsRead(id: number): Promise<void>;
+
+  // PrizePicks Historical Data
+  getPrizePicksDailyLines(date: Date): Promise<Array<{
+    playerName: string;
+    team: string;
+    statType: string;
+    openingLine: number;
+    closingLine?: number;
+    netMovement: number;
+    numMovements: number;
+    gameTime: Date;
+  }>>;
+  getPrizePicksLineHistoryRange(startDate: Date, endDate: Date): Promise<any[]>;
+  getRecentPrizePicksMovements(limit?: number): Promise<Array<{
+    playerName: string;
+    statType: string;
+    oldLine: number;
+    newLine: number;
+    lineChange: number;
+    direction: string;
+    isSignificant: boolean;
+    detectedAt: Date;
+  }>>;
+  getPlayerLineTrend(playerName: string, statType: string, days?: number): Promise<Array<{
+    gameDate: string;
+    openingLine: number;
+    closingLine?: number;
+    actualValue?: number;
+    hitOver?: boolean;
+  }>>;
+  getPrizePicksAvailableDates(limit?: number): Promise<string[]>;
 }
 
 function dbPlayerToPlayer(dbPlayer: typeof players.$inferSelect): Player {
@@ -938,6 +969,68 @@ export class DatabaseStorage implements IStorage {
     if (!db) throw new Error("Database not initialized");
     await db.update(alerts).set({ read: true }).where(eq(alerts.id, id));
   }
+
+  // ========================================
+  // PRIZEPICKS HISTORICAL DATA METHODS
+  // ========================================
+
+  async getPrizePicksDailyLines(date: Date): Promise<Array<{
+    playerName: string;
+    team: string;
+    statType: string;
+    openingLine: number;
+    closingLine?: number;
+    netMovement: number;
+    numMovements: number;
+    gameTime: Date;
+  }>> {
+    const { prizePicksStorage } = await import("./prizepicks-storage");
+    return prizePicksStorage.getPrizePicksDailyLines(date);
+  }
+
+  async getPrizePicksLineHistoryRange(startDate: Date, endDate: Date): Promise<any[]> {
+    const { prizePicksStorage } = await import("./prizepicks-storage");
+    return prizePicksStorage.getPrizePicksLineHistoryRange(startDate, endDate);
+  }
+
+  async getRecentPrizePicksMovements(limit: number = 50): Promise<Array<{
+    playerName: string;
+    statType: string;
+    oldLine: number;
+    newLine: number;
+    lineChange: number;
+    direction: string;
+    isSignificant: boolean;
+    detectedAt: Date;
+  }>> {
+    const { prizePicksStorage } = await import("./prizepicks-storage");
+    return prizePicksStorage.getRecentPrizePicksMovements(limit);
+  }
+
+  async getPlayerLineTrend(playerName: string, statType: string, days: number = 30): Promise<Array<{
+    gameDate: string;
+    openingLine: number;
+    closingLine?: number;
+    actualValue?: number;
+    hitOver?: boolean;
+  }>> {
+    const { prizePicksStorage } = await import("./prizepicks-storage");
+    return prizePicksStorage.getPlayerLineTrend(playerName, statType, days);
+  }
+
+  async getPrizePicksAvailableDates(limit: number = 30): Promise<string[]> {
+    if (!db) throw new Error("Database not initialized");
+
+    const { prizePicksDailyLines } = await import("@shared/schema");
+
+    const result = await db
+      .selectDistinct({ gameDate: prizePicksDailyLines.gameDate })
+      .from(prizePicksDailyLines)
+      .orderBy(desc(prizePicksDailyLines.gameDate))
+      .limit(limit);
+
+    return result.map(r => r.gameDate);
+  }
 }
 
 export class MemStorage implements IStorage {
@@ -1437,6 +1530,51 @@ export class MemStorage implements IStorage {
     if (alert) {
       alert.read = true;
     }
+  }
+
+  // PrizePicks Historical Data stubs for MemStorage
+  async getPrizePicksDailyLines(_date: Date): Promise<Array<{
+    playerName: string;
+    team: string;
+    statType: string;
+    openingLine: number;
+    closingLine?: number;
+    netMovement: number;
+    numMovements: number;
+    gameTime: Date;
+  }>> {
+    return [];
+  }
+
+  async getPrizePicksLineHistoryRange(_startDate: Date, _endDate: Date): Promise<any[]> {
+    return [];
+  }
+
+  async getRecentPrizePicksMovements(_limit?: number): Promise<Array<{
+    playerName: string;
+    statType: string;
+    oldLine: number;
+    newLine: number;
+    lineChange: number;
+    direction: string;
+    isSignificant: boolean;
+    detectedAt: Date;
+  }>> {
+    return [];
+  }
+
+  async getPlayerLineTrend(_playerName: string, _statType: string, _days?: number): Promise<Array<{
+    gameDate: string;
+    openingLine: number;
+    closingLine?: number;
+    actualValue?: number;
+    hitOver?: boolean;
+  }>> {
+    return [];
+  }
+
+  async getPrizePicksAvailableDates(_limit?: number): Promise<string[]> {
+    return [];
   }
 }
 

@@ -616,6 +616,116 @@ export async function registerLegacyRoutes(
     }
   });
 
+  // =============== PRIZEPICKS HISTORICAL DATA ===============
+
+  app.get("/api/prizepicks/history", async (req, res) => {
+    try {
+      const dateStr = req.query.date as string;
+      if (!dateStr) {
+        return res.status(400).json({ error: "date parameter is required (YYYY-MM-DD)" });
+      }
+
+      const date = new Date(dateStr);
+      if (isNaN(date.getTime())) {
+        return res.status(400).json({ error: "Invalid date format. Use YYYY-MM-DD" });
+      }
+
+      const dailyLines = await storage.getPrizePicksDailyLines(date);
+      res.json({
+        date: dateStr,
+        lines: dailyLines,
+        count: dailyLines.length,
+      });
+    } catch (error) {
+      apiLogger.error("Error fetching PrizePicks history", error);
+      res.status(500).json({ error: "Failed to fetch PrizePicks history" });
+    }
+  });
+
+  app.get("/api/prizepicks/history/range", async (req, res) => {
+    try {
+      const startStr = req.query.start as string;
+      const endStr = req.query.end as string;
+
+      if (!startStr || !endStr) {
+        return res.status(400).json({ error: "start and end parameters are required (YYYY-MM-DD)" });
+      }
+
+      const startDate = new Date(startStr);
+      const endDate = new Date(endStr);
+
+      if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
+        return res.status(400).json({ error: "Invalid date format. Use YYYY-MM-DD" });
+      }
+
+      const lines = await storage.getPrizePicksLineHistoryRange(startDate, endDate);
+      res.json({
+        startDate: startStr,
+        endDate: endStr,
+        lines,
+        count: lines.length,
+      });
+    } catch (error) {
+      apiLogger.error("Error fetching PrizePicks history range", error);
+      res.status(500).json({ error: "Failed to fetch PrizePicks history range" });
+    }
+  });
+
+  app.get("/api/prizepicks/movements", async (req, res) => {
+    try {
+      const limit = validateOptionalInt(req.query.limit as string, 50, "limit");
+      const movements = await storage.getRecentPrizePicksMovements(limit);
+      res.json({
+        movements,
+        count: movements.length,
+      });
+    } catch (error) {
+      apiLogger.error("Error fetching PrizePicks movements", error);
+      res.status(500).json({ error: "Failed to fetch PrizePicks movements" });
+    }
+  });
+
+  app.get("/api/prizepicks/player-trend/:playerName", async (req, res) => {
+    try {
+      const { playerName } = req.params;
+      const statType = req.query.stat as string;
+      const days = validateOptionalInt(req.query.days as string, 30, "days");
+
+      if (!playerName) {
+        return res.status(400).json({ error: "Player name is required" });
+      }
+      if (!statType) {
+        return res.status(400).json({ error: "stat parameter is required" });
+      }
+
+      const trend = await storage.getPlayerLineTrend(decodeURIComponent(playerName), statType, days);
+      res.json({
+        playerName: decodeURIComponent(playerName),
+        statType,
+        days,
+        trend,
+        count: trend.length,
+      });
+    } catch (error) {
+      apiLogger.error("Error fetching player line trend", error);
+      res.status(500).json({ error: "Failed to fetch player line trend" });
+    }
+  });
+
+  app.get("/api/prizepicks/dates", async (req, res) => {
+    try {
+      // Get the last 30 days that have data
+      const dates = await storage.getPrizePicksAvailableDates(30);
+      res.json({
+        dates,
+        count: dates.length,
+      });
+    } catch (error) {
+      apiLogger.error("Error fetching available dates", error);
+      res.status(500).json({ error: "Failed to fetch available dates" });
+    }
+  });
+
   // =============== INJURIES ===============
 
   app.get("/api/injuries/status", async (_req, res) => {

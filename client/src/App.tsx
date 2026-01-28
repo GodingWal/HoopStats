@@ -9,7 +9,7 @@ import { ThemeProvider } from "next-themes";
 import { ParlayCartProvider } from "@/contexts/parlay-cart";
 import NotFound from "@/pages/not-found";
 import Home from "@/pages/home";
-import Bets from "@/pages/bets";
+import PrizePicksHistory from "@/pages/prizepicks-history";
 import MyBets from "@/pages/my-bets";
 import LiveGames from "@/pages/live-games";
 import LiveOdds from "@/pages/live-odds";
@@ -33,14 +33,14 @@ import {
   SidebarFooter,
 } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
-import { Users, Target, TrendingUp, RefreshCw, CloudDownload, AlertCircle, Tv, BrainCircuit, DollarSign, LayoutDashboard, Award, BarChart3, Wallet } from "lucide-react";
+import { Users, TrendingUp, RefreshCw, CloudDownload, AlertCircle, Tv, BrainCircuit, DollarSign, LayoutDashboard, Award, BarChart3, Wallet, History } from "lucide-react";
 
 function Router() {
   return (
     <Switch>
       <Route path="/" component={Home} />
       <Route path="/dashboard" component={Dashboard} />
-      <Route path="/bets" component={Bets} />
+      <Route path="/line-tracker" component={PrizePicksHistory} />
       <Route path="/my-bets" component={MyBets} />
       <Route path="/track-record" component={TrackRecord} />
       <Route path="/live" component={LiveGames} />
@@ -69,9 +69,9 @@ const navItems = [
     icon: BarChart3,
   },
   {
-    title: "Potential Bets",
-    url: "/bets",
-    icon: Target,
+    title: "Line Tracker",
+    url: "/line-tracker",
+    icon: History,
   },
   {
     title: "My Bets",
