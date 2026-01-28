@@ -1,8 +1,10 @@
 /**
  * Main Scraper Class
  * Combines all anti-detection features into a unified scraper
+ * Uses undici for proper proxy support
  */
 
+import { ProxyAgent, fetch as undiciFetch, type RequestInit as UndiciRequestInit } from "undici";
 import { ProxyManager } from "./proxy-manager";
 import { UserAgentRotator } from "./user-agent-rotator";
 import { RateLimiter } from "./rate-limiter";
@@ -159,6 +161,18 @@ export class Scraper {
     }
 
     /**
+     * Create a proxy agent for the given proxy config
+     */
+    private createProxyAgent(proxy: ProxyConfig): ProxyAgent {
+        const proxyUrl = this.proxyManager.getProxyUrl(proxy);
+        return new ProxyAgent({
+            uri: proxyUrl,
+            // Connection timeout
+            connectTimeout: this.config.connectionTimeoutMs,
+        });
+    }
+
+    /**
      * Make a single request attempt
      */
     private async makeRequest(
@@ -169,7 +183,7 @@ export class Scraper {
     ): Promise<Response> {
         const headers = this.buildHeaders(options, profile);
 
-        const fetchOptions: RequestInit = {
+        const fetchOptions: UndiciRequestInit = {
             method: options.method || "GET",
             headers,
             redirect: options.followRedirects !== false ? "follow" : "manual",
@@ -194,17 +208,19 @@ export class Scraper {
         fetchOptions.signal = controller.signal;
 
         try {
-            // Note: Node.js fetch doesn't support proxies directly
-            // For proxy support, you'd need to use a library like node-fetch with proxy-agent
-            // or https-proxy-agent. For now, we'll make direct requests
-            // and the proxy info is tracked for when proxy support is added.
+            let response: Response;
 
+            // Use proxy if configured and available
             if (proxy && this.config.useProxies) {
-                // Log that we would use a proxy (proxy implementation would go here)
-                console.log(`[Scraper] Would use proxy: ${this.proxyManager.getProxyUrl(proxy)}`);
+                const proxyAgent = this.createProxyAgent(proxy);
+                fetchOptions.dispatcher = proxyAgent;
+                console.log(`[Scraper] Using proxy: ${proxy.host}:${proxy.port}`);
+                response = await undiciFetch(url, fetchOptions) as unknown as Response;
+            } else {
+                // Direct request without proxy
+                response = await undiciFetch(url, fetchOptions) as unknown as Response;
             }
 
-            const response = await fetch(url, fetchOptions);
             clearTimeout(timeoutId);
 
             // Store cookies from response

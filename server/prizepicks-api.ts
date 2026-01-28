@@ -61,12 +61,36 @@ function getScraper(): Scraper {
     return prizePicksScraper;
 }
 
-// PrizePicks-specific headers
-const PRIZEPICKS_HEADERS = {
-    "Referer": "https://app.prizepicks.com/",
-    "Origin": "https://app.prizepicks.com",
-    "Accept": "application/json",
-};
+/**
+ * Generate a random device ID that looks like a real browser fingerprint
+ */
+function generateDeviceId(): string {
+    const chars = "0123456789abcdef";
+    let result = "";
+    for (let i = 0; i < 32; i++) {
+        result += chars[Math.floor(Math.random() * chars.length)];
+    }
+    // Format: 8-4-4-4-12 (UUID-like)
+    return `${result.slice(0, 8)}-${result.slice(8, 12)}-${result.slice(12, 16)}-${result.slice(16, 20)}-${result.slice(20)}`;
+}
+
+// Store device ID per session (generates once at module load)
+const SESSION_DEVICE_ID = generateDeviceId();
+
+/**
+ * Get PrizePicks-specific headers that mimic real browser requests
+ */
+function getPrizePicksHeaders(): Record<string, string> {
+    return {
+        "Accept": "application/json; charset=utf-8",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Origin": "https://app.prizepicks.com",
+        "Referer": "https://app.prizepicks.com/",
+        // Important: PrizePicks API expects these headers from their web app
+        "X-Device-Id": SESSION_DEVICE_ID,
+        "X-Device-Type": "web",
+    };
+}
 
 // PrizePicks stat type mapping
 const STAT_TYPE_MAP: Record<string, string> = {
@@ -156,7 +180,7 @@ export async function fetchPrizePicksProjections(): Promise<PrizePicksProjection
         });
 
         const response = await scraper.get(targetUrl, {
-            headers: PRIZEPICKS_HEADERS,
+            headers: getPrizePicksHeaders(),
         });
 
         if (!response.ok) {
