@@ -20,7 +20,7 @@ import {
   type PlayerInjuryReport,
 } from "./espn-api";
 import { fetchNbaEvents, fetchEventPlayerProps, isOddsApiConfigured, getOddsApiStatus, extractGameOdds } from "./odds-api";
-import { fetchPrizePicksProjections, fetchPlayerPrizePicksProps, getScraperStatus, rotateScraperSession } from "./prizepicks-api";
+import { fetchPrizePicksProjections, fetchPlayerPrizePicksProps, getScraperStatus, rotateScraperSession, addScraperProxies, resetFailedProxies, resetScraperStats } from "./prizepicks-api";
 import { prizePicksLineTracker } from "./prizepicks-line-tracker";
 import { prizePicksStorage } from "./storage/prizepicks-storage";
 import {
@@ -1453,6 +1453,55 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error rotating scraper session:", error);
       res.status(500).json({ error: "Failed to rotate scraper session" });
+    }
+  });
+
+  // Add proxies to the scraper
+  app.post("/api/prizepicks/scraper/proxies", async (req, res) => {
+    try {
+      const { proxies } = req.body;
+      if (!proxies || !Array.isArray(proxies)) {
+        return res.status(400).json({ error: "proxies array is required" });
+      }
+      addScraperProxies(proxies);
+      res.json({
+        success: true,
+        message: `Added ${proxies.length} proxies`,
+        status: getScraperStatus(),
+      });
+    } catch (error) {
+      console.error("Error adding proxies:", error);
+      res.status(500).json({ error: "Failed to add proxies" });
+    }
+  });
+
+  // Reset failed proxies (give them another chance)
+  app.post("/api/prizepicks/scraper/proxies/reset", async (_req, res) => {
+    try {
+      resetFailedProxies();
+      res.json({
+        success: true,
+        message: "Reset all failed proxies",
+        status: getScraperStatus(),
+      });
+    } catch (error) {
+      console.error("Error resetting proxies:", error);
+      res.status(500).json({ error: "Failed to reset proxies" });
+    }
+  });
+
+  // Reset scraper statistics
+  app.post("/api/prizepicks/scraper/stats/reset", async (_req, res) => {
+    try {
+      resetScraperStats();
+      res.json({
+        success: true,
+        message: "Reset scraper statistics",
+        status: getScraperStatus(),
+      });
+    } catch (error) {
+      console.error("Error resetting stats:", error);
+      res.status(500).json({ error: "Failed to reset stats" });
     }
   });
 

@@ -1,204 +1,71 @@
 /**
  * PrizePicks API client for fetching real player prop lines
  * @note This is an unofficial API - may break or get blocked
- * Uses ScraperAPI to bypass Cloudflare protection with enhanced anti-detection
+ * Uses custom scraper with anti-detection features (no paid services required)
  */
 
 import { apiCache } from "./cache";
 import { apiLogger } from "./logger";
+import { createScraper, type Scraper, type ScraperStats } from "./scraper";
 
 const PRIZEPICKS_API_BASE = "https://api.prizepicks.com";
-const SCRAPERAPI_BASE = "https://api.scraperapi.com";
 const NBA_LEAGUE_ID = 7;
 
-// ScraperAPI configuration
-interface ScraperApiConfig {
-    apiKey: string;
-    premium: boolean;           // Use premium residential proxies
-    render: boolean;            // Enable JavaScript rendering
-    countryCode: string;        // Geo-targeting (US for PrizePicks)
-    deviceType: "desktop" | "mobile";
-    sessionNumber?: number;     // Session persistence for consistent IPs
-    keepHeaders: boolean;       // Pass custom headers to target
-    autoparse: boolean;         // Auto-parse JSON responses
-}
-
-// Retry configuration
-interface RetryConfig {
-    maxRetries: number;
-    baseDelayMs: number;
-    maxDelayMs: number;
-    retryableStatuses: number[];
-}
-
-const DEFAULT_RETRY_CONFIG: RetryConfig = {
-    maxRetries: 3,
-    baseDelayMs: 1000,
-    maxDelayMs: 10000,
-    retryableStatuses: [403, 408, 429, 500, 502, 503, 504],
-};
-
-// Session management for consistent proxy IPs
-let currentSessionNumber = Math.floor(Math.random() * 1000000);
-let sessionRequestCount = 0;
-const MAX_REQUESTS_PER_SESSION = 10; // Rotate session after 10 requests
+// Singleton scraper instance optimized for PrizePicks
+let prizePicksScraper: Scraper | null = null;
 
 /**
- * Get ScraperAPI key from environment
+ * Get or create the PrizePicks scraper instance
  */
-function getScraperApiKey(): string | null {
-    return process.env.SCRAPER_API_KEY || null;
-}
+function getScraper(): Scraper {
+    if (!prizePicksScraper) {
+        prizePicksScraper = createScraper({
+            // Rate limiting - be respectful to avoid blocks
+            requestsPerMinute: 20,
+            requestsPerSecond: 1,
+            minDelayMs: 1000,
+            maxDelayMs: 5000,
 
-/**
- * Check if ScraperAPI is configured
- */
-export function isScraperApiConfigured(): boolean {
-    return !!getScraperApiKey();
-}
+            // Retry settings
+            maxRetries: 3,
+            retryDelayMs: 2000,
+            retryBackoffMultiplier: 2,
+            maxRetryDelayMs: 30000,
+            retryableStatuses: [403, 408, 429, 500, 502, 503, 504],
 
-/**
- * Check if premium ScraperAPI features are enabled
- */
-function isPremiumEnabled(): boolean {
-    return process.env.SCRAPER_API_PREMIUM === "true";
-}
+            // Anti-detection
+            rotateUserAgent: true,
+            randomizeHeaders: true,
+            addJitter: true,
+            jitterPercent: 30,
 
-/**
- * Check if JS rendering is enabled
- */
-function isRenderEnabled(): boolean {
-    return process.env.SCRAPER_API_RENDER === "true";
-}
+            // Timeouts
+            timeoutMs: 30000,
 
-/**
- * Get or rotate session number for consistent proxy IPs
- */
-function getSessionNumber(): number {
-    sessionRequestCount++;
-    if (sessionRequestCount >= MAX_REQUESTS_PER_SESSION) {
-        currentSessionNumber = Math.floor(Math.random() * 1000000);
-        sessionRequestCount = 0;
-        apiLogger.debug("Rotated ScraperAPI session", { newSession: currentSessionNumber });
-    }
-    return currentSessionNumber;
-}
+            // Proxies (can be configured via addProxies)
+            useProxies: false,
+            proxyRotationStrategy: "least-failures",
+            maxProxyFailures: 3,
+        });
 
-/**
- * Build ScraperAPI URL with all configuration options
- */
-function buildScraperApiUrl(targetUrl: string, config: Partial<ScraperApiConfig> = {}): string {
-    const apiKey = getScraperApiKey();
-    if (!apiKey) throw new Error("ScraperAPI key not configured");
-
-    const params = new URLSearchParams({
-        api_key: apiKey,
-        url: targetUrl,
-        // Anti-detection features
-        premium: config.premium ?? isPremiumEnabled() ? "true" : "false",
-        render: config.render ?? isRenderEnabled() ? "true" : "false",
-        country_code: config.countryCode ?? "us",
-        device_type: config.deviceType ?? "desktop",
-        // Session persistence for consistent IP
-        session_number: String(config.sessionNumber ?? getSessionNumber()),
-        // Header passthrough
-        keep_headers: config.keepHeaders ?? true ? "true" : "false",
-    });
-
-    return `${SCRAPERAPI_BASE}?${params.toString()}`;
-}
-
-/**
- * Sleep helper for retry delays
- */
-function sleep(ms: number): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-/**
- * Calculate exponential backoff delay with jitter
- */
-function calculateBackoffDelay(attempt: number, config: RetryConfig): number {
-    const exponentialDelay = config.baseDelayMs * Math.pow(2, attempt);
-    const jitter = Math.random() * 0.3 * exponentialDelay; // 0-30% jitter
-    return Math.min(exponentialDelay + jitter, config.maxDelayMs);
-}
-
-/**
- * Fetch with retry logic and exponential backoff
- */
-async function fetchWithRetry(
-    url: string,
-    options: RequestInit,
-    retryConfig: RetryConfig = DEFAULT_RETRY_CONFIG
-): Promise<Response> {
-    let lastError: Error | null = null;
-
-    for (let attempt = 0; attempt <= retryConfig.maxRetries; attempt++) {
-        try {
-            const response = await fetch(url, options);
-
-            // Success or non-retryable error
-            if (response.ok || !retryConfig.retryableStatuses.includes(response.status)) {
-                return response;
-            }
-
-            // Retryable error
-            const errorMsg = `HTTP ${response.status}: ${response.statusText}`;
-            apiLogger.warn(`ScraperAPI request failed (attempt ${attempt + 1}/${retryConfig.maxRetries + 1})`, {
-                status: response.status,
-                url: url.substring(0, 100), // Truncate for logging
-            });
-
-            lastError = new Error(errorMsg);
-
-            // Don't retry on last attempt
-            if (attempt < retryConfig.maxRetries) {
-                const delay = calculateBackoffDelay(attempt, retryConfig);
-                apiLogger.debug(`Retrying in ${Math.round(delay)}ms...`);
-                await sleep(delay);
-
-                // Rotate session on 403 errors (likely IP blocked)
-                if (response.status === 403) {
-                    currentSessionNumber = Math.floor(Math.random() * 1000000);
-                    sessionRequestCount = 0;
-                    apiLogger.info("Rotated session due to 403 block");
-                }
-            }
-        } catch (error) {
-            // Network error
-            lastError = error instanceof Error ? error : new Error(String(error));
-            apiLogger.warn(`Network error (attempt ${attempt + 1}/${retryConfig.maxRetries + 1})`, {
-                error: lastError.message,
-            });
-
-            if (attempt < retryConfig.maxRetries) {
-                const delay = calculateBackoffDelay(attempt, retryConfig);
-                await sleep(delay);
+        // Load proxies from environment if configured
+        const proxyList = process.env.PROXY_LIST;
+        if (proxyList) {
+            const proxies = proxyList.split(",").map(p => p.trim()).filter(Boolean);
+            if (proxies.length > 0) {
+                prizePicksScraper.addProxies(proxies);
+                apiLogger.info(`Loaded ${proxies.length} proxies from PROXY_LIST`);
             }
         }
     }
-
-    throw lastError || new Error("All retry attempts failed");
+    return prizePicksScraper;
 }
 
-// Browser-like headers (used for all requests)
-const HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
-    "Content-Type": "application/json",
-    "Accept": "application/json",
-    "Accept-Language": "en-US,en;q=0.9",
+// PrizePicks-specific headers
+const PRIZEPICKS_HEADERS = {
     "Referer": "https://app.prizepicks.com/",
     "Origin": "https://app.prizepicks.com",
-    "Sec-Ch-Ua": '"Not A(Brand";v="99", "Google Chrome";v="121", "Chromium";v="121"',
-    "Sec-Ch-Ua-Mobile": "?0",
-    "Sec-Ch-Ua-Platform": '"Windows"',
-    "Sec-Fetch-Dest": "empty",
-    "Sec-Fetch-Mode": "cors",
-    "Sec-Fetch-Site": "same-site",
-    "Connection": "keep-alive",
-    "Cache-Control": "no-cache",
-    "Pragma": "no-cache",
+    "Accept": "application/json",
 };
 
 // PrizePicks stat type mapping
@@ -269,87 +136,6 @@ interface PrizePicksApiResponse {
 }
 
 /**
- * Fetch with multiple fallback strategies
- * Tries: 1) ScraperAPI with premium, 2) ScraperAPI standard, 3) Direct request
- */
-async function fetchWithFallback(targetUrl: string): Promise<Response> {
-    const scraperApiKey = getScraperApiKey();
-    const strategies: Array<{ name: string; getConfig: () => { url: string; options: RequestInit } }> = [];
-
-    if (scraperApiKey) {
-        // Strategy 1: ScraperAPI with premium features (if enabled)
-        if (isPremiumEnabled()) {
-            strategies.push({
-                name: "ScraperAPI Premium",
-                getConfig: () => ({
-                    url: buildScraperApiUrl(targetUrl, { premium: true, render: isRenderEnabled() }),
-                    options: { method: "GET", headers: HEADERS },
-                }),
-            });
-        }
-
-        // Strategy 2: ScraperAPI standard
-        strategies.push({
-            name: "ScraperAPI Standard",
-            getConfig: () => ({
-                url: buildScraperApiUrl(targetUrl, { premium: false, render: false }),
-                options: { method: "GET", headers: HEADERS },
-            }),
-        });
-
-        // Strategy 3: ScraperAPI with JS rendering (useful for Cloudflare challenges)
-        if (!isRenderEnabled()) {
-            strategies.push({
-                name: "ScraperAPI with Render",
-                getConfig: () => ({
-                    url: buildScraperApiUrl(targetUrl, { premium: false, render: true }),
-                    options: { method: "GET", headers: HEADERS },
-                }),
-            });
-        }
-    }
-
-    // Strategy 4: Direct request (fallback, likely blocked but worth trying)
-    strategies.push({
-        name: "Direct Request",
-        getConfig: () => ({
-            url: targetUrl,
-            options: { method: "GET", headers: HEADERS },
-        }),
-    });
-
-    let lastError: Error | null = null;
-
-    for (const strategy of strategies) {
-        try {
-            const config = strategy.getConfig();
-            apiLogger.info(`Trying fetch strategy: ${strategy.name}`, {
-                targetUrl: targetUrl.substring(0, 80)
-            });
-
-            const response = await fetchWithRetry(config.url, config.options, {
-                ...DEFAULT_RETRY_CONFIG,
-                maxRetries: 2, // Fewer retries per strategy since we have fallbacks
-            });
-
-            if (response.ok) {
-                apiLogger.info(`Fetch succeeded with strategy: ${strategy.name}`);
-                return response;
-            }
-
-            // If we got a response but it's an error, log and try next strategy
-            lastError = new Error(`${strategy.name} failed: HTTP ${response.status}`);
-            apiLogger.warn(`Strategy ${strategy.name} returned ${response.status}, trying next...`);
-        } catch (error) {
-            lastError = error instanceof Error ? error : new Error(String(error));
-            apiLogger.warn(`Strategy ${strategy.name} failed: ${lastError.message}`);
-        }
-    }
-
-    throw lastError || new Error("All fetch strategies failed");
-}
-
-/**
  * Fetch NBA projections from PrizePicks
  */
 export async function fetchPrizePicksProjections(): Promise<PrizePicksProjection[]> {
@@ -361,26 +147,29 @@ export async function fetchPrizePicksProjections(): Promise<PrizePicksProjection
     }
 
     try {
+        const scraper = getScraper();
         const targetUrl = `${PRIZEPICKS_API_BASE}/projections?league_id=${NBA_LEAGUE_ID}&per_page=250&single_stat=true`;
 
-        apiLogger.info("Fetching PrizePicks projections", {
+        apiLogger.info("Fetching PrizePicks projections with custom scraper", {
             targetUrl,
-            scraperApiConfigured: isScraperApiConfigured(),
-            premiumEnabled: isPremiumEnabled(),
-            renderEnabled: isRenderEnabled(),
+            stats: scraper.getStats(),
         });
 
-        const response = await fetchWithFallback(targetUrl);
+        const response = await scraper.get(targetUrl, {
+            headers: PRIZEPICKS_HEADERS,
+        });
 
         if (!response.ok) {
-            const errorMsg = isScraperApiConfigured()
-                ? `PrizePicks blocked (${response.status}) - all strategies failed. Consider enabling premium proxies with SCRAPER_API_PREMIUM=true`
-                : "PrizePicks blocked - configure SCRAPER_API_KEY in .env to bypass Cloudflare";
-            apiLogger.warn(errorMsg);
+            const errorMsg = `PrizePicks blocked (${response.status}) - try adding proxies via PROXY_LIST env var`;
+            apiLogger.warn(errorMsg, {
+                status: response.status,
+                attempts: response.attempts,
+                timeMs: response.totalTimeMs,
+            });
             throw new Error(errorMsg);
         }
 
-        const data: PrizePicksApiResponse = await response.json();
+        const data = response.json<PrizePicksApiResponse>();
 
         // Debug: Log sample of raw data to find standard line indicator
         console.log(`[PrizePicks] Received ${data.data?.length || 0} projections, ${data.included?.length || 0} included items`);
@@ -388,12 +177,6 @@ export async function fetchPrizePicksProjections(): Promise<PrizePicksProjection
             // Log unique odds_type values to find standard vs goblin/demon
             const oddsTypes = new Set(data.data.map(p => p.attributes.odds_type));
             console.log(`[PrizePicks] Unique odds_type values:`, Array.from(oddsTypes));
-
-            // Log samples with odds_type
-            const samples = data.data.slice(0, 5);
-            for (const s of samples) {
-                console.log(`[PrizePicks] Sample: line=${s.attributes.line_score}, stat=${s.attributes.stat_type}, odds_type=${s.attributes.odds_type}, is_promo=${s.attributes.is_promo}`);
-            }
         }
 
         // Build lookup maps for included data
@@ -449,7 +232,11 @@ export async function fetchPrizePicksProjections(): Promise<PrizePicksProjection
             });
         }
 
-        apiLogger.info("Fetched PrizePicks projections", { count: projections.length });
+        apiLogger.info("Fetched PrizePicks projections", {
+            count: projections.length,
+            attempts: response.attempts,
+            timeMs: response.totalTimeMs,
+        });
 
         // Cache for 10 minutes
         apiCache.set(cacheKey, projections, 10 * 60 * 1000);
@@ -498,11 +285,7 @@ export async function fetchPlayerPrizePicksProps(playerName: string): Promise<Pr
             if (searchName.length > 4) return true;
         }
 
-        // 3. Last name + First initial match (common in sports data)
-        // Not robust enough alone, usually handled by database sync, 
-        // but simple "LeBron James" vs "James, LeBron" check
-
-        // 4. Part Matching
+        // 3. Part Matching
         // Ensure all parts of the shorter name are present in the longer name
         const propParts = propName.split(" ");
 
@@ -563,34 +346,66 @@ function getTeamAbbr(teamName: string): string {
 }
 
 /**
- * Get current scraper configuration status
- * Useful for debugging and health checks
+ * Scraper status interface
  */
-export interface ScraperStatus {
-    configured: boolean;
-    premiumEnabled: boolean;
-    renderEnabled: boolean;
-    currentSession: number;
-    sessionRequestCount: number;
-}
-
-export function getScraperStatus(): ScraperStatus {
-    return {
-        configured: isScraperApiConfigured(),
-        premiumEnabled: isPremiumEnabled(),
-        renderEnabled: isRenderEnabled(),
-        currentSession: currentSessionNumber,
-        sessionRequestCount: sessionRequestCount,
+export interface ScraperStatus extends ScraperStats {
+    rateLimiter: {
+        queueLength: number;
+        requestsLastMinute: number;
+        requestsLastSecond: number;
+        canRequestNow: boolean;
+        timeUntilNextMs: number;
     };
 }
 
 /**
- * Force rotate the scraper session
- * Call this if you suspect the current session is blocked
+ * Get current scraper configuration status
+ * Useful for debugging and health checks
  */
+export function getScraperStatus(): ScraperStatus {
+    const scraper = getScraper();
+    return {
+        ...scraper.getStats(),
+        rateLimiter: scraper.getRateLimiterStats(),
+    };
+}
+
+/**
+ * Add proxies to the scraper
+ * @param proxies Array of proxy strings (format: "protocol://host:port" or "host:port")
+ */
+export function addScraperProxies(proxies: string[]): void {
+    const scraper = getScraper();
+    scraper.addProxies(proxies);
+    apiLogger.info(`Added ${proxies.length} proxies to scraper`);
+}
+
+/**
+ * Reset failed proxies (give them another chance)
+ */
+export function resetFailedProxies(): void {
+    const scraper = getScraper();
+    scraper.resetFailedProxies();
+    apiLogger.info("Reset all failed proxies");
+}
+
+/**
+ * Reset scraper statistics
+ */
+export function resetScraperStats(): void {
+    const scraper = getScraper();
+    scraper.resetStats();
+    apiLogger.info("Reset scraper statistics");
+}
+
+// Legacy exports for backward compatibility
+export function isScraperApiConfigured(): boolean {
+    // Now always returns true since we use custom scraper
+    return true;
+}
+
 export function rotateScraperSession(): number {
-    currentSessionNumber = Math.floor(Math.random() * 1000000);
-    sessionRequestCount = 0;
-    apiLogger.info("Manually rotated ScraperAPI session", { newSession: currentSessionNumber });
-    return currentSessionNumber;
+    // Legacy function - reset scraper stats instead
+    resetScraperStats();
+    return Math.floor(Math.random() * 1000000);
 }
