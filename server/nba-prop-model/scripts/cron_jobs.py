@@ -136,7 +136,7 @@ def capture_projections(target_date: Optional[str] = None) -> int:
                 p.away_averages,
                 p.position
             FROM prizepicks_daily_lines pdl
-            LEFT JOIN players p ON LOWER(pdl.player_name) = LOWER(p.name)
+            LEFT JOIN players p ON LOWER(pdl.player_name) = LOWER(p.player_name)
             WHERE pdl.game_date = %s
               AND pdl.stat_type IN %s
         """, (target_date, tuple(SUPPORTED_STAT_TYPES)))
