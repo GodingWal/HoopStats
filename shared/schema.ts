@@ -98,6 +98,7 @@ export const players = pgTable("players", {
   player_name: text("player_name").notNull(),
   team: text("team").notNull(),
   team_id: integer("team_id"),
+  position: text("position"),
   games_played: integer("games_played"),
   season_averages: jsonb("season_averages").notNull().$type<SeasonAverages>(),
   last_10_averages: jsonb("last_10_averages").notNull().$type<Partial<SeasonAverages>>(),
