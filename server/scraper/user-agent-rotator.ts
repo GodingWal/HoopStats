@@ -12,53 +12,53 @@ interface UserAgentProfile {
     secChUaPlatform: string;
 }
 
-// Modern browser user agents (updated regularly)
+// Modern browser user agents (updated January 2026)
 const USER_AGENT_PROFILES: UserAgentProfile[] = [
-    // Chrome on Windows (most common)
+    // Chrome 131 on Windows (most common)
     {
-        userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+        userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
         platform: "Windows",
         mobile: false,
-        secChUa: '"Not A(Brand";v="99", "Google Chrome";v="121", "Chromium";v="121"',
+        secChUa: '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
         secChUaMobile: "?0",
         secChUaPlatform: '"Windows"',
     },
     {
-        userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
         platform: "Windows",
         mobile: false,
-        secChUa: '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+        secChUa: '"Chromium";v="130", "Google Chrome";v="130", "Not?A_Brand";v="99"',
         secChUaMobile: "?0",
         secChUaPlatform: '"Windows"',
     },
     {
-        userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36",
         platform: "Windows",
         mobile: false,
-        secChUa: '"Chromium";v="122", "Not(A:Brand";v="24", "Google Chrome";v="122"',
+        secChUa: '"Google Chrome";v="129", "Not=A?Brand";v="8", "Chromium";v="129"',
         secChUaMobile: "?0",
         secChUaPlatform: '"Windows"',
     },
     // Chrome on Mac
     {
-        userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+        userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
         platform: "macOS",
         mobile: false,
-        secChUa: '"Not A(Brand";v="99", "Google Chrome";v="121", "Chromium";v="121"',
+        secChUa: '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
         secChUaMobile: "?0",
         secChUaPlatform: '"macOS"',
     },
     {
-        userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
         platform: "macOS",
         mobile: false,
-        secChUa: '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+        secChUa: '"Chromium";v="130", "Google Chrome";v="130", "Not?A_Brand";v="99"',
         secChUaMobile: "?0",
         secChUaPlatform: '"macOS"',
     },
     // Firefox on Windows
     {
-        userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:122.0) Gecko/20100101 Firefox/122.0",
+        userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0",
         platform: "Windows",
         mobile: false,
         secChUa: "",
@@ -66,7 +66,7 @@ const USER_AGENT_PROFILES: UserAgentProfile[] = [
         secChUaPlatform: "",
     },
     {
-        userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0",
+        userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:132.0) Gecko/20100101 Firefox/132.0",
         platform: "Windows",
         mobile: false,
         secChUa: "",
@@ -75,7 +75,7 @@ const USER_AGENT_PROFILES: UserAgentProfile[] = [
     },
     // Firefox on Mac
     {
-        userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:122.0) Gecko/20100101 Firefox/122.0",
+        userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:133.0) Gecko/20100101 Firefox/133.0",
         platform: "macOS",
         mobile: false,
         secChUa: "",
@@ -84,16 +84,16 @@ const USER_AGENT_PROFILES: UserAgentProfile[] = [
     },
     // Edge on Windows
     {
-        userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36 Edg/121.0.0.0",
+        userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0",
         platform: "Windows",
         mobile: false,
-        secChUa: '"Not A(Brand";v="99", "Microsoft Edge";v="121", "Chromium";v="121"',
+        secChUa: '"Microsoft Edge";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
         secChUaMobile: "?0",
         secChUaPlatform: '"Windows"',
     },
     // Safari on Mac
     {
-        userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2.1 Safari/605.1.15",
+        userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.2 Safari/605.1.15",
         platform: "macOS",
         mobile: false,
         secChUa: "",
@@ -102,10 +102,10 @@ const USER_AGENT_PROFILES: UserAgentProfile[] = [
     },
     // Chrome on Linux
     {
-        userAgent: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+        userAgent: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
         platform: "Linux",
         mobile: false,
-        secChUa: '"Not A(Brand";v="99", "Google Chrome";v="121", "Chromium";v="121"',
+        secChUa: '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
         secChUaMobile: "?0",
         secChUaPlatform: '"Linux"',
     },
