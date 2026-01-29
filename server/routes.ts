@@ -6,6 +6,7 @@ import { readFileSync } from "fs";
 import { fileURLToPath } from "url";
 
 import { storage } from "./storage";
+import { pool } from "./db";
 import type { Player } from "@shared/schema";
 import { fetchAndBuildAllPlayers } from "./nba-api";
 import { analyzeEdges } from "./edge-detection";
@@ -2454,6 +2455,357 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error fetching team scoring:", error);
       res.status(500).json({ error: "Failed to fetch team scoring" });
+    }
+  });
+
+  // =============== BACKTEST INFRASTRUCTURE ROUTES ===============
+
+  // Get signal performance summary (latest accuracy data per signal)
+  app.get("/api/backtest/signals", async (req, res) => {
+    try {
+      const statType = (req.query.statType as string) || "Points";
+      const days = parseInt(req.query.days as string) || 30;
+
+      if (!pool) {
+        return res.json({ signals: [], statType, days, message: "Database not configured" });
+      }
+
+      const result = await pool.query(`
+        SELECT
+          signal_name,
+          stat_type,
+          SUM(predictions_made) as total_predictions,
+          SUM(correct_predictions) as total_correct,
+          CASE WHEN SUM(predictions_made) > 0
+            THEN ROUND(SUM(correct_predictions)::numeric / SUM(predictions_made), 4)
+            ELSE 0 END as accuracy,
+          SUM(over_predictions) as over_predictions,
+          SUM(over_correct) as over_correct,
+          SUM(under_predictions) as under_predictions,
+          SUM(under_correct) as under_correct,
+          ROUND(AVG(avg_error)::numeric, 2) as avg_error,
+          MAX(evaluation_date) as last_evaluated
+        FROM signal_performance
+        WHERE stat_type = $1
+          AND evaluation_date >= CURRENT_DATE - INTERVAL '1 day' * $2
+        GROUP BY signal_name, stat_type
+        ORDER BY accuracy DESC
+      `, [statType, days]);
+
+      res.json({
+        signals: result.rows.map(row => ({
+          signalName: row.signal_name,
+          statType: row.stat_type,
+          totalPredictions: parseInt(row.total_predictions) || 0,
+          totalCorrect: parseInt(row.total_correct) || 0,
+          accuracy: parseFloat(row.accuracy) || 0,
+          overPredictions: parseInt(row.over_predictions) || 0,
+          overCorrect: parseInt(row.over_correct) || 0,
+          underPredictions: parseInt(row.under_predictions) || 0,
+          underCorrect: parseInt(row.under_correct) || 0,
+          avgError: parseFloat(row.avg_error) || 0,
+          lastEvaluated: row.last_evaluated,
+          grade: parseFloat(row.accuracy) >= 0.65 ? 'HIGH'
+            : parseFloat(row.accuracy) >= 0.55 ? 'MEDIUM'
+            : parseFloat(row.accuracy) >= 0.52 ? 'LOW'
+            : 'NOISE',
+        })),
+        statType,
+        days,
+      });
+    } catch (error: any) {
+      // Table might not exist yet
+      if (error.code === '42P01') {
+        return res.json({ signals: [], statType: req.query.statType || "Points", days: 30, message: "Tables not yet created. Run migration 007." });
+      }
+      console.error("Error fetching signal performance:", error);
+      res.status(500).json({ error: "Failed to fetch signal performance" });
+    }
+  });
+
+  // Get current learned weights
+  app.get("/api/backtest/weights", async (req, res) => {
+    try {
+      const statType = (req.query.statType as string) || "Points";
+
+      if (!pool) {
+        return res.json({ weights: null, statType, message: "Database not configured" });
+      }
+
+      const result = await pool.query(`
+        SELECT
+          stat_type,
+          weights,
+          overall_accuracy,
+          sample_size,
+          validation_window_days,
+          calculated_at,
+          valid_from
+        FROM signal_weights
+        WHERE stat_type = $1 AND valid_until IS NULL
+        ORDER BY valid_from DESC
+        LIMIT 1
+      `, [statType]);
+
+      if (result.rows.length === 0) {
+        // Return default weights
+        return res.json({
+          weights: {
+            injury_alpha: { weight: 0.20, accuracy: 0, sampleSize: 0 },
+            b2b: { weight: 0.15, accuracy: 0, sampleSize: 0 },
+            pace: { weight: 0.12, accuracy: 0, sampleSize: 0 },
+            defense: { weight: 0.12, accuracy: 0, sampleSize: 0 },
+            blowout: { weight: 0.12, accuracy: 0, sampleSize: 0 },
+            home_away: { weight: 0.08, accuracy: 0, sampleSize: 0 },
+            recent_form: { weight: 0.06, accuracy: 0, sampleSize: 0 },
+          },
+          isDefault: true,
+          statType,
+        });
+      }
+
+      const row = result.rows[0];
+      const weightsData = typeof row.weights === 'string' ? JSON.parse(row.weights) : row.weights;
+
+      res.json({
+        weights: weightsData,
+        isDefault: false,
+        statType: row.stat_type,
+        overallAccuracy: row.overall_accuracy,
+        sampleSize: row.sample_size,
+        validationWindowDays: row.validation_window_days,
+        calculatedAt: row.calculated_at,
+        validFrom: row.valid_from,
+      });
+    } catch (error: any) {
+      if (error.code === '42P01') {
+        return res.json({ weights: null, statType: req.query.statType || "Points", message: "Tables not yet created." });
+      }
+      console.error("Error fetching weights:", error);
+      res.status(500).json({ error: "Failed to fetch weights" });
+    }
+  });
+
+  // Get recent projection logs
+  app.get("/api/backtest/projections", async (req, res) => {
+    try {
+      const days = parseInt(req.query.days as string) || 7;
+      const statType = req.query.statType as string;
+      const limit = Math.min(parseInt(req.query.limit as string) || 50, 200);
+
+      if (!pool) {
+        return res.json({ projections: [], message: "Database not configured" });
+      }
+
+      let query = `
+        SELECT
+          id, player_name, game_date, opponent, stat_type,
+          prizepicks_line, projected_value, confidence_score,
+          predicted_direction, predicted_edge,
+          signals, weights_used, baseline_value,
+          actual_value, actual_minutes, hit_over,
+          projection_hit, projection_error,
+          captured_at, game_completed_at
+        FROM projection_logs
+        WHERE game_date >= CURRENT_DATE - INTERVAL '1 day' * $1
+      `;
+      const params: any[] = [days];
+
+      if (statType) {
+        params.push(statType);
+        query += ` AND stat_type = $${params.length}`;
+      }
+
+      query += ` ORDER BY game_date DESC, player_name LIMIT $${params.length + 1}`;
+      params.push(limit);
+
+      const result = await pool.query(query, params);
+
+      res.json({
+        projections: result.rows.map(row => ({
+          id: row.id,
+          playerName: row.player_name,
+          gameDate: row.game_date,
+          opponent: row.opponent,
+          statType: row.stat_type,
+          line: row.prizepicks_line,
+          projectedValue: row.projected_value,
+          confidenceScore: row.confidence_score,
+          predictedDirection: row.predicted_direction,
+          predictedEdge: row.predicted_edge,
+          signals: typeof row.signals === 'string' ? JSON.parse(row.signals) : row.signals,
+          weightsUsed: typeof row.weights_used === 'string' ? JSON.parse(row.weights_used) : row.weights_used,
+          baselineValue: row.baseline_value,
+          actualValue: row.actual_value,
+          actualMinutes: row.actual_minutes,
+          hitOver: row.hit_over,
+          projectionHit: row.projection_hit,
+          projectionError: row.projection_error,
+          capturedAt: row.captured_at,
+          gameCompletedAt: row.game_completed_at,
+        })),
+        days,
+        statType: statType || 'all',
+      });
+    } catch (error: any) {
+      if (error.code === '42P01') {
+        return res.json({ projections: [], message: "Tables not yet created." });
+      }
+      console.error("Error fetching projections:", error);
+      res.status(500).json({ error: "Failed to fetch projections" });
+    }
+  });
+
+  // Get backtest run history
+  app.get("/api/backtest/runs", async (req, res) => {
+    try {
+      const limit = Math.min(parseInt(req.query.limit as string) || 20, 100);
+
+      if (!pool) {
+        return res.json({ runs: [], message: "Database not configured" });
+      }
+
+      const result = await pool.query(`
+        SELECT
+          id, stat_type, days_evaluated, start_date, end_date,
+          total_predictions, correct_predictions, overall_accuracy,
+          signal_breakdown,
+          run_started_at, run_completed_at, notes
+        FROM backtest_runs
+        ORDER BY run_started_at DESC
+        LIMIT $1
+      `, [limit]);
+
+      res.json({
+        runs: result.rows.map(row => ({
+          id: row.id,
+          statType: row.stat_type,
+          daysEvaluated: row.days_evaluated,
+          startDate: row.start_date,
+          endDate: row.end_date,
+          totalPredictions: row.total_predictions,
+          correctPredictions: row.correct_predictions,
+          overallAccuracy: row.overall_accuracy,
+          signalBreakdown: typeof row.signal_breakdown === 'string'
+            ? JSON.parse(row.signal_breakdown)
+            : row.signal_breakdown,
+          runStartedAt: row.run_started_at,
+          runCompletedAt: row.run_completed_at,
+          notes: row.notes,
+        })),
+      });
+    } catch (error: any) {
+      if (error.code === '42P01') {
+        return res.json({ runs: [], message: "Tables not yet created." });
+      }
+      console.error("Error fetching backtest runs:", error);
+      res.status(500).json({ error: "Failed to fetch backtest runs" });
+    }
+  });
+
+  // Get backtest overview stats (aggregate summary)
+  app.get("/api/backtest/overview", async (req, res) => {
+    try {
+      if (!pool) {
+        return res.json({
+          totalProjections: 0,
+          completedProjections: 0,
+          overallHitRate: 0,
+          avgConfidence: 0,
+          avgError: 0,
+          byStatType: {},
+          recentAccuracy: [],
+          message: "Database not configured",
+        });
+      }
+
+      // Overall projection stats
+      const projStats = await pool.query(`
+        SELECT
+          COUNT(*) as total,
+          COUNT(actual_value) as completed,
+          COUNT(CASE WHEN projection_hit = true THEN 1 END) as hits,
+          AVG(confidence_score) as avg_confidence,
+          AVG(ABS(projection_error)) as avg_error
+        FROM projection_logs
+      `);
+
+      // By stat type
+      const byStatType = await pool.query(`
+        SELECT
+          stat_type,
+          COUNT(*) as total,
+          COUNT(actual_value) as completed,
+          COUNT(CASE WHEN projection_hit = true THEN 1 END) as hits,
+          AVG(confidence_score) as avg_confidence,
+          AVG(ABS(projection_error)) as avg_error
+        FROM projection_logs
+        GROUP BY stat_type
+      `);
+
+      // Daily accuracy trend (last 30 days)
+      const dailyAccuracy = await pool.query(`
+        SELECT
+          game_date as date,
+          COUNT(*) as total,
+          COUNT(CASE WHEN projection_hit = true THEN 1 END) as hits,
+          CASE WHEN COUNT(*) > 0
+            THEN ROUND(COUNT(CASE WHEN projection_hit = true THEN 1 END)::numeric / COUNT(*), 4)
+            ELSE 0 END as accuracy
+        FROM projection_logs
+        WHERE actual_value IS NOT NULL
+          AND game_date >= CURRENT_DATE - INTERVAL '30 days'
+        GROUP BY game_date
+        ORDER BY game_date
+      `);
+
+      const stats = projStats.rows[0];
+      const total = parseInt(stats.total) || 0;
+      const completed = parseInt(stats.completed) || 0;
+      const hits = parseInt(stats.hits) || 0;
+
+      res.json({
+        totalProjections: total,
+        completedProjections: completed,
+        overallHitRate: completed > 0 ? hits / completed : 0,
+        avgConfidence: parseFloat(stats.avg_confidence) || 0,
+        avgError: parseFloat(stats.avg_error) || 0,
+        byStatType: Object.fromEntries(
+          byStatType.rows.map(row => [
+            row.stat_type,
+            {
+              total: parseInt(row.total) || 0,
+              completed: parseInt(row.completed) || 0,
+              hits: parseInt(row.hits) || 0,
+              hitRate: parseInt(row.completed) > 0
+                ? parseInt(row.hits) / parseInt(row.completed) : 0,
+              avgConfidence: parseFloat(row.avg_confidence) || 0,
+              avgError: parseFloat(row.avg_error) || 0,
+            }
+          ])
+        ),
+        recentAccuracy: dailyAccuracy.rows.map(row => ({
+          date: row.date,
+          total: parseInt(row.total),
+          hits: parseInt(row.hits),
+          accuracy: parseFloat(row.accuracy),
+        })),
+      });
+    } catch (error: any) {
+      if (error.code === '42P01') {
+        return res.json({
+          totalProjections: 0,
+          completedProjections: 0,
+          overallHitRate: 0,
+          avgConfidence: 0,
+          avgError: 0,
+          byStatType: {},
+          recentAccuracy: [],
+          message: "Tables not yet created. Run migration 007.",
+        });
+      }
+      console.error("Error fetching backtest overview:", error);
+      res.status(500).json({ error: "Failed to fetch backtest overview" });
     }
   });
 

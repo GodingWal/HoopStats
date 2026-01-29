@@ -17,6 +17,7 @@ import ProjectionsPage from "@/pages/projections";
 import Dashboard from "@/pages/dashboard";
 import TrackRecord from "@/pages/track-record";
 import TeamStatsPage from "@/pages/team-stats";
+import BacktestPage from "@/pages/backtest";
 import { ThemeToggle } from "@/components/theme-toggle";
 import {
   SidebarProvider,
@@ -33,7 +34,7 @@ import {
   SidebarFooter,
 } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
-import { Users, Target, TrendingUp, RefreshCw, CloudDownload, AlertCircle, Tv, BrainCircuit, History, LayoutDashboard, Award, BarChart3, Wallet } from "lucide-react";
+import { Users, Target, TrendingUp, RefreshCw, CloudDownload, AlertCircle, Tv, BrainCircuit, History, LayoutDashboard, Award, BarChart3, Wallet, FlaskConical } from "lucide-react";
 
 function Router() {
   return (
@@ -47,6 +48,7 @@ function Router() {
       <Route path="/line-history" component={LineHistory} />
       <Route path="/projections" component={ProjectionsPage} />
       <Route path="/team-stats" component={TeamStatsPage} />
+      <Route path="/backtest" component={BacktestPage} />
       <Route component={NotFound} />
     </Switch>
   );
@@ -97,6 +99,11 @@ const navItems = [
     title: "AI Projections",
     url: "/projections",
     icon: BrainCircuit,
+  },
+  {
+    title: "Backtest Lab",
+    url: "/backtest",
+    icon: FlaskConical,
   },
 ];
 
