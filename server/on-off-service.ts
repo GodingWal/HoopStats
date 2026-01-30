@@ -9,7 +9,7 @@ import { spawn } from "child_process";
 import path from "path";
 import { apiLogger } from "./logger";
 import { storage } from "./storage";
-import type { DbPlayerOnOffSplit, InsertPlayerOnOffSplit } from "@shared/schema";
+import type { DbPlayerOnOffSplit, InsertPlayerOnOffSplit, Player } from "@shared/schema";
 
 // ========================================
 // TYPES
@@ -283,6 +283,145 @@ export class OnOffSplitsService {
         reject(error);
       });
     });
+  }
+
+  /**
+   * Fallback: compute approximate on/off splits from game log data in the DB.
+   * Cross-references the injured player's game dates with teammates' game dates
+   * to identify games played with vs without the injured player.
+   */
+  async computeSplitsFromGameLogs(
+    playerId: number,
+    playerName: string,
+    team: string
+  ): Promise<DbPlayerOnOffSplit[]> {
+    apiLogger.info(`Computing fallback splits from game logs for ${playerName} (${team})`);
+
+    const allPlayers = await storage.getPlayers();
+    const teammates = allPlayers.filter(
+      (p) => p.team === team && p.player_id !== playerId
+    );
+    const injuredPlayer = allPlayers.find((p) => p.player_id === playerId);
+
+    if (!injuredPlayer || !injuredPlayer.recent_games || injuredPlayer.recent_games.length === 0) {
+      apiLogger.warn(`No game log data found for player ${playerId}`);
+      return [];
+    }
+
+    // Build a set of dates the injured player actually played
+    const injuredPlayerDates = new Set(
+      injuredPlayer.recent_games.map((g) => g.GAME_DATE)
+    );
+
+    const results: DbPlayerOnOffSplit[] = [];
+    let idCounter = -1; // Negative IDs to distinguish from DB records
+
+    for (const teammate of teammates) {
+      if (!teammate.recent_games || teammate.recent_games.length === 0) continue;
+
+      const gamesWith: typeof teammate.recent_games = [];
+      const gamesWithout: typeof teammate.recent_games = [];
+
+      for (const game of teammate.recent_games) {
+        if (injuredPlayerDates.has(game.GAME_DATE)) {
+          gamesWith.push(game);
+        } else {
+          gamesWithout.push(game);
+        }
+      }
+
+      // Need at least 2 games without to be meaningful
+      if (gamesWithout.length < 2) continue;
+
+      const avg = (games: typeof teammate.recent_games, field: 'PTS' | 'REB' | 'AST' | 'MIN' | 'FG3M') => {
+        if (games.length === 0) return 0;
+        return games.reduce((sum, g) => sum + (g[field] ?? 0), 0) / games.length;
+      };
+
+      const ptsWith = gamesWith.length > 0 ? avg(gamesWith, 'PTS') : null;
+      const rebWith = gamesWith.length > 0 ? avg(gamesWith, 'REB') : null;
+      const astWith = gamesWith.length > 0 ? avg(gamesWith, 'AST') : null;
+      const minWith = gamesWith.length > 0 ? avg(gamesWith, 'MIN') : null;
+      const fgaWith = gamesWith.length > 0 ? avg(gamesWith, 'FG3M') : null; // FG3M as proxy for FGA
+
+      const ptsWithout = avg(gamesWithout, 'PTS');
+      const rebWithout = avg(gamesWithout, 'REB');
+      const astWithout = avg(gamesWithout, 'AST');
+      const minWithout = avg(gamesWithout, 'MIN');
+      const fgaWithout = avg(gamesWithout, 'FG3M');
+
+      const ptsDelta = ptsWith !== null ? ptsWithout - ptsWith : null;
+      const rebDelta = rebWith !== null ? rebWithout - rebWith : null;
+      const astDelta = astWith !== null ? astWithout - astWith : null;
+      const minDelta = minWith !== null ? minWithout - minWith : null;
+      const fgaDelta = fgaWith !== null ? fgaWithout - fgaWith : null;
+
+      const split: DbPlayerOnOffSplit = {
+        id: idCounter--,
+        playerId: teammate.player_id,
+        playerName: teammate.player_name,
+        team: teammate.team,
+        withoutPlayerId: playerId,
+        withoutPlayerName: playerName,
+        season: "2024-25",
+        gamesWithTeammate: gamesWith.length,
+        gamesWithoutTeammate: gamesWithout.length,
+        ptsWithTeammate: ptsWith !== null ? Math.round(ptsWith * 10) / 10 : null,
+        rebWithTeammate: rebWith !== null ? Math.round(rebWith * 10) / 10 : null,
+        astWithTeammate: astWith !== null ? Math.round(astWith * 10) / 10 : null,
+        minWithTeammate: minWith !== null ? Math.round(minWith * 10) / 10 : null,
+        fgaWithTeammate: fgaWith !== null ? Math.round(fgaWith * 10) / 10 : null,
+        ptsWithoutTeammate: Math.round(ptsWithout * 10) / 10,
+        rebWithoutTeammate: Math.round(rebWithout * 10) / 10,
+        astWithoutTeammate: Math.round(astWithout * 10) / 10,
+        minWithoutTeammate: Math.round(minWithout * 10) / 10,
+        fgaWithoutTeammate: Math.round(fgaWithout * 10) / 10,
+        ptsDelta: ptsDelta !== null ? Math.round(ptsDelta * 10) / 10 : null,
+        rebDelta: rebDelta !== null ? Math.round(rebDelta * 10) / 10 : null,
+        astDelta: astDelta !== null ? Math.round(astDelta * 10) / 10 : null,
+        minDelta: minDelta !== null ? Math.round(minDelta * 10) / 10 : null,
+        fgaDelta: fgaDelta !== null ? Math.round(fgaDelta * 10) / 10 : null,
+        calculatedAt: new Date(),
+        updatedAt: new Date(),
+      };
+
+      results.push(split);
+
+      // Also save to storage for future lookups
+      try {
+        await storage.savePlayerOnOffSplit({
+          playerId: teammate.player_id,
+          playerName: teammate.player_name,
+          team: teammate.team,
+          withoutPlayerId: playerId,
+          withoutPlayerName: playerName,
+          season: "2024-25",
+          gamesWithTeammate: gamesWith.length,
+          gamesWithoutTeammate: gamesWithout.length,
+          ptsWithTeammate: split.ptsWithTeammate,
+          rebWithTeammate: split.rebWithTeammate,
+          astWithTeammate: split.astWithTeammate,
+          minWithTeammate: split.minWithTeammate,
+          fgaWithTeammate: split.fgaWithTeammate,
+          ptsWithoutTeammate: split.ptsWithoutTeammate,
+          rebWithoutTeammate: split.rebWithoutTeammate,
+          astWithoutTeammate: split.astWithoutTeammate,
+          minWithoutTeammate: split.minWithoutTeammate,
+          fgaWithoutTeammate: split.fgaWithoutTeammate,
+          ptsDelta: split.ptsDelta,
+          rebDelta: split.rebDelta,
+          astDelta: split.astDelta,
+          minDelta: split.minDelta,
+          fgaDelta: split.fgaDelta,
+        });
+      } catch (saveErr) {
+        // Non-fatal: splits are still returned even if save fails
+        apiLogger.warn(`Failed to persist fallback split for ${teammate.player_name}`, { saveErr });
+      }
+    }
+
+    apiLogger.info(`Computed ${results.length} fallback splits for ${playerName}`);
+    return results;
   }
 }
 

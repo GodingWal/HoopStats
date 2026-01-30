@@ -2145,30 +2145,42 @@ export async function registerRoutes(
 
       // Auto-calculate if no data found
       if (splits.length === 0) {
-        try {
-          const player = await storage.getPlayer(parseInt(playerId));
+        const player = await storage.getPlayer(parseInt(playerId));
+        const playerName = player?.player_name || req.query.playerName as string;
+        const team = player?.team || req.query.team as string;
 
-          // Use player from DB if found, otherwise use query params
-          const playerName = player?.player_name || req.query.playerName as string;
-          const team = player?.team || req.query.team as string;
-
-          if (playerName && team) {
-            console.log(`No splits found for ${playerName}. Auto-calculating...`);
+        if (playerName && team) {
+          // Try Python calculator first
+          try {
+            console.log(`No splits found for ${playerName}. Auto-calculating via Python...`);
             await onOffService.calculateSplitsForPlayer(
               parseInt(playerId),
               playerName,
               team
             );
-            // Re-fetch after calculation
             splits = await onOffService.getSplitsForPlayer(
               parseInt(playerId),
               season as string | undefined
             );
-          } else {
-            console.log(`Cannot auto-calculate splits: Player ${playerId} not in DB and no playerName/team provided in query`);
+          } catch (calcError) {
+            console.warn("Python auto-calculation failed, trying game-log fallback:", calcError);
           }
-        } catch (calcError) {
-          console.error("Auto-calculation failed:", calcError);
+
+          // Fallback: compute from game log data already in DB
+          if (splits.length === 0) {
+            try {
+              console.log(`Computing fallback splits from game logs for ${playerName}...`);
+              splits = await onOffService.computeSplitsFromGameLogs(
+                parseInt(playerId),
+                playerName,
+                team
+              );
+            } catch (fallbackError) {
+              console.error("Game-log fallback calculation also failed:", fallbackError);
+            }
+          }
+        } else {
+          console.log(`Cannot auto-calculate splits: Player ${playerId} not in DB and no playerName/team provided in query`);
         }
       }
 
