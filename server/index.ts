@@ -6,6 +6,7 @@ import { injuryWatcher } from "./injury-watcher";
 import { injuryImpactService } from "./injury-impact-service";
 import { prizePicksLineTracker } from "./prizepicks-line-tracker";
 import { prizePicksStorage } from "./storage/prizepicks-storage";
+import { autoSettlementService } from "./services/auto-settle";
 import { serverLogger } from "./logger";
 import {
   corsMiddleware,
@@ -149,6 +150,10 @@ app.use((req, res, next) => {
       prizePicksLineTracker.on('significant-movement', (movement) => {
         serverLogger.info(`PrizePicks line movement: ${movement.playerName} ${movement.statType} ${movement.oldLine} -> ${movement.newLine}`);
       });
+
+      // Start auto-settlement service (checks every 5 minutes)
+      autoSettlementService.start(5 * 60 * 1000);
+      serverLogger.info("Auto-settlement service started - settling picks every 5 minutes");
     },
   );
 })();

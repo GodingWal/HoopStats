@@ -1312,6 +1312,25 @@ export async function registerRoutes(
     }
   });
 
+  // =============== SETTLEMENT ROUTES ===============
+
+  // Manually trigger settlement (useful after reboot or for testing)
+  app.post("/api/settle", async (_req, res) => {
+    try {
+      const { runSettlement } = await import("./services/auto-settle");
+      const result = await runSettlement();
+      res.json({
+        success: true,
+        settledPicks: result.settledPicks,
+        settledParlays: result.settledParlays,
+        message: `Settled ${result.settledPicks} picks across ${result.settledParlays} parlays`,
+      });
+    } catch (error) {
+      console.error("Error running settlement:", error);
+      res.status(500).json({ error: "Failed to run settlement" });
+    }
+  });
+
   // =============== ODDS API ROUTES ===============
 
   // Check if odds API is configured
