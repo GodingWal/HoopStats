@@ -82,7 +82,7 @@
     "undici": "^7.19.2",
     "vaul": "^1.1.2",
     "wouter": "^3.3.5",
-    "ws": "^8.18.0",
+    "ws": "^8.19.0",
     "zod": "^3.24.2",
     "zod-validation-error": "^3.4.0"
   },
@@ -101,7 +101,7 @@
     "@types/supertest": "^6.0.2",
     "@types/swagger-jsdoc": "^6.0.4",
     "@types/swagger-ui-express": "^4.1.8",
-    "@types/ws": "^8.5.13",
+    "@types/ws": "^8.18.1",
     "@vitejs/plugin-react": "^4.7.0",
     "autoprefixer": "^10.4.20",
     "cross-env": "^10.1.0",
