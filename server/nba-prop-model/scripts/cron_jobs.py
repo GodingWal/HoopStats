@@ -192,8 +192,8 @@ def populate_actuals(target_date: Optional[str] = None) -> int:
     Run at 2:00 AM after games complete.
 
     Steps:
-    1. Get projection_logs where actual_value IS NULL for yesterday
-    2. Match to prizepicks_daily_lines or players.recent_games
+    1. Get projection_logs where actual_value IS NULL for target date
+    2. Fetch actual stats from NBA API for each player
     3. Update actual_value, hit_over, projection_hit, projection_error
 
     Args:
@@ -202,6 +202,8 @@ def populate_actuals(target_date: Optional[str] = None) -> int:
     Returns:
         Number of records updated
     """
+    from src.data.nba_api_client import NBADataClient
+
     logger.info("Starting actuals population...")
 
     if target_date is None:
@@ -213,7 +215,23 @@ def populate_actuals(target_date: Optional[str] = None) -> int:
         logger.error("No database connection")
         return 0
 
+    # Initialize NBA API client
+    nba_client = NBADataClient(request_delay=0.8)
+
+    # Map stat types to NBA API column names
+    STAT_TYPE_MAP = {
+        'Points': 'PTS',
+        'Rebounds': 'REB',
+        'Assists': 'AST',
+        '3-Pointers Made': 'FG3M',
+        'Steals': 'STL',
+        'Blocks': 'BLK',
+        'Turnovers': 'TOV',
+    }
+
     updated = 0
+    # Cache player game logs to avoid repeated API calls
+    player_game_cache: Dict[str, Any] = {}
 
     try:
         cursor = conn.cursor()
@@ -233,51 +251,102 @@ def populate_actuals(target_date: Optional[str] = None) -> int:
         """, (target_date,))
 
         projections = cursor.fetchall()
-        logger.info(f"Found {len(projections)} projections needing actuals")
+        logger.info(f"Found {len(projections)} projections needing actuals for {target_date}")
+
+        if not projections:
+            cursor.close()
+            conn.close()
+            return 0
+
+        # Determine the season based on target date (NBA season runs Oct - June)
+        target_dt = datetime.strptime(target_date, '%Y-%m-%d')
+        if target_dt.month >= 10:
+            season = f"{target_dt.year}-{str(target_dt.year + 1)[2:]}"
+        else:
+            season = f"{target_dt.year - 1}-{str(target_dt.year)[2:]}"
 
         for proj_id, player_name, stat_type, line, projected, predicted_dir in projections:
-            # Try to get actual from prizepicks_daily_lines first
-            cursor.execute("""
-                SELECT actual_value, hit_over
-                FROM prizepicks_daily_lines
-                WHERE game_date = %s
-                  AND LOWER(player_name) = LOWER(%s)
-                  AND stat_type = %s
-                  AND actual_value IS NOT NULL
-                LIMIT 1
-            """, (target_date, player_name, stat_type))
+            try:
+                # Check cache first
+                cache_key = player_name.lower()
+                if cache_key not in player_game_cache:
+                    # Look up player ID
+                    player_id = nba_client.get_player_id(player_name)
+                    if player_id is None:
+                        logger.warning(f"Could not find NBA player ID for: {player_name}")
+                        continue
 
-            result = cursor.fetchone()
+                    # Fetch game log for the season
+                    try:
+                        game_log = nba_client.get_player_game_log(player_id, season=season)
+                        player_game_cache[cache_key] = game_log
+                    except Exception as api_err:
+                        logger.warning(f"API error fetching game log for {player_name}: {api_err}")
+                        continue
+                else:
+                    game_log = player_game_cache[cache_key]
 
-            if result is None:
-                logger.debug(f"No actual found for {player_name} - {stat_type}")
+                if game_log is None or game_log.empty:
+                    logger.debug(f"No game log found for {player_name}")
+                    continue
+
+                # Find the game on the target date
+                # GAME_DATE format from API is datetime, target_date is string
+                target_dt_only = datetime.strptime(target_date, '%Y-%m-%d').date()
+                game_row = game_log[game_log['GAME_DATE'].dt.date == target_dt_only]
+
+                if game_row.empty:
+                    logger.debug(f"No game found for {player_name} on {target_date}")
+                    continue
+
+                # Get the actual stat value
+                nba_stat_col = STAT_TYPE_MAP.get(stat_type)
+                if nba_stat_col is None or nba_stat_col not in game_row.columns:
+                    logger.warning(f"Unknown stat type mapping: {stat_type}")
+                    continue
+
+                actual_value = float(game_row.iloc[0][nba_stat_col])
+                actual_minutes = None
+                if 'MIN' in game_row.columns:
+                    min_val = game_row.iloc[0]['MIN']
+                    if isinstance(min_val, str) and ':' in min_val:
+                        parts = min_val.split(':')
+                        actual_minutes = float(parts[0]) + float(parts[1]) / 60
+                    else:
+                        actual_minutes = float(min_val) if min_val else None
+
+                # Calculate hit_over relative to the line
+                hit_over = actual_value > line if line else None
+
+                # Calculate projection accuracy
+                projection_error = actual_value - projected if projected else None
+
+                # Did our prediction hit?
+                if predicted_dir == 'OVER':
+                    projection_hit = actual_value > line if line else None
+                elif predicted_dir == 'UNDER':
+                    projection_hit = actual_value < line if line else None
+                else:
+                    projection_hit = None
+
+                # Update the record
+                cursor.execute("""
+                    UPDATE projection_logs
+                    SET actual_value = %s,
+                        actual_minutes = %s,
+                        hit_over = %s,
+                        projection_hit = %s,
+                        projection_error = %s,
+                        game_completed_at = NOW()
+                    WHERE id = %s
+                """, (actual_value, actual_minutes, hit_over, projection_hit, projection_error, proj_id))
+
+                updated += 1
+                logger.debug(f"Updated {player_name} {stat_type}: actual={actual_value}, hit={projection_hit}")
+
+            except Exception as e:
+                logger.warning(f"Error processing {player_name} - {stat_type}: {e}")
                 continue
-
-            actual_value, hit_over = result
-
-            # Calculate projection accuracy
-            projection_error = actual_value - projected if projected else None
-
-            # Did our prediction hit?
-            if predicted_dir == 'OVER':
-                projection_hit = actual_value > line if line else None
-            elif predicted_dir == 'UNDER':
-                projection_hit = actual_value < line if line else None
-            else:
-                projection_hit = None
-
-            # Update the record
-            cursor.execute("""
-                UPDATE projection_logs
-                SET actual_value = %s,
-                    hit_over = %s,
-                    projection_hit = %s,
-                    projection_error = %s,
-                    game_completed_at = NOW()
-                WHERE id = %s
-            """, (actual_value, hit_over, projection_hit, projection_error, proj_id))
-
-            updated += 1
 
         conn.commit()
         cursor.close()
@@ -285,8 +354,11 @@ def populate_actuals(target_date: Optional[str] = None) -> int:
 
     except Exception as e:
         logger.error(f"Error in populate_actuals: {e}")
-        conn.rollback()
-        conn.close()
+        try:
+            conn.rollback()
+            conn.close()
+        except:
+            pass
         return updated
 
     logger.info(f"Updated {updated} projections with actuals for {target_date}")
