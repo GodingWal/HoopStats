@@ -173,8 +173,9 @@ async function fetchViaScraperApi(targetUrl: string, headers: Record<string, str
     const scraperUrl = new URL("https://api.scraperapi.com/");
     scraperUrl.searchParams.set("api_key", scraperApiKey);
     scraperUrl.searchParams.set("url", targetUrl);
-    scraperUrl.searchParams.set("render", "false"); // Don't need JS rendering
+    scraperUrl.searchParams.set("render", "true"); // Enable JS rendering for captcha bypass
     scraperUrl.searchParams.set("country_code", "us");
+    scraperUrl.searchParams.set("keep_headers", "true"); // Preserve custom headers
 
     apiLogger.info("Fetching via ScraperAPI URL method", { targetUrl });
 
