@@ -2,14 +2,21 @@
  * PrizePicks API client for fetching real player prop lines
  * @note This is an unofficial API - may break or get blocked
  * Uses custom scraper with anti-detection features (no paid services required)
+ * 
+ * Fetching priority:
+ * 1. Puppeteer headless browser (if USE_PUPPETEER=true)
+ * 2. ScraperAPI URL method (if SCRAPER_API_KEY set)
+ * 3. Custom HTTP scraper (default fallback)
  */
 
 import { apiCache } from "./cache";
 import { apiLogger } from "./logger";
 import { createScraper, type Scraper, type ScraperStats } from "./scraper";
+import { fetchWithPuppeteer, isPuppeteerAvailable } from "./puppeteer-scraper";
 
 const PRIZEPICKS_API_BASE = "https://api.prizepicks.com";
 const NBA_LEAGUE_ID = 7;
+const USE_PUPPETEER = process.env.USE_PUPPETEER === "true";
 
 // Singleton scraper instance optimized for PrizePicks
 let prizePicksScraper: Scraper | null = null;
@@ -204,24 +211,47 @@ export async function fetchPrizePicksProjections(): Promise<PrizePicksProjection
     const targetUrl = `${PRIZEPICKS_API_BASE}/projections?league_id=${NBA_LEAGUE_ID}&per_page=250&single_stat=true`;
 
     try {
-        let responseData: PrizePicksApiResponse;
+        let responseData: PrizePicksApiResponse | null = null;
 
-        // Try ScraperAPI URL method first if key is available
-        const scraperApiKey = process.env.SCRAPER_API_KEY_V2 || process.env.SCRAPER_API_KEY;
-        if (scraperApiKey) {
-            apiLogger.info("Using ScraperAPI URL method for PrizePicks");
-
-            const response = await fetchViaScraperApi(targetUrl, getPrizePicksHeaders());
-
-            if (!response.ok) {
-                const errorText = await response.text();
-                apiLogger.warn(`ScraperAPI returned ${response.status}`, { error: errorText });
-                throw new Error(`ScraperAPI failed (${response.status}): ${errorText}`);
+        // Method 1: Try Puppeteer headless browser (most reliable for protected sites)
+        if (USE_PUPPETEER) {
+            const puppeteerAvailable = await isPuppeteerAvailable();
+            if (puppeteerAvailable) {
+                apiLogger.info("Using Puppeteer headless browser for PrizePicks");
+                try {
+                    responseData = await fetchWithPuppeteer(targetUrl) as PrizePicksApiResponse;
+                    apiLogger.info("Puppeteer fetch successful");
+                } catch (puppeteerError) {
+                    apiLogger.warn("Puppeteer failed, trying fallback methods", { error: String(puppeteerError) });
+                    // Continue to fallback methods
+                    responseData = null as any;
+                }
+            } else {
+                apiLogger.warn("Puppeteer requested but not available");
+                responseData = null as any;
             }
+        }
 
-            responseData = await response.json() as PrizePicksApiResponse;
-        } else {
-            // Fallback to custom scraper
+        // Method 2: Try ScraperAPI URL method if Puppeteer didn't work
+        if (!responseData) {
+            const scraperApiKey = process.env.SCRAPER_API_KEY_V2 || process.env.SCRAPER_API_KEY;
+            if (scraperApiKey) {
+                apiLogger.info("Using ScraperAPI URL method for PrizePicks");
+
+                const response = await fetchViaScraperApi(targetUrl, getPrizePicksHeaders());
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    apiLogger.warn(`ScraperAPI returned ${response.status}`, { error: errorText });
+                    // Continue to fallback
+                } else {
+                    responseData = await response.json() as PrizePicksApiResponse;
+                }
+            }
+        }
+
+        // Method 3: Fallback to custom HTTP scraper
+        if (!responseData) {
             const scraper = getScraper();
             apiLogger.info("Fetching PrizePicks projections with custom scraper", {
                 targetUrl,
@@ -243,6 +273,11 @@ export async function fetchPrizePicksProjections(): Promise<PrizePicksProjection
             }
 
             responseData = response.json<PrizePicksApiResponse>();
+        }
+
+        // Final check - if all methods failed, throw error
+        if (!responseData) {
+            throw new Error("All PrizePicks fetch methods failed - no data returned");
         }
 
         // Debug: Log sample of raw data to find standard line indicator
