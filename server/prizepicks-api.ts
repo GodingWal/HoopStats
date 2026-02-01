@@ -160,6 +160,36 @@ interface PrizePicksApiResponse {
 }
 
 /**
+ * Fetch via ScraperAPI URL method (when API key is available)
+ * This method is more reliable than HTTP proxy for some APIs
+ */
+async function fetchViaScraperApi(targetUrl: string, headers: Record<string, string>): Promise<Response> {
+    const scraperApiKey = process.env.SCRAPER_API_KEY_V2 || process.env.SCRAPER_API_KEY;
+    if (!scraperApiKey) {
+        throw new Error("ScraperAPI key not configured");
+    }
+
+    // Build ScraperAPI URL with the target URL encoded
+    const scraperUrl = new URL("https://api.scraperapi.com/");
+    scraperUrl.searchParams.set("api_key", scraperApiKey);
+    scraperUrl.searchParams.set("url", targetUrl);
+    scraperUrl.searchParams.set("render", "false"); // Don't need JS rendering
+    scraperUrl.searchParams.set("country_code", "us");
+
+    apiLogger.info("Fetching via ScraperAPI URL method", { targetUrl });
+
+    const response = await fetch(scraperUrl.toString(), {
+        method: "GET",
+        headers: {
+            ...headers,
+            "Accept": "application/json",
+        },
+    });
+
+    return response;
+}
+
+/**
  * Fetch NBA projections from PrizePicks
  */
 export async function fetchPrizePicksProjections(): Promise<PrizePicksProjection[]> {
@@ -170,36 +200,55 @@ export async function fetchPrizePicksProjections(): Promise<PrizePicksProjection
         return cached;
     }
 
+    const targetUrl = `${PRIZEPICKS_API_BASE}/projections?league_id=${NBA_LEAGUE_ID}&per_page=250&single_stat=true`;
+
     try {
-        const scraper = getScraper();
-        const targetUrl = `${PRIZEPICKS_API_BASE}/projections?league_id=${NBA_LEAGUE_ID}&per_page=250&single_stat=true`;
+        let responseData: PrizePicksApiResponse;
 
-        apiLogger.info("Fetching PrizePicks projections with custom scraper", {
-            targetUrl,
-            stats: scraper.getStats(),
-        });
+        // Try ScraperAPI URL method first if key is available
+        const scraperApiKey = process.env.SCRAPER_API_KEY_V2 || process.env.SCRAPER_API_KEY;
+        if (scraperApiKey) {
+            apiLogger.info("Using ScraperAPI URL method for PrizePicks");
 
-        const response = await scraper.get(targetUrl, {
-            headers: getPrizePicksHeaders(),
-        });
+            const response = await fetchViaScraperApi(targetUrl, getPrizePicksHeaders());
 
-        if (!response.ok) {
-            const errorMsg = `PrizePicks blocked (${response.status}) - try adding proxies via PROXY_LIST env var`;
-            apiLogger.warn(errorMsg, {
-                status: response.status,
-                attempts: response.attempts,
-                timeMs: response.totalTimeMs,
+            if (!response.ok) {
+                const errorText = await response.text();
+                apiLogger.warn(`ScraperAPI returned ${response.status}`, { error: errorText });
+                throw new Error(`ScraperAPI failed (${response.status}): ${errorText}`);
+            }
+
+            responseData = await response.json() as PrizePicksApiResponse;
+        } else {
+            // Fallback to custom scraper
+            const scraper = getScraper();
+            apiLogger.info("Fetching PrizePicks projections with custom scraper", {
+                targetUrl,
+                stats: scraper.getStats(),
             });
-            throw new Error(errorMsg);
+
+            const response = await scraper.get(targetUrl, {
+                headers: getPrizePicksHeaders(),
+            });
+
+            if (!response.ok) {
+                const errorMsg = `PrizePicks blocked (${response.status}) - try adding proxies via PROXY_LIST env var`;
+                apiLogger.warn(errorMsg, {
+                    status: response.status,
+                    attempts: response.attempts,
+                    timeMs: response.totalTimeMs,
+                });
+                throw new Error(errorMsg);
+            }
+
+            responseData = response.json<PrizePicksApiResponse>();
         }
 
-        const data = response.json<PrizePicksApiResponse>();
-
         // Debug: Log sample of raw data to find standard line indicator
-        console.log(`[PrizePicks] Received ${data.data?.length || 0} projections, ${data.included?.length || 0} included items`);
-        if (data.data && data.data.length > 0) {
+        console.log(`[PrizePicks] Received ${responseData.data?.length || 0} projections, ${responseData.included?.length || 0} included items`);
+        if (responseData.data && responseData.data.length > 0) {
             // Log unique odds_type values to find standard vs goblin/demon
-            const oddsTypes = new Set(data.data.map(p => p.attributes.odds_type));
+            const oddsTypes = new Set(responseData.data.map(p => p.attributes.odds_type));
             console.log(`[PrizePicks] Unique odds_type values:`, Array.from(oddsTypes));
         }
 
@@ -207,7 +256,7 @@ export async function fetchPrizePicksProjections(): Promise<PrizePicksProjection
         const players = new Map<string, { name: string; team: string; position: string; imageUrl?: string }>();
         const statTypes = new Map<string, string>();
 
-        for (const item of data.included || []) {
+        for (const item of responseData.included || []) {
             if (item.type === "new_player") {
                 players.set(item.id, {
                     name: item.attributes.display_name || item.attributes.name || "Unknown",
@@ -223,7 +272,7 @@ export async function fetchPrizePicksProjections(): Promise<PrizePicksProjection
         // Transform projections
         const projections: PrizePicksProjection[] = [];
 
-        for (const proj of data.data || []) {
+        for (const proj of responseData.data || []) {
             if (proj.attributes.status !== "pre_game") continue; // Only show upcoming
 
             // Filter out demon/goblin lines - only show standard lines
@@ -258,8 +307,6 @@ export async function fetchPrizePicksProjections(): Promise<PrizePicksProjection
 
         apiLogger.info("Fetched PrizePicks projections", {
             count: projections.length,
-            attempts: response.attempts,
-            timeMs: response.totalTimeMs,
         });
 
         // Cache for 10 minutes
