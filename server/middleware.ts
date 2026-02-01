@@ -22,6 +22,7 @@ const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(",") || [
   "https://www.courtside-edge.com",
   "http://courtside-edge.com",
   "http://www.courtside-edge.com",
+  "http://76.13.100.125",
 ];
 
 export const corsMiddleware = cors({
