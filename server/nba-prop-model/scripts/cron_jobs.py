@@ -134,7 +134,8 @@ def capture_projections(target_date: Optional[str] = None) -> int:
                 p.last_10_averages,
                 p.home_averages,
                 p.away_averages,
-                p.position
+                p.position,
+                p.recent_games
             FROM prizepicks_daily_lines pdl
             LEFT JOIN players p ON LOWER(pdl.player_name) = LOWER(p.player_name)
             WHERE pdl.game_date = %s
@@ -146,6 +147,8 @@ def capture_projections(target_date: Optional[str] = None) -> int:
 
         logger.info(f"Found {len(rows)} player-stat combinations for {target_date}")
 
+        failed = 0
+        save_failed = 0
         for row in rows:
             data = dict(zip(columns, row))
 
@@ -153,6 +156,7 @@ def capture_projections(target_date: Optional[str] = None) -> int:
                 # Build context
                 context = build_context_from_player_data(data)
                 context['opponent'] = data.get('opponent', '')
+                context['game_date'] = target_date
 
                 # Generate projection
                 projection = engine.project(
@@ -168,9 +172,13 @@ def capture_projections(target_date: Optional[str] = None) -> int:
                 if engine.save_projection(projection):
                     captured += 1
                     logger.debug(f"Captured: {data['player_name']} - {data['stat_type']}")
+                else:
+                    save_failed += 1
+                    logger.warning(f"Failed to save projection for {data['player_name']} - {data['stat_type']}")
 
             except Exception as e:
-                logger.warning(f"Error projecting {data['player_name']}: {e}")
+                failed += 1
+                logger.warning(f"Error projecting {data.get('player_name', '?')}: {e}")
                 continue
 
         cursor.close()
@@ -181,7 +189,16 @@ def capture_projections(target_date: Optional[str] = None) -> int:
         conn.close()
         return captured
 
-    logger.info(f"Captured {captured} projections for {target_date}")
+    logger.info(
+        f"Capture complete for {target_date}: "
+        f"{captured} captured, {failed} projection errors, {save_failed} save errors "
+        f"(out of {len(rows)} total)"
+    )
+    if failed > 0 or save_failed > 0:
+        logger.warning(
+            f"Data gaps detected: {failed + save_failed}/{len(rows)} "
+            f"player-stats missing from projection_logs"
+        )
     return captured
 
 

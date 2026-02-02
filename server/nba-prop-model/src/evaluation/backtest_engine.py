@@ -289,7 +289,8 @@ class BacktestEngine:
                 p.last_10_averages,
                 p.home_averages,
                 p.away_averages,
-                p.position
+                p.position,
+                p.recent_games
             FROM prizepicks_daily_lines pdl
             LEFT JOIN players p ON LOWER(pdl.player_name) = LOWER(p.player_name)
             WHERE pdl.game_date >= %s
@@ -402,19 +403,60 @@ class BacktestEngine:
         if position:
             context['player_position'] = position
 
-        # Try to determine if home game (basic heuristic)
-        # In production, this should come from game data
-        context['is_home'] = True  # Default - should be overridden with real data
-
-        # B2B detection would require team schedule
-        context['is_b2b'] = False  # Default - should be overridden with real data
-
-        # Opponent team for defense lookup
+        # Determine is_home from opponent format
+        # NBA API uses "@ TM" for away, "vs. TM" or plain team name for home
         opponent = game.get('opponent', '')
-        if opponent:
-            context['opponent_team'] = opponent
+        if isinstance(opponent, str) and opponent.strip():
+            stripped = opponent.strip()
+            if stripped.startswith('@'):
+                context['is_home'] = False
+            elif stripped.startswith('vs'):
+                context['is_home'] = True
+            # Otherwise leave unset — signal will return neutral
+            context['opponent_team'] = stripped.lstrip('@').lstrip('vs.').strip()
+        else:
+            context['opponent_team'] = ''
+
+        # B2B detection from recent_games
+        recent_games = game.get('recent_games', [])
+        if isinstance(recent_games, str):
+            try:
+                recent_games = json.loads(recent_games)
+            except:
+                recent_games = []
+
+        game_date = game.get('game_date', '')
+        if game_date and recent_games:
+            context['is_b2b'] = self._check_b2b(game_date, recent_games)
+        else:
+            # Without schedule data, leave unset so the signal returns neutral
+            pass
 
         return context
+
+    def _check_b2b(self, game_date: str, recent_games: list) -> bool:
+        """Check if a game date is a back-to-back using the player's recent game log."""
+        try:
+            current = datetime.strptime(game_date, '%Y-%m-%d')
+            yesterday = (current - timedelta(days=1)).strftime('%Y-%m-%d')
+
+            for game in recent_games:
+                gd = game.get('GAME_DATE') or game.get('game_date', '')
+                if gd:
+                    if len(gd) == 10 and gd[4] == '-':
+                        if gd == yesterday:
+                            return True
+                    else:
+                        try:
+                            parsed = datetime.strptime(gd, '%b %d, %Y')
+                            if parsed.strftime('%Y-%m-%d') == yesterday:
+                                return True
+                        except ValueError:
+                            continue
+        except (ValueError, TypeError):
+            pass
+
+        return False
 
     def _evaluate_game(
         self,
@@ -476,8 +518,10 @@ class BacktestEngine:
                     sa.under_correct += 1
                     sa.correct_predictions += 1
 
-            # Track error
-            error = abs(actual - line)
+            # Track error: distance between actual and line adjusted by signal
+            # This measures how far off the signal-adjusted value was from actual
+            signal_projected = line + result.adjustment
+            error = abs(actual - signal_projected)
             sa.total_error += error
 
     def save_to_db(self, results: BacktestResults) -> bool:
