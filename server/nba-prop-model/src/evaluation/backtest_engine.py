@@ -12,6 +12,7 @@ from datetime import datetime, timedelta
 from collections import defaultdict
 import logging
 import json
+import unicodedata
 
 logger = logging.getLogger(__name__)
 
@@ -274,42 +275,88 @@ class BacktestEngine:
             logger.warning("No database connection - returning empty list")
             return []
 
-        query = """
-            SELECT
-                pdl.player_name,
-                pdl.team,
-                pdl.stat_type,
-                pdl.game_date,
-                pdl.opening_line as line,
-                pdl.actual_value,
-                pdl.hit_over,
-                pdl.opponent,
-                p.season_averages,
-                p.last_5_averages,
-                p.last_10_averages,
-                p.home_averages,
-                p.away_averages,
-                p.position,
-                p.recent_games
-            FROM prizepicks_daily_lines pdl
-            LEFT JOIN players p ON LOWER(pdl.player_name) = LOWER(p.player_name)
-            WHERE pdl.game_date >= %s
-              AND pdl.game_date <= %s
-              AND pdl.stat_type = %s
-              AND pdl.actual_value IS NOT NULL
-            ORDER BY pdl.game_date
-        """
-
-        try:
             cursor = self.db_connection.cursor()
-            cursor.execute(query, (start_date, end_date, stat_type))
-            columns = [desc[0] for desc in cursor.description]
-            rows = cursor.fetchall()
+            
+            # 1. Get Games
+            game_query = """
+                SELECT
+                    player_name,
+                    team,
+                    stat_type,
+                    game_date,
+                    opening_line as line,
+                    actual_value,
+                    hit_over,
+                    opponent
+                FROM prizepicks_daily_lines
+                WHERE game_date >= %s
+                  AND game_date <= %s
+                  AND stat_type = %s
+                  AND actual_value IS NOT NULL
+                ORDER BY game_date
+            """
+            cursor.execute(game_query, (start_date, end_date, stat_type))
+            game_cols = [desc[0] for desc in cursor.description]
+            games = [dict(zip(game_cols, row)) for row in cursor.fetchall()]
+            
+            if not games:
+                cursor.close()
+                return []
+                
+            # 2. Get All Players for lookup
+            player_query = """
+                SELECT 
+                    player_name,
+                    season_averages,
+                    last_5_averages,
+                    last_10_averages,
+                    home_averages,
+                    away_averages,
+                    position,
+                    recent_games
+                FROM players
+            """
+            cursor.execute(player_query)
+            player_cols = [desc[0] for desc in cursor.description]
+            players = [dict(zip(player_cols, row)) for row in cursor.fetchall()]
             cursor.close()
+            
+            # 3. Build lookup map with normalized names
+            def normalize(name):
+                if not name: return ""
+                # Strip accents and lowercase
+                return ''.join(c for c in unicodedata.normalize('NFD', name)
+                              if unicodedata.category(c) != 'Mn').lower().replace('.', '').strip()
 
-            return [dict(zip(columns, row)) for row in rows]
+            player_map = {}
+            for p in players:
+                # Map both raw and normalized name
+                p_name = p.get('player_name') or ""
+                player_map[p_name.lower()] = p
+                player_map[normalize(p_name)] = p
+                
+            # 4. Join data
+            joined_games = []
+            for game in games:
+                p_name = game.get('player_name') or ""
+                
+                # Try exact/lower match first
+                player_data = player_map.get(p_name.lower())
+                
+                # Try normalized match if failed
+                if not player_data:
+                    player_data = player_map.get(normalize(p_name))
+                    
+                if player_data:
+                    # Merge player data into game dict
+                    game.update(player_data)
+                
+                joined_games.append(game)
+
+            return joined_games
+            
         except Exception as e:
-            logger.error(f"Error loading games: {e}")
+            logger.error(f"Error loading games with fuzzy match: {e}")
             return []
 
     def _filter_games_df(
