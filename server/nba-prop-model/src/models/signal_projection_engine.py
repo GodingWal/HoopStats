@@ -140,17 +140,22 @@ class SignalProjectionEngine:
     Projection engine that uses the signal system with learned weights.
 
     Workflow:
-    1. Calculate baseline: 0.5×L5 + 0.3×L10 + 0.2×season
-    2. Load learned weights (or use defaults)
-    3. Run all applicable signals
-    4. Apply: final = baseline + Σ(signal_adjustment × weight)
-    5. Calculate confidence based on signal agreement
+    1. Calculate baseline: 0.35×L3 + 0.30×L5 + 0.20×L10 + 0.15×season
+    2. Apply minutes adjustment if projected minutes available
+    3. Load learned weights (or use defaults)
+    4. Run all applicable signals
+    5. Apply: final = baseline + Σ(signal_adjustment × weight)
+    6. Calculate confidence based on signal agreement, sample size, and line proximity
     """
 
-    # Baseline calculation weights
-    L5_WEIGHT = 0.50
-    L10_WEIGHT = 0.30
-    SEASON_WEIGHT = 0.20
+    # Baseline calculation weights - enhanced with L3 for recency bias
+    L3_WEIGHT = 0.35   # Most recent 3 games - best for trend detection
+    L5_WEIGHT = 0.30   # Last 5 games
+    L10_WEIGHT = 0.20  # Last 10 games
+    SEASON_WEIGHT = 0.15  # Season average
+    
+    # Minutes adjustment defaults
+    DEFAULT_MINUTES = 32.0  # Typical starter minutes
 
     def __init__(self, db_connection=None):
         """
@@ -247,8 +252,13 @@ class SignalProjectionEngine:
         final_projection = baseline + total_adjustment
         final_projection = max(0, final_projection)  # Can't be negative
 
-        # Step 6: Calculate confidence
-        confidence = self._calculate_confidence(signal_results, weights)
+        # Step 6: Calculate confidence (with enhanced factors)
+        confidence = self._calculate_confidence(
+            signal_results, weights, 
+            context=context, 
+            line=line, 
+            final_projection=final_projection
+        )
 
         # Step 7: Calculate edge if line provided
         predicted_edge = None
@@ -290,35 +300,75 @@ class SignalProjectionEngine:
         """
         Calculate baseline value using weighted recent performance.
 
-        Baseline = 0.5×L5 + 0.3×L10 + 0.2×season
+        Baseline = 0.35×L3 + 0.30×L5 + 0.20×L10 + 0.15×season
+        
+        The L3 weighting gives recency bias to catch:
+        - Hot/cold streaks faster
+        - Minutes changes from injuries
+        - Role changes after trades
         """
         stat_key = self._stat_type_to_key(stat_type)
 
         season_avgs = context.get('season_averages', {})
+        l3_avgs = context.get('last_3_averages', {})
         l5_avgs = context.get('last_5_averages', {})
         l10_avgs = context.get('last_10_averages', {})
 
         # Get values
         season_val = self._get_stat_value(season_avgs, stat_key, stat_type)
+        l3_val = self._get_stat_value(l3_avgs, stat_key, stat_type)
         l5_val = self._get_stat_value(l5_avgs, stat_key, stat_type)
         l10_val = self._get_stat_value(l10_avgs, stat_key, stat_type)
 
-        # Handle missing values
+        # Handle missing values - fallback chain: L3 -> L5 -> L10 -> season
         if season_val is None:
             season_val = 0.0
-        if l5_val is None:
-            l5_val = season_val
         if l10_val is None:
             l10_val = season_val
+        if l5_val is None:
+            l5_val = l10_val if l10_val > 0 else season_val
+        if l3_val is None:
+            l3_val = l5_val  # Fall back to L5 if L3 not available
 
-        # Calculate weighted baseline
+        # Calculate weighted baseline with L3 recency bias
         baseline = (
+            self.L3_WEIGHT * l3_val +
             self.L5_WEIGHT * l5_val +
             self.L10_WEIGHT * l10_val +
             self.SEASON_WEIGHT * season_val
         )
+        
+        # Apply minutes adjustment if projected minutes differ from average
+        baseline = self._apply_minutes_adjustment(baseline, context)
 
         return baseline
+    
+    def _apply_minutes_adjustment(
+        self,
+        baseline: float,
+        context: Dict[str, Any]
+    ) -> float:
+        """
+        Adjust baseline based on projected vs average minutes.
+        
+        If projected minutes are available and differ significantly from
+        the player's average, scale the projection accordingly.
+        """
+        projected_min = context.get('projected_minutes')
+        avg_min = context.get('avg_minutes', self.DEFAULT_MINUTES)
+        
+        if projected_min is None or avg_min is None or avg_min == 0:
+            return baseline
+        
+        # Only apply adjustment if there's a meaningful difference (> 5%)
+        min_ratio = projected_min / avg_min
+        if abs(min_ratio - 1.0) < 0.05:
+            return baseline
+        
+        # Cap the adjustment at ±30% to avoid extreme swings
+        min_ratio = max(0.70, min(1.30, min_ratio))
+        
+        return baseline * min_ratio
 
     def _get_weights(self, stat_type: str) -> Dict[str, float]:
         """Get weights for stat type from cache or database."""
@@ -341,7 +391,10 @@ class SignalProjectionEngine:
     def _calculate_confidence(
         self,
         signal_results: Dict,
-        weights: Dict[str, float]
+        weights: Dict[str, float],
+        context: Dict[str, Any] = None,
+        line: Optional[float] = None,
+        final_projection: Optional[float] = None
     ) -> float:
         """
         Calculate confidence score based on:
@@ -349,6 +402,8 @@ class SignalProjectionEngine:
         - Agreement between signals (all say OVER vs. mixed)
         - Individual signal confidence scores
         - Weight of signals that fired
+        - Sample size penalty (if player has few games)
+        - Line proximity factor (lower confidence when projection is near line)
         """
         fired_signals = [r for r in signal_results.values() if r.fired]
 
@@ -384,12 +439,36 @@ class SignalProjectionEngine:
         else:
             weighted_confidence = avg_signal_confidence
 
-        # Combine factors (adjustable weights)
-        final_confidence = (
-            0.4 * agreement +
-            0.3 * avg_signal_confidence +
-            0.3 * weighted_confidence
+        # Base confidence from signals
+        base_confidence = (
+            0.35 * agreement +
+            0.35 * avg_signal_confidence +
+            0.30 * weighted_confidence
         )
+        
+        # Sample size penalty - reduce confidence for players with few games
+        sample_size_factor = 1.0
+        if context:
+            games_played = context.get('games_played', 30)
+            if games_played < 10:
+                sample_size_factor = 0.7  # Significant penalty
+            elif games_played < 20:
+                sample_size_factor = 0.85  # Moderate penalty
+        
+        # Line proximity penalty - reduce confidence when close to line
+        line_proximity_factor = 1.0
+        if line is not None and final_projection is not None:
+            edge = abs(final_projection - line)
+            if edge < 0.5:
+                line_proximity_factor = 0.6  # Very close to line - low confidence
+            elif edge < 1.0:
+                line_proximity_factor = 0.75  # Close to line
+            elif edge < 2.0:
+                line_proximity_factor = 0.9  # Moderate edge
+            # High edge (>2) keeps full factor
+        
+        # Combine all factors
+        final_confidence = base_confidence * sample_size_factor * line_proximity_factor
 
         # Scale to reasonable range (0.3 - 0.9)
         final_confidence = 0.3 + final_confidence * 0.6

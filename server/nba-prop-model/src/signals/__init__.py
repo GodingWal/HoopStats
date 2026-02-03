@@ -41,6 +41,7 @@ from .pace_matchup import PaceMatchupSignal
 from .defense_vs_position import DefenseVsPositionSignal
 from .injury_alpha import InjuryAlphaSignal
 from .blowout_risk import BlowoutRiskSignal
+from .referee_impact import RefereeImpactSignal
 
 # New signals (v2)
 from .clv_tracker import CLVTrackerSignal
@@ -194,6 +195,7 @@ __all__ = [
     'DefenseVsPositionSignal',
     'InjuryAlphaSignal',
     'BlowoutRiskSignal',
+    'RefereeImpactSignal',
 
     # Signal implementations (v2)
     'CLVTrackerSignal',

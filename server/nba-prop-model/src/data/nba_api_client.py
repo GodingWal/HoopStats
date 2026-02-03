@@ -219,6 +219,15 @@ class NBADataClient:
         box = boxscoreadvancedv2.BoxScoreAdvancedV2(game_id=game_id)
         return box.get_data_frames()[0]
     
+    def get_game_officials(self, game_id: str) -> pd.DataFrame:
+        """Get officials for a game using BoxScoreSummaryV2"""
+        self._rate_limit()
+        try:
+            summary = boxscoresummaryv2.BoxScoreSummaryV2(game_id=game_id)
+            return summary.officials.get_data_frame()
+        except Exception:
+            return pd.DataFrame()
+    
     # -------------------------------------------------------------------------
     # Today's Games
     # -------------------------------------------------------------------------

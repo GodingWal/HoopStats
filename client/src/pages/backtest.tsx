@@ -109,6 +109,7 @@ const SIGNAL_DISPLAY: Record<string, { label: string; description: string; color
   blowout: { label: "Blowout Risk", description: "Minutes reduction risk", color: "hsl(25, 95%, 53%)" },
   home_away: { label: "Home/Away", description: "Location split analysis", color: "hsl(47, 96%, 53%)" },
   recent_form: { label: "Recent Form", description: "Hot/cold streak detection", color: "hsl(199, 89%, 48%)" },
+  referee_impact: { label: "Referee Impact", description: "Referee foul tendency", color: "hsl(320, 70%, 50%)" },
 };
 
 const GRADE_COLORS: Record<string, string> = {
@@ -284,9 +285,8 @@ function OverviewCards({ overview }: { overview?: OverviewData }) {
       {cards.map(({ label, value, icon: Icon, highlight }) => (
         <div
           key={label}
-          className={`p-4 rounded-lg border ${
-            highlight ? "border-primary bg-primary/5" : "border-border"
-          }`}
+          className={`p-4 rounded-lg border ${highlight ? "border-primary bg-primary/5" : "border-border"
+            }`}
         >
           <div className="flex items-center gap-2 mb-1">
             <Icon className="w-4 h-4 text-muted-foreground" />
@@ -762,13 +762,12 @@ function ProjectionLogSection({ projections, isLoading }: { projections: Project
                     </td>
                     <td className="text-center py-2">
                       <span
-                        className={`text-xs font-mono ${
-                          proj.confidenceScore >= 0.7
+                        className={`text-xs font-mono ${proj.confidenceScore >= 0.7
                             ? "text-emerald-400"
                             : proj.confidenceScore >= 0.5
-                            ? "text-yellow-400"
-                            : "text-muted-foreground"
-                        }`}
+                              ? "text-yellow-400"
+                              : "text-muted-foreground"
+                          }`}
                       >
                         {(proj.confidenceScore * 100).toFixed(0)}%
                       </span>
