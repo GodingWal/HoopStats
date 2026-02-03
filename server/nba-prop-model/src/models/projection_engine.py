@@ -15,12 +15,21 @@ from src.models.minutes_model import MinutesModel
 from src.models.usage_redistribution import UsageRedistributionModel
 from src.models.stat_projections import StatProjectionModel
 from src.models.distributions import (
-    DistributionModeler, 
-    StatProjection, 
+    DistributionModeler,
+    StatProjection,
     JointProjection,
     calculate_edge,
     kelly_criterion
 )
+
+# New model enhancements (v2)
+from src.models.player_correlations import PlayerCorrelationEstimator
+from src.models.pace_adjusted import PaceAdjuster
+from src.models.garbage_time_filter import GarbageTimeFilter
+from src.models.lineup_aware import LineupAwareProjector, LineupContext
+from src.models.ensemble import EnsembleProjector
+from src.models.confidence_calibration import ConfidenceCalibrator
+from src.models.pick_quality_filters import PickQualityFilter
 
 
 @dataclass
@@ -35,6 +44,24 @@ class GameContext:
     opponent_def_rating: float
     opponent_pace: float
     teammate_injuries: Dict[str, float]  # Name -> Vacated Minutes
+
+    # New v2 context fields (all optional for backward compatibility)
+    team_pace: float = 100.0              # Player's team pace
+    referee_names: List[str] = None       # Assigned referees
+    primary_defender: str = ""            # Likely primary defender
+    opening_line: Optional[float] = None  # Opening betting line
+    current_line: Optional[float] = None  # Current betting line
+    lineup_context: Optional[Dict] = None # Lineup info (teammates in/out)
+    vs_team_history: List[Dict] = None    # Head-to-head history
+    travel_distance: float = 0.0          # Recent travel miles
+    altitude_change: float = 0.0          # Altitude change (feet)
+    player_age: Optional[int] = None      # Player age for fatigue model
+
+    def __post_init__(self):
+        if self.referee_names is None:
+            self.referee_names = []
+        if self.vs_team_history is None:
+            self.vs_team_history = []
 
 
 @dataclass
@@ -72,17 +99,26 @@ class ProjectionEngine:
     ):
         self.min_edge_threshold = min_edge_threshold
         self.kelly_fraction = kelly_fraction
-        
-        # Sub-components
+
+        # Sub-components (original)
         self.feature_engineer = PlayerFeatureEngineer()
         self.matchup_engineer = MatchupFeatureEngineer()
         self.situational_engineer = SituationalFactorEngineer()
-        
+
         self.minutes_model = MinutesModel()
         self.usage_model = UsageRedistributionModel()
         self.stat_model = StatProjectionModel()
         self.distribution_modeler = DistributionModeler(n_simulations=n_simulations)
-        
+
+        # New v2 components
+        self.correlation_estimator = PlayerCorrelationEstimator()
+        self.pace_adjuster = PaceAdjuster()
+        self.garbage_time_filter = GarbageTimeFilter()
+        self.lineup_projector = LineupAwareProjector()
+        self.ensemble_projector = EnsembleProjector()
+        self.confidence_calibrator = ConfidenceCalibrator()
+        self.pick_quality_filter = PickQualityFilter()
+
         # Cache for opponent stats
         self._opponent_cache: Dict[str, Dict] = {}
         
@@ -191,12 +227,15 @@ class ProjectionEngine:
         stat_projections['turnovers'] = StatProjection('turnovers', 2.5, 1.5, "normal", {"loc": 2.5, "scale": 1.5})
 
 
-        # Step 5: Estimate correlation matrix from historical data
-        if len(game_log) >= 10:
-            corr_matrix = self.distribution_modeler.estimate_correlation_from_data(game_log)
-        else:
-            corr_matrix = self.distribution_modeler.DEFAULT_CORRELATIONS
-        
+        # Step 5: Use PLAYER-SPECIFIC correlation matrix (v2 enhancement)
+        corr_matrix = self.correlation_estimator.get_correlation_matrix(
+            game_log=game_log,
+            position=features.position,
+            ast_per_min=features.ast_per_min,
+            reb_per_min=features.reb_per_min,
+            three_par=features.three_par,
+        )
+
         # Step 6: Create joint projection
         player_name = game_log['PLAYER_NAME'].iloc[0] if 'PLAYER_NAME' in game_log else "Unknown"
         game_date = datetime.now().strftime("%Y-%m-%d")
@@ -342,7 +381,17 @@ class ProjectionEngine:
         # Calculate probabilities
         prob_over = stat_proj.prob_over(line)
         prob_under = 1 - prob_over
-        
+
+        # Apply confidence calibration (v2 enhancement)
+        stat_type_map = {
+            'points': 'Points', 'rebounds': 'Rebounds', 'assists': 'Assists',
+            'threes': '3-Pointers Made', 'pts_reb_ast': 'Pts+Rebs+Asts',
+        }
+        cal_stat_type = stat_type_map.get(stat, stat)
+        cal_result = self.confidence_calibrator.calibrate(prob_over, cal_stat_type)
+        prob_over = cal_result.calibrated_probability
+        prob_under = 1 - prob_over
+
         # Determine best side
         if prob_over > prob_under:
             side = "over"
@@ -350,7 +399,7 @@ class ProjectionEngine:
         else:
             side = "under"
             model_prob = prob_under
-        
+
         # Calculate edge and EV
         edge, ev = calculate_edge(model_prob, odds)
         
