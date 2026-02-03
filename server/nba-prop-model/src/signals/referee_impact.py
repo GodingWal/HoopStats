@@ -43,7 +43,7 @@ class RefereeImpactSignal(BaseSignal):
         Requires 'game_referees' in context, which should be a list of dicts:
         [{'avg_fouls': 22.1}, {'avg_fouls': 19.2}, ...]
         """
-        referees = context.get('game_referees', [])
+        referees = context.get('game_referees') or []
         
         if not referees or len(referees) < 1:
             return self._create_neutral_result()

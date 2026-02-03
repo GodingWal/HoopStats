@@ -167,7 +167,7 @@ class RefereeSignal(BaseSignal):
             return context['referee_stats']
 
         # Look up from referee names
-        referee_names = context.get('referee_names', [])
+        referee_names = context.get('referee_names') or []
         if not referee_names:
             return None
 
@@ -192,7 +192,7 @@ class RefereeSignal(BaseSignal):
 
     def _get_baseline(self, stat_type: str, context: Dict[str, Any]) -> Optional[float]:
         """Get baseline value for a stat type from context."""
-        season_avgs = context.get('season_averages', {})
+        season_avgs = context.get('season_averages') or {}
         stat_key_map = {
             'Points': 'pts', 'Rebounds': 'reb', 'Assists': 'ast',
             '3-Pointers Made': 'fg3m', 'Pts+Rebs+Asts': 'pra',

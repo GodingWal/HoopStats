@@ -357,35 +357,35 @@ class BacktestEngine:
         }
 
         # Parse JSON fields if stored as strings
-        season_avgs = game.get('season_averages', {})
+        season_avgs = game.get('season_averages') or {}
         if isinstance(season_avgs, str):
             try:
                 season_avgs = json.loads(season_avgs)
             except:
                 season_avgs = {}
 
-        l5_avgs = game.get('last_5_averages', {})
+        l5_avgs = game.get('last_5_averages') or {}
         if isinstance(l5_avgs, str):
             try:
                 l5_avgs = json.loads(l5_avgs)
             except:
                 l5_avgs = {}
 
-        l10_avgs = game.get('last_10_averages', {})
+        l10_avgs = game.get('last_10_averages') or {}
         if isinstance(l10_avgs, str):
             try:
                 l10_avgs = json.loads(l10_avgs)
             except:
                 l10_avgs = {}
 
-        home_avgs = game.get('home_averages', {})
+        home_avgs = game.get('home_averages') or {}
         if isinstance(home_avgs, str):
             try:
                 home_avgs = json.loads(home_avgs)
             except:
                 home_avgs = {}
 
-        away_avgs = game.get('away_averages', {})
+        away_avgs = game.get('away_averages') or {}
         if isinstance(away_avgs, str):
             try:
                 away_avgs = json.loads(away_avgs)

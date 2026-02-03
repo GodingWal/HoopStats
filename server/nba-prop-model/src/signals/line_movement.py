@@ -181,7 +181,7 @@ class LineMovementSignal(BaseSignal):
 
         Returns a multiplier (0.8 - 1.3)
         """
-        line_history = context.get('line_history', [])
+        line_history = context.get('line_history') or []
         if len(line_history) < 3:
             return 1.0  # No velocity data, neutral
 
@@ -215,7 +215,7 @@ class LineMovementSignal(BaseSignal):
 
     def _get_baseline(self, stat_type: str, context: Dict[str, Any]) -> Optional[float]:
         """Get baseline value for a stat type from context."""
-        season_avgs = context.get('season_averages', {})
+        season_avgs = context.get('season_averages') or {}
         stat_key_map = {
             'Points': 'pts', 'Rebounds': 'reb', 'Assists': 'ast',
             '3-Pointers Made': 'fg3m', 'Pts+Rebs+Asts': 'pra',

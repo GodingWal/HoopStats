@@ -49,10 +49,10 @@ class HomeAwaySignal(BaseSignal):
         if is_home is None:
             return self._create_neutral_result()
 
-        # Get averages
-        home_avgs = context.get('home_averages', {})
-        away_avgs = context.get('away_averages', {})
-        season_avgs = context.get('season_averages', {})
+        # Get averages - ensure they're dicts, not None
+        home_avgs = context.get('home_averages') or {}
+        away_avgs = context.get('away_averages') or {}
+        season_avgs = context.get('season_averages') or {}
 
         # Get stat values
         stat_key = self._get_stat_key(stat_type)

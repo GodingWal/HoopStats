@@ -156,7 +156,7 @@ class DefenseVsPositionSignal(BaseSignal):
         stat_key = self._stat_to_key(stat_type)
 
         # First, try context-provided defense ratings
-        opp_def = context.get('opponent_def_vs_position', {})
+        opp_def = context.get('opponent_def_vs_position') or {}
         if player_pos in opp_def:
             pos_def = opp_def[player_pos]
             if isinstance(pos_def, dict) and stat_key in pos_def:
@@ -187,7 +187,7 @@ class DefenseVsPositionSignal(BaseSignal):
     def _get_baseline(self, stat_type: str, context: Dict[str, Any]) -> Optional[float]:
         """Get baseline value for a stat type from context."""
 
-        season_avgs = context.get('season_averages', {})
+        season_avgs = context.get('season_averages') or {}
 
         stat_key_map = {
             'Points': 'pts',

@@ -51,10 +51,10 @@ class RecentFormSignal(BaseSignal):
     ) -> SignalResult:
         """Calculate form-based adjustment."""
 
-        # Get averages
-        season_avgs = context.get('season_averages', {})
-        l5_avgs = context.get('last_5_averages', {})
-        l10_avgs = context.get('last_10_averages', season_avgs)  # Fallback to season
+        # Get averages - ensure they're dicts, not None
+        season_avgs = context.get('season_averages') or {}
+        l5_avgs = context.get('last_5_averages') or {}
+        l10_avgs = context.get('last_10_averages') or season_avgs  # Fallback to season
 
         stat_key = self._get_stat_key(stat_type)
         if stat_key is None:

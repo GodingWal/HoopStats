@@ -176,8 +176,8 @@ class FatigueSignal(BaseSignal):
     ) -> float:
         """Calculate fatigue from schedule density."""
 
-        recent_schedule = context.get('recent_schedule', [])
-        team_schedule = context.get('team_schedule', [])
+        recent_schedule = context.get('recent_schedule') or []
+        team_schedule = context.get('team_schedule') or []
 
         # Use whichever schedule data is available
         game_dates = []
@@ -290,7 +290,7 @@ class FatigueSignal(BaseSignal):
 
     def _get_baseline(self, stat_type: str, context: Dict[str, Any]) -> Optional[float]:
         """Get baseline value for a stat type from context."""
-        season_avgs = context.get('season_averages', {})
+        season_avgs = context.get('season_averages') or {}
         stat_key_map = {
             'Points': 'pts', 'Rebounds': 'reb', 'Assists': 'ast',
             '3-Pointers Made': 'fg3m', 'Pts+Rebs+Asts': 'pra',

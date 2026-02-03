@@ -92,7 +92,7 @@ class InjuryAlphaSignal(BaseSignal):
         """Calculate injury-based adjustment."""
 
         # Get injured teammates
-        injured_teammates = context.get('injured_teammates', [])
+        injured_teammates = context.get('injured_teammates') or []
         if not injured_teammates:
             return self._create_neutral_result()
 
@@ -152,7 +152,7 @@ class InjuryAlphaSignal(BaseSignal):
         total_boost = 0.0
 
         # Try context-provided redistribution first
-        redistribution = context.get('usage_redistribution', {})
+        redistribution = context.get('usage_redistribution') or {}
         team = context.get('team', '')
 
         for injured_player in injured_names:
@@ -213,7 +213,7 @@ class InjuryAlphaSignal(BaseSignal):
         """Check if we have a known redistribution pattern."""
 
         team = context.get('team', '')
-        redistribution = context.get('usage_redistribution', {})
+        redistribution = context.get('usage_redistribution') or {}
 
         for injured in injured_names:
             # Check context

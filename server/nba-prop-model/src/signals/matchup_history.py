@@ -55,7 +55,7 @@ class MatchupHistorySignal(BaseSignal):
     ) -> SignalResult:
         """Calculate matchup history adjustment."""
 
-        vs_team_history = context.get('vs_team_history', [])
+        vs_team_history = context.get('vs_team_history') or []
         if len(vs_team_history) < self.MIN_GAMES_VS:
             return self._create_neutral_result()
 
@@ -225,7 +225,7 @@ class MatchupHistorySignal(BaseSignal):
 
     def _get_baseline(self, stat_type: str, context: Dict[str, Any]) -> Optional[float]:
         """Get baseline value for a stat type from context."""
-        season_avgs = context.get('season_averages', {})
+        season_avgs = context.get('season_averages') or {}
         stat_key_map = {
             'Points': 'pts', 'Rebounds': 'reb', 'Assists': 'ast',
             '3-Pointers Made': 'fg3m', 'Pts+Rebs+Asts': 'pra',

@@ -126,7 +126,7 @@ class PaceMatchupSignal(BaseSignal):
                 return self.PACE_RANGE[1] - (rank - 1) / 29 * pace_range
 
         # Try opponent_stats dict
-        opp_stats = context.get('opponent_stats', {})
+        opp_stats = context.get('opponent_stats') or {}
         if 'pace' in opp_stats:
             return opp_stats['pace']
 
@@ -135,7 +135,7 @@ class PaceMatchupSignal(BaseSignal):
     def _get_baseline(self, stat_type: str, context: Dict[str, Any]) -> Optional[float]:
         """Get baseline value for a stat type from context."""
 
-        season_avgs = context.get('season_averages', {})
+        season_avgs = context.get('season_averages') or {}
 
         stat_key_map = {
             'Points': 'pts',

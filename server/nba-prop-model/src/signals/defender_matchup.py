@@ -149,7 +149,7 @@ class DefenderMatchupSignal(BaseSignal):
         stat_key = self._stat_to_key(stat_type)
 
         # Pre-provided defender stats
-        defender_stats = context.get('defender_stats', {})
+        defender_stats = context.get('defender_stats') or {}
         if defender_stats and stat_key in defender_stats:
             return defender_stats[stat_key]
 
@@ -177,7 +177,7 @@ class DefenderMatchupSignal(BaseSignal):
     ) -> Optional[float]:
         """Get head-to-head historical adjustment."""
 
-        h2h_history = context.get('h2h_vs_defender', [])
+        h2h_history = context.get('h2h_vs_defender') or []
         if len(h2h_history) < 3:
             return None
 
@@ -204,7 +204,7 @@ class DefenderMatchupSignal(BaseSignal):
 
     def _get_baseline(self, stat_type: str, context: Dict[str, Any]) -> Optional[float]:
         """Get baseline value for a stat type from context."""
-        season_avgs = context.get('season_averages', {})
+        season_avgs = context.get('season_averages') or {}
         stat_key_map = {
             'Points': 'pts', 'Rebounds': 'reb', 'Assists': 'ast',
             '3-Pointers Made': 'fg3m', 'Pts+Rebs+Asts': 'pra',
