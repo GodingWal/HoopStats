@@ -236,6 +236,7 @@ def populate_actuals(target_date: Optional[str] = None) -> int:
     nba_client = NBADataClient(request_delay=0.8)
 
     # Map stat types to NBA API column names
+    # For combo stats, we'll calculate them from individual stats
     STAT_TYPE_MAP = {
         'Points': 'PTS',
         'Rebounds': 'REB',
@@ -244,6 +245,15 @@ def populate_actuals(target_date: Optional[str] = None) -> int:
         'Steals': 'STL',
         'Blocks': 'BLK',
         'Turnovers': 'TOV',
+        'Fantasy Score': None,  # Calculated
+        'Pts+Rebs': ['PTS', 'REB'],  # Combo
+        'Pts+Asts': ['PTS', 'AST'],  # Combo
+        'Rebs+Asts': ['REB', 'AST'],  # Combo
+        'Pts+Rebs+Asts': ['PTS', 'REB', 'AST'],  # Combo
+        'Blks+Stls': ['BLK', 'STL'],  # Combo
+        'Stls+Blks': ['BLK', 'STL'],  # Combo (alternate name)
+        'Double Double': None,  # Special calculation
+        'Triple Double': None,  # Special calculation
     }
 
     updated = 0
@@ -318,11 +328,24 @@ def populate_actuals(target_date: Optional[str] = None) -> int:
 
                 # Get the actual stat value
                 nba_stat_col = STAT_TYPE_MAP.get(stat_type)
-                if nba_stat_col is None or nba_stat_col not in game_row.columns:
-                    logger.warning(f"Unknown stat type mapping: {stat_type}")
+                if nba_stat_col is None:
+                    # Skip unsupported stat types like Fantasy Score, Double Double
+                    logger.debug(f"Skipping unsupported stat type: {stat_type}")
                     continue
-
-                actual_value = float(game_row.iloc[0][nba_stat_col])
+                
+                # Handle combo stats (list of columns to sum)
+                if isinstance(nba_stat_col, list):
+                    try:
+                        actual_value = sum(float(game_row.iloc[0][col]) for col in nba_stat_col)
+                    except (KeyError, ValueError) as e:
+                        logger.warning(f"Could not calculate combo stat {stat_type}: {e}")
+                        continue
+                else:
+                    if nba_stat_col not in game_row.columns:
+                        logger.warning(f"Column {nba_stat_col} not found for stat type: {stat_type}")
+                        continue
+                    actual_value = float(game_row.iloc[0][nba_stat_col])
+                
                 actual_minutes = None
                 if 'MIN' in game_row.columns:
                     min_val = game_row.iloc[0]['MIN']
@@ -347,6 +370,7 @@ def populate_actuals(target_date: Optional[str] = None) -> int:
                     projection_hit = None
 
                 # Update the record
+                # Update projection_logs
                 cursor.execute("""
                     UPDATE projection_logs
                     SET actual_value = %s,
@@ -358,9 +382,19 @@ def populate_actuals(target_date: Optional[str] = None) -> int:
                     WHERE id = %s
                 """, (actual_value, actual_minutes, hit_over, projection_hit, projection_error, proj_id))
 
+                # ALSO update prizepicks_daily_lines so backtest_engine can find the data
+                cursor.execute("""
+                    UPDATE prizepicks_daily_lines
+                    SET actual_value = %s,
+                        hit_over = %s
+                    WHERE LOWER(player_name) = LOWER(%s)
+                      AND stat_type = %s
+                      AND game_date = %s
+                      AND actual_value IS NULL
+                """, (actual_value, hit_over, player_name, stat_type, target_date))
+
                 updated += 1
                 logger.debug(f"Updated {player_name} {stat_type}: actual={actual_value}, hit={projection_hit}")
-
             except Exception as e:
                 logger.warning(f"Error processing {player_name} - {stat_type}: {e}")
                 continue
