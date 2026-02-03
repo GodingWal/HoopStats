@@ -289,7 +289,8 @@ class BacktestEngine:
                 p.last_10_averages,
                 p.home_averages,
                 p.away_averages,
-                p.position
+                p.position,
+                p.recent_games
             FROM prizepicks_daily_lines pdl
             LEFT JOIN players p ON LOWER(pdl.player_name) = LOWER(p.player_name)
             WHERE pdl.game_date >= %s
@@ -526,8 +527,10 @@ class BacktestEngine:
                     sa.under_correct += 1
                     sa.correct_predictions += 1
 
-            # Track error
-            error = abs(actual - line)
+            # Track error: distance between actual and line adjusted by signal
+            # This measures how far off the signal-adjusted value was from actual
+            signal_projected = line + result.adjustment
+            error = abs(actual - signal_projected)
             sa.total_error += error
 
     def save_to_db(self, results: BacktestResults) -> bool:

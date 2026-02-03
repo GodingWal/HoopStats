@@ -600,23 +600,68 @@ def build_context_from_player_data(player_data: Dict[str, Any]) -> Dict[str, Any
     format expected by signals.
     """
     context = {
-        'player_name': player_data.get('name', ''),
+        'player_name': player_data.get('player_name') or player_data.get('name', ''),
         'team': player_data.get('team', ''),
     }
 
     # Parse JSON fields
-    for field in ['season_averages', 'last_5_averages', 'last_10_averages',
-                  'home_averages', 'away_averages']:
-        value = player_data.get(field, {})
+    for ctx_field in ['season_averages', 'last_5_averages', 'last_10_averages',
+                      'home_averages', 'away_averages', 'recent_games']:
+        value = player_data.get(ctx_field, {} if ctx_field != 'recent_games' else [])
         if isinstance(value, str):
             try:
                 value = json.loads(value)
             except:
-                value = {}
-        context[field] = value
+                value = {} if ctx_field != 'recent_games' else []
+        context[ctx_field] = value
 
     # Position
     if 'position' in player_data:
         context['player_position'] = player_data['position']
 
+    # Determine is_home from opponent format (NBA API uses "@ TM" for away, "vs. TM" for home)
+    opponent = player_data.get('opponent', '')
+    if isinstance(opponent, str) and opponent.strip():
+        # If opponent starts with '@' it's an away game
+        if opponent.strip().startswith('@'):
+            context['is_home'] = False
+        elif opponent.strip().startswith('vs'):
+            context['is_home'] = True
+        # Otherwise we don't know — leave unset so signal returns neutral
+
+    # Determine is_b2b from recent_games schedule
+    game_date = player_data.get('game_date', '')
+    recent_games = context.get('recent_games', [])
+    if game_date and recent_games:
+        context['is_b2b'] = _check_b2b_from_recent_games(game_date, recent_games)
+
     return context
+
+
+def _check_b2b_from_recent_games(game_date: str, recent_games: list) -> bool:
+    """Check if a game date is the second night of a back-to-back using recent game logs."""
+    from datetime import datetime, timedelta
+
+    try:
+        current = datetime.strptime(game_date, '%Y-%m-%d')
+        yesterday = (current - timedelta(days=1)).strftime('%Y-%m-%d')
+
+        for game in recent_games:
+            gd = game.get('GAME_DATE') or game.get('game_date', '')
+            # Handle various date formats
+            if gd:
+                # Normalize — game dates may be 'YYYY-MM-DD' or 'MMM DD, YYYY' etc.
+                if len(gd) == 10 and gd[4] == '-':
+                    if gd == yesterday:
+                        return True
+                else:
+                    try:
+                        parsed = datetime.strptime(gd, '%b %d, %Y')
+                        if parsed.strftime('%Y-%m-%d') == yesterday:
+                            return True
+                    except ValueError:
+                        continue
+    except (ValueError, TypeError):
+        pass
+
+    return False
