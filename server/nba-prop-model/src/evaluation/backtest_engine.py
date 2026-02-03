@@ -402,19 +402,69 @@ class BacktestEngine:
         if position:
             context['player_position'] = position
 
-        # Try to determine if home game (basic heuristic)
-        # In production, this should come from game data
-        context['is_home'] = True  # Default - should be overridden with real data
-
-        # B2B detection would require team schedule
-        context['is_b2b'] = False  # Default - should be overridden with real data
-
-        # Opponent team for defense lookup
+        # Detect home/away from opponent field format
+        # Common formats: "@ BOS" (away), "vs BOS" or just "BOS" (home)
         opponent = game.get('opponent', '')
-        if opponent:
-            context['opponent_team'] = opponent
+        opponent_clean = opponent.strip() if opponent else ''
+        
+        if opponent_clean.startswith('@'):
+            context['is_home'] = False
+            opponent_clean = opponent_clean[1:].strip()
+        elif opponent_clean.lower().startswith('vs'):
+            context['is_home'] = True
+            opponent_clean = opponent_clean[2:].strip()
+        else:
+            # Default to home if no prefix (common for home games)
+            context['is_home'] = True
+
+        # Set opponent team for defense lookup
+        if opponent_clean:
+            context['opponent_team'] = opponent_clean
+            context['opponent'] = opponent_clean
+
+        # B2B detection - check if team played on previous day
+        context['is_b2b'] = self._detect_b2b(game)
 
         return context
+
+    def _detect_b2b(self, game: Dict) -> bool:
+        """
+        Detect if this game is a back-to-back by checking if the team
+        played on the previous day.
+        """
+        if self.db_connection is None:
+            return False
+
+        team = game.get('team', '')
+        game_date = game.get('game_date', '')
+        
+        if not team or not game_date:
+            return False
+
+        try:
+            # Handle both string and date objects
+            if isinstance(game_date, str):
+                from datetime import datetime
+                game_dt = datetime.strptime(game_date, '%Y-%m-%d')
+            else:
+                game_dt = game_date
+            
+            prev_date = (game_dt - timedelta(days=1)).strftime('%Y-%m-%d')
+
+            cursor = self.db_connection.cursor()
+            cursor.execute("""
+                SELECT COUNT(*) FROM prizepicks_daily_lines
+                WHERE team = %s AND game_date = %s
+                LIMIT 1
+            """, (team, prev_date))
+            
+            result = cursor.fetchone()
+            cursor.close()
+            
+            return result and result[0] > 0
+        except Exception as e:
+            logger.debug(f"B2B detection failed: {e}")
+            return False
 
     def _evaluate_game(
         self,

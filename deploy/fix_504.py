@@ -28,30 +28,39 @@ def main():
     print("Connected!")
     
     print("\n" + "="*60)
-    print("CHECKING DATABASE FOR PRIZEPICKS DATA")
+    print("DIAGNOSING 504 ERROR")
     print("="*60)
     
-    # Check if there are PrizePicks lines in the database
-    print("\n[1] Checking PrizePicks lines in database...")
-    run_command(client, """
-        sudo -u postgres psql -d hoopstats -c "SELECT COUNT(*) as total_lines, MAX(captured_at) as last_capture FROM prizepicks_lines;"
-    """)
+    # Check PM2 status
+    print("\n[1] PM2 status...")
+    run_command(client, "pm2 status")
     
-    # Show some sample lines
-    print("\n[2] Sample PrizePicks lines...")
-    run_command(client, """
-        sudo -u postgres psql -d hoopstats -c "SELECT player_name, stat_type, line_value, captured_at FROM prizepicks_lines ORDER BY captured_at DESC LIMIT 10;"
-    """)
+    # Check if port 5000 is listening
+    print("\n[2] Checking port 5000...")
+    run_command(client, "ss -tlnp | grep 5000")
     
-    # Check the table structure
-    print("\n[3] PrizePicks lines table structure...")
-    run_command(client, """
-        sudo -u postgres psql -d hoopstats -c "\\d prizepicks_lines" 2>/dev/null || echo "Table may not exist"
-    """)
+    # Check recent PM2 error logs
+    print("\n[3] Recent error logs...")
+    run_command(client, "pm2 logs hoopstats --lines 30 --nostream")
+    
+    # Check memory usage
+    print("\n[4] Memory usage...")
+    run_command(client, "free -h")
+    
+    # Restart PM2 if needed
+    print("\n[5] Restarting PM2...")
+    run_command(client, "pm2 restart hoopstats")
+    
+    import time
+    time.sleep(5)
+    
+    # Test health endpoint
+    print("\n[6] Testing health endpoint...")
+    run_command(client, "curl -s http://localhost:5000/api/health")
     
     client.close()
     print("\n" + "="*60)
-    print("CHECK COMPLETE")
+    print("DONE")
     print("="*60)
 
 if __name__ == "__main__":

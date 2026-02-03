@@ -116,12 +116,17 @@ class WeightOptimizer:
         "pace": 0.12,
         "defense": 0.12,
         "blowout": 0.12,
+        "referee_impact": 0.10,
         "home_away": 0.08,
         "recent_form": 0.06,
     }
 
     # Prior strength (equivalent sample size)
     PRIOR_STRENGTH = 30
+    
+    # Minimum sample size to consider a signal reliable
+    # Signals with fewer predictions fall back to prior weight
+    MIN_SAMPLE_SIZE = 20
 
     # Minimum accuracy to receive any weight
     MIN_ACCURACY_THRESHOLD = 0.50
@@ -245,6 +250,9 @@ class WeightOptimizer:
 
         More data → trust observed more.
         Less data → fall back to prior.
+        
+        Signals with fewer than MIN_SAMPLE_SIZE predictions are considered
+        unreliable and fall back more heavily to prior weights.
         """
         weights = {}
         posterior_edges = {}
@@ -258,13 +266,20 @@ class WeightOptimizer:
             # Convert prior weight to implied accuracy (inverse of simple method)
             prior_accuracy = 0.50 + prior_weight * 0.20  # Assuming 20% total edge spread
 
-            # Bayesian update
+            # Apply sample size threshold - reduce observed weight for small samples
+            if observed_n < self.MIN_SAMPLE_SIZE:
+                # Scale down observed contribution proportionally
+                effective_n = observed_n * (observed_n / self.MIN_SAMPLE_SIZE)
+            else:
+                effective_n = observed_n
+
+            # Bayesian update with effective sample size
             prior_n = self.PRIOR_STRENGTH
-            total_n = prior_n + observed_n
+            total_n = prior_n + effective_n
 
             if total_n > 0:
                 posterior_accuracy = (
-                    (prior_accuracy * prior_n + observed_accuracy * observed_n)
+                    (prior_accuracy * prior_n + observed_accuracy * effective_n)
                     / total_n
                 )
             else:

@@ -41,6 +41,7 @@ from .pace_matchup import PaceMatchupSignal
 from .defense_vs_position import DefenseVsPositionSignal
 from .injury_alpha import InjuryAlphaSignal
 from .blowout_risk import BlowoutRiskSignal
+from .referee_impact import RefereeImpactSignal
 
 
 # List of available signal names
@@ -52,6 +53,7 @@ AVAILABLE_SIGNALS = [
     "defense",       # Opponent defense vs position
     "injury_alpha",  # Teammate injury boost
     "blowout",       # Blowout risk minutes reduction
+    "referee_impact", # Referee foul tendency impact
 ]
 
 # Default weights for blending signals (sum should be ~1.0 for fired signals)
@@ -62,6 +64,7 @@ DEFAULT_WEIGHTS = {
     "pace": 0.12,          # Moderate
     "defense": 0.12,       # Moderate
     "blowout": 0.12,       # Moderate
+    "referee_impact": 0.10, # Moderate-Low (new signal)
     "home_away": 0.08,     # Lower - splits can be noisy
     "recent_form": 0.06,   # Lowest - often noise
 }
@@ -174,6 +177,7 @@ __all__ = [
     'DefenseVsPositionSignal',
     'InjuryAlphaSignal',
     'BlowoutRiskSignal',
+    'RefereeImpactSignal',
 
     # Constants
     'AVAILABLE_SIGNALS',

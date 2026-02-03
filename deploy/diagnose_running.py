@@ -28,30 +28,24 @@ def main():
     print("Connected!")
     
     print("\n" + "="*60)
-    print("CHECKING DATABASE FOR PRIZEPICKS DATA")
+    print("DIAGNOSING RUNNING PROCESS")
     print("="*60)
     
-    # Check if there are PrizePicks lines in the database
-    print("\n[1] Checking PrizePicks lines in database...")
-    run_command(client, """
-        sudo -u postgres psql -d hoopstats -c "SELECT COUNT(*) as total_lines, MAX(captured_at) as last_capture FROM prizepicks_lines;"
-    """)
+    # Check PM2 details for log paths
+    print("\n[1] PM2 Show...")
+    run_command(client, "pm2 show hoopstats | grep 'log path'")
     
-    # Show some sample lines
-    print("\n[2] Sample PrizePicks lines...")
-    run_command(client, """
-        sudo -u postgres psql -d hoopstats -c "SELECT player_name, stat_type, line_value, captured_at FROM prizepicks_lines ORDER BY captured_at DESC LIMIT 10;"
-    """)
+    # Check actual process
+    print("\n[2] PS AUX...")
+    run_command(client, "ps aux | grep hoopstats | grep -v grep")
     
-    # Check the table structure
-    print("\n[3] PrizePicks lines table structure...")
-    run_command(client, """
-        sudo -u postgres psql -d hoopstats -c "\\d prizepicks_lines" 2>/dev/null || echo "Table may not exist"
-    """)
+    # Check disk space (maybe full?)
+    print("\n[3] Disk Space...")
+    run_command(client, "df -h /")
     
     client.close()
     print("\n" + "="*60)
-    print("CHECK COMPLETE")
+    print("DONE")
     print("="*60)
 
 if __name__ == "__main__":

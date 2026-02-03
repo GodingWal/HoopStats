@@ -1,5 +1,6 @@
 import paramiko
 import sys
+import time
 
 if sys.platform == 'win32':
     sys.stdout.reconfigure(encoding='utf-8')
@@ -28,30 +29,35 @@ def main():
     print("Connected!")
     
     print("\n" + "="*60)
-    print("CHECKING DATABASE FOR PRIZEPICKS DATA")
+    print("FORCING RESTART & MONITORING")
     print("="*60)
     
-    # Check if there are PrizePicks lines in the database
-    print("\n[1] Checking PrizePicks lines in database...")
-    run_command(client, """
-        sudo -u postgres psql -d hoopstats -c "SELECT COUNT(*) as total_lines, MAX(captured_at) as last_capture FROM prizepicks_lines;"
-    """)
+    # Force restart
+    print("\n[1] Restarting PM2...")
+    run_command(client, "pm2 restart hoopstats")
     
-    # Show some sample lines
-    print("\n[2] Sample PrizePicks lines...")
-    run_command(client, """
-        sudo -u postgres psql -d hoopstats -c "SELECT player_name, stat_type, line_value, captured_at FROM prizepicks_lines ORDER BY captured_at DESC LIMIT 10;"
-    """)
+    # Check status
+    print("\n[2] Checking Status (should be 0s uptime)...")
+    run_command(client, "pm2 status hoopstats")
     
-    # Check the table structure
-    print("\n[3] PrizePicks lines table structure...")
-    run_command(client, """
-        sudo -u postgres psql -d hoopstats -c "\\d prizepicks_lines" 2>/dev/null || echo "Table may not exist"
-    """)
+    # Watch logs for 30 seconds
+    print("\n[3] Watching logs for 30s...")
+    cmd = "timeout 30 tail -f /root/.pm2/logs/hoopstats-out.log"
+    # Execute and stream
+    stdin, stdout, stderr = client.exec_command(cmd)
     
+    start_time = time.time()
+    while time.time() - start_time < 35:
+        if stdout.channel.recv_ready():
+            line = stdout.channel.recv(1024).decode('utf-8', errors='ignore')
+            sys.stdout.write(line)
+        if stdout.channel.exit_status_ready():
+            break
+        time.sleep(0.5)
+            
     client.close()
     print("\n" + "="*60)
-    print("CHECK COMPLETE")
+    print("DONE")
     print("="*60)
 
 if __name__ == "__main__":

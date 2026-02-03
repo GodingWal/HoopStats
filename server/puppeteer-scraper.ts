@@ -45,8 +45,9 @@ async function getBrowser(): Promise<Browser> {
 
     apiLogger.info('[PuppeteerScraper] Launching new browser instance');
 
+    // Launch with new headless mode and stealth args
     browserInstance = await pptr.default.launch({
-        headless: true,
+        headless: true, // Use new headless mode (default in newer versions)
         args: [
             '--no-sandbox',
             '--disable-setuid-sandbox',
@@ -56,11 +57,14 @@ async function getBrowser(): Promise<Browser> {
             '--window-size=1920,1080',
             '--disable-blink-features=AutomationControlled',
             '--disable-features=site-per-process',
+            '--hide-scrollbars',
+            '--mute-audio',
         ],
         defaultViewport: {
             width: 1920,
             height: 1080,
         },
+        ignoreDefaultArgs: ['--enable-automation'],
     });
 
     browserLastUsed = Date.now();
@@ -121,9 +125,9 @@ async function applyStealthSettings(page: Page): Promise<void> {
         };
     });
 
-    // Set realistic user agent
+    // Set realistic user agent (Updated to Chrome 122)
     await page.setUserAgent(
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
     );
 
     // Set extra headers
