@@ -42,28 +42,48 @@ from .defense_vs_position import DefenseVsPositionSignal
 from .injury_alpha import InjuryAlphaSignal
 from .blowout_risk import BlowoutRiskSignal
 
+# New signals (v2)
+from .clv_tracker import CLVTrackerSignal
+from .referee import RefereeSignal
+from .defender_matchup import DefenderMatchupSignal
+from .line_movement import LineMovementSignal
+from .matchup_history import MatchupHistorySignal
+from .fatigue import FatigueSignal
+
 
 # List of available signal names
 AVAILABLE_SIGNALS = [
-    "b2b",           # Back-to-back fatigue
-    "home_away",     # Home/away splits
-    "recent_form",   # Hot/cold streaks
-    "pace",          # Opponent pace matchup
-    "defense",       # Opponent defense vs position
-    "injury_alpha",  # Teammate injury boost
-    "blowout",       # Blowout risk minutes reduction
+    "b2b",              # Back-to-back fatigue
+    "home_away",        # Home/away splits
+    "recent_form",      # Hot/cold streaks
+    "pace",             # Opponent pace matchup
+    "defense",          # Opponent defense vs position
+    "injury_alpha",     # Teammate injury boost
+    "blowout",          # Blowout risk minutes reduction
+    "clv_tracker",      # Closing line value tracking & filtering
+    "referee",          # Referee tendency adjustment
+    "defender_matchup", # Specific primary defender matchup
+    "line_movement",    # Line movement / sharp money detection
+    "matchup_history",  # Head-to-head matchup history
+    "fatigue",          # Continuous fatigue model (schedule, travel, load)
 ]
 
 # Default weights for blending signals (sum should be ~1.0 for fired signals)
 # These are starting points - will be updated by weight optimizer
 DEFAULT_WEIGHTS = {
-    "injury_alpha": 0.20,  # Highest - most predictable edge
-    "b2b": 0.15,           # Strong, well-documented
-    "pace": 0.12,          # Moderate
-    "defense": 0.12,       # Moderate
-    "blowout": 0.12,       # Moderate
-    "home_away": 0.08,     # Lower - splits can be noisy
-    "recent_form": 0.06,   # Lowest - often noise
+    "injury_alpha": 0.18,     # Highest - most predictable edge
+    "clv_tracker": 0.12,      # CLV is a strong meta-signal
+    "b2b": 0.10,              # Strong, well-documented
+    "line_movement": 0.10,    # Sharp money signal
+    "defender_matchup": 0.08, # Granular defender matchup
+    "pace": 0.08,             # Moderate
+    "defense": 0.07,          # Moderate (partially overlaps with defender_matchup)
+    "blowout": 0.07,          # Moderate
+    "fatigue": 0.06,          # Beyond B2B fatigue
+    "matchup_history": 0.05,  # Head-to-head history
+    "referee": 0.04,          # Referee tendencies
+    "home_away": 0.03,        # Lower - splits can be noisy
+    "recent_form": 0.02,      # Lowest - often noise
 }
 
 # Stat types supported by the signal system
@@ -166,7 +186,7 @@ __all__ = [
     'SignalRegistry',
     'registry',
 
-    # Signal implementations
+    # Signal implementations (original)
     'BackToBackSignal',
     'HomeAwaySignal',
     'RecentFormSignal',
@@ -174,6 +194,14 @@ __all__ = [
     'DefenseVsPositionSignal',
     'InjuryAlphaSignal',
     'BlowoutRiskSignal',
+
+    # Signal implementations (v2)
+    'CLVTrackerSignal',
+    'RefereeSignal',
+    'DefenderMatchupSignal',
+    'LineMovementSignal',
+    'MatchupHistorySignal',
+    'FatigueSignal',
 
     # Constants
     'AVAILABLE_SIGNALS',
