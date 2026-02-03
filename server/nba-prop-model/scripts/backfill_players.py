@@ -33,6 +33,13 @@ logging.basicConfig(
 )
 logger = logging.getLogger('backfill_players')
 
+def normalize_name(name):
+    """Normalize name to remove accents and lowercase."""
+    if not name:
+        return ""
+    return ''.join(c for c in unicodedata.normalize('NFD', name)
+                  if unicodedata.category(c) != 'Mn').lower()
+
 def connect_db():
     load_dotenv()
     db_url = os.getenv('DATABASE_URL')
