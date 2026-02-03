@@ -2,6 +2,7 @@
 """
 Backfill Player Data Script
 Fetches comprehensive historical data for all active NBA players and populates the database.
+Updates existing players (by name) to preserve FKs, inserts new ones with NBA IDs.
 Usage: python scripts/backfill_players.py [--season 2025-26]
 """
 import os
@@ -19,7 +20,7 @@ from dotenv import load_dotenv
 
 # Add src to path
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
-from src.data.nba_api_client import NBADataClient, get_player_rolling_stats
+from src.data.nba_api_client import NBADataClient
 
 # Setup logging
 logging.basicConfig(
@@ -31,13 +32,6 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger('backfill_players')
-
-def normalize_name(name):
-    """Normalize name to remove accents and lowercase."""
-    if not name:
-        return ""
-    return ''.join(c for c in unicodedata.normalize('NFD', name)
-                  if unicodedata.category(c) != 'Mn').lower()
 
 def connect_db():
     load_dotenv()
@@ -112,6 +106,16 @@ def main():
     conn = connect_db()
     cursor = conn.cursor()
     
+    # Load existing players to map Name -> DB_ID 
+    # This prevents duplicates and preserves FKs if names match
+    cursor.execute("SELECT id, player_name FROM players")
+    existing_players = {}
+    for row in cursor.fetchall():
+        if row[1]:
+            existing_players[row[1].lower()] = row[0]
+            
+    logger.info(f"Loaded {len(existing_players)} existing players from DB.")
+    
     success_count = 0
     error_count = 0
     
@@ -119,22 +123,20 @@ def main():
     
     for i, player in players_df.iterrows():
         try:
-            pid = player['id']
+            api_id = player['id']
             name = player['full_name']
             
             # Progress log
             if i % 10 == 0:
                 elapsed = time.time() - start_time
-                rate = (i + 1) / elapsed
+                rate = (i + 1) / (elapsed + 0.1)
                 logger.info(f"Processing {i+1}/{len(players_df)}: {name} ({rate:.1f} players/sec)")
             
             # Get game log
-            games = client.get_player_game_log(pid, season=args.season)
+            games = client.get_player_game_log(api_id, season=args.season)
             
             if games.empty:
-                logger.debug(f"No games found for {name}")
-                # Try previous season if empty? 
-                # For now, just skip to avoid polluting with old data if active but not playing
+                # logger.debug(f"No games found for {name}")
                 continue
                 
             # Basic info
@@ -159,32 +161,51 @@ def main():
                     'ast': int(game['AST']),
                     'min': float(game['MIN'])
                 })
-                
-            # Upsert into DB
-            cursor.execute("""
-                INSERT INTO players (
-                    id, name, player_name, team, 
-                    season_averages, last_5_averages, last_10_averages,
-                    home_averages, away_averages, recent_games,
-                    games_played
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                ON CONFLICT (id) DO UPDATE SET
-                    name = EXCLUDED.name,
-                    player_name = EXCLUDED.player_name,
-                    team = EXCLUDED.team,
-                    season_averages = EXCLUDED.season_averages,
-                    last_5_averages = EXCLUDED.last_5_averages,
-                    last_10_averages = EXCLUDED.last_10_averages,
-                    home_averages = EXCLUDED.home_averages,
-                    away_averages = EXCLUDED.away_averages,
-                    recent_games = EXCLUDED.recent_games,
-                    games_played = EXCLUDED.games_played
-            """, (
-                pid, name, name, team,
-                Json(season_avgs), Json(l5_avgs), Json(l10_avgs),
-                Json(home_avgs), Json(away_avgs), Json(recent_games),
-                len(games)
-            ))
+            
+            # Determine Upsert Strategy
+            db_id = existing_players.get(name.lower())
+            
+            if db_id:
+                # Update existing row
+                cursor.execute("""
+                    UPDATE players SET
+                        player_name = %s,
+                        team = %s,
+                        player_id = %s,
+                        season_averages = %s,
+                        last_5_averages = %s,
+                        last_10_averages = %s,
+                        home_averages = %s,
+                        away_averages = %s,
+                        recent_games = %s,
+                        games_played = %s
+                    WHERE id = %s
+                """, (
+                    name, team, api_id,
+                    Json(season_avgs), Json(l5_avgs), Json(l10_avgs),
+                    Json(home_avgs), Json(away_avgs), Json(recent_games),
+                    len(games),
+                    db_id
+                ))
+            else:
+                # Insert new row
+                cursor.execute("""
+                    INSERT INTO players (
+                        id, player_name, team, player_id,
+                        season_averages, last_5_averages, last_10_averages,
+                        home_averages, away_averages, recent_games,
+                        games_played
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (id) DO UPDATE SET
+                        player_name = EXCLUDED.player_name,
+                        team = EXCLUDED.team,
+                        season_averages = EXCLUDED.season_averages
+                """, (
+                    api_id, name, team, api_id,
+                    Json(season_avgs), Json(l5_avgs), Json(l10_avgs),
+                    Json(home_avgs), Json(away_avgs), Json(recent_games),
+                    len(games)
+                ))
             
             conn.commit()
             success_count += 1
