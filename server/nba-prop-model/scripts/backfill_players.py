@@ -112,7 +112,9 @@ def main():
     existing_players = {}
     for row in cursor.fetchall():
         if row[1]:
-            existing_players[row[1].lower()] = row[0]
+            # Normalize DB name for robust matching
+            existing_players[normalize_name(row[1])] = row[0]
+            existing_players[row[1].lower()] = row[0] # Fallback to simple lower
             
     logger.info(f"Loaded {len(existing_players)} existing players from DB.")
     
@@ -163,7 +165,11 @@ def main():
                 })
             
             # Determine Upsert Strategy
-            db_id = existing_players.get(name.lower())
+            # Try normalized match
+            db_id = existing_players.get(normalize_name(name))
+            # Try simple lower match
+            if not db_id:
+                db_id = existing_players.get(name.lower())
             
             if db_id:
                 # Update existing row
@@ -194,8 +200,9 @@ def main():
                         id, player_name, team, player_id,
                         season_averages, last_5_averages, last_10_averages,
                         home_averages, away_averages, recent_games,
-                        games_played
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        games_played, 
+                        hit_rates, vs_team
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     ON CONFLICT (id) DO UPDATE SET
                         player_name = EXCLUDED.player_name,
                         team = EXCLUDED.team,
@@ -204,7 +211,8 @@ def main():
                     api_id, name, team, api_id,
                     Json(season_avgs), Json(l5_avgs), Json(l10_avgs),
                     Json(home_avgs), Json(away_avgs), Json(recent_games),
-                    len(games)
+                    len(games),
+                    Json({}), Json({})
                 ))
             
             conn.commit()
