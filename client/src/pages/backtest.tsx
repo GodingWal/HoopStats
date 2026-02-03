@@ -11,8 +11,24 @@ import {
 import {
   Loader2, FlaskConical, TrendingUp, TrendingDown,
   Target, Scale, Activity, CheckCircle2, XCircle,
-  ArrowUpRight, ArrowDownRight, Minus, Clock,
+  ArrowUpRight, ArrowDownRight, Minus, Clock, AlertTriangle,
 } from "lucide-react";
+
+// ==================== HELPERS ====================
+
+const safeFixed = (val: number | string | null | undefined, digits: number = 1): string => {
+  if (val === null || val === undefined) return "—";
+  const num = typeof val === 'string' ? parseFloat(val) : val;
+  if (isNaN(num)) return "—";
+  return num.toFixed(digits);
+};
+
+const safePercentage = (val: number | string | null | undefined, digits: number = 0): string => {
+  if (val === null || val === undefined) return "—";
+  const num = typeof val === 'string' ? parseFloat(val) : val;
+  if (isNaN(num)) return "—";
+  return (num * 100).toFixed(digits) + "%";
+};
 
 // ==================== TYPE DEFINITIONS ====================
 
@@ -265,7 +281,7 @@ function OverviewCards({ overview }: { overview?: OverviewData }) {
     {
       label: "Hit Rate",
       value: overview.completedProjections > 0
-        ? `${(overview.overallHitRate * 100).toFixed(1)}%`
+        ? safePercentage(overview.overallHitRate, 1)
         : "—",
       icon: Activity,
       highlight: overview.overallHitRate > 0.524,
@@ -273,7 +289,7 @@ function OverviewCards({ overview }: { overview?: OverviewData }) {
     {
       label: "Avg Confidence",
       value: overview.avgConfidence > 0
-        ? `${(overview.avgConfidence * 100).toFixed(0)}%`
+        ? safePercentage(overview.avgConfidence, 0)
         : "—",
       icon: Scale,
       highlight: false,
@@ -457,7 +473,7 @@ function SignalAccuracySection({ signals, isLoading }: { signals: SignalData[]; 
                         {signal.totalPredictions || "—"}
                       </td>
                       <td className="text-center py-2.5 px-1 font-mono font-bold text-sm">
-                        {signal.totalPredictions > 0 ? `${(signal.accuracy * 100).toFixed(1)}%` : "—"}
+                        {signal.totalPredictions > 0 ? safePercentage(signal.accuracy, 1) : "—"}
                       </td>
                       <td className="text-center py-2.5 px-1 font-mono text-xs">{overStr}</td>
                       <td className="text-center py-2.5 px-1 font-mono text-xs">{underStr}</td>
@@ -590,7 +606,7 @@ function WeightsSection({ weightsData, signals }: { weightsData?: WeightsRespons
                   <div className="flex justify-between items-center mb-1">
                     <span className="text-sm font-medium truncate">{label}</span>
                     <span className="text-sm font-mono font-bold">
-                      {(weight * 100).toFixed(0)}%
+                      {safePercentage(weight, 0)}
                     </span>
                   </div>
                   <div className="w-full bg-secondary rounded-full h-2">
@@ -605,7 +621,7 @@ function WeightsSection({ weightsData, signals }: { weightsData?: WeightsRespons
                   </div>
                   {sampleSize > 0 && (
                     <div className="text-[10px] text-muted-foreground mt-0.5">
-                      {(accuracy * 100).toFixed(1)}% accuracy ({sampleSize} samples)
+                      {safePercentage(accuracy, 1)} accuracy ({sampleSize} samples)
                     </div>
                   )}
                 </div>
@@ -746,10 +762,10 @@ function ProjectionLogSection({ projections, isLoading }: { projections: Project
                       })}
                     </td>
                     <td className="text-center py-2 font-mono">
-                      {proj.line?.toFixed(1) || "—"}
+                      {safeFixed(proj.line)}
                     </td>
                     <td className="text-center py-2 font-mono font-bold">
-                      {proj.projectedValue.toFixed(1)}
+                      {safeFixed(proj.projectedValue)}
                     </td>
                     <td className="text-center py-2">
                       {proj.predictedDirection === "OVER" ? (
@@ -763,17 +779,17 @@ function ProjectionLogSection({ projections, isLoading }: { projections: Project
                     <td className="text-center py-2">
                       <span
                         className={`text-xs font-mono ${proj.confidenceScore >= 0.7
-                            ? "text-emerald-400"
-                            : proj.confidenceScore >= 0.5
-                              ? "text-yellow-400"
-                              : "text-muted-foreground"
+                          ? "text-emerald-400"
+                          : proj.confidenceScore >= 0.5
+                            ? "text-yellow-400"
+                            : "text-muted-foreground"
                           }`}
                       >
-                        {(proj.confidenceScore * 100).toFixed(0)}%
+                        {safePercentage(proj.confidenceScore, 0)}
                       </span>
                     </td>
                     <td className="text-center py-2 font-mono">
-                      {hasActual ? proj.actualValue!.toFixed(1) : "—"}
+                      {hasActual ? safeFixed(proj.actualValue) : "—"}
                     </td>
                     <td className="text-center py-2">
                       {hasActual ? (
@@ -828,7 +844,7 @@ function BacktestRunsSection({ runs }: { runs: BacktestRun[] }) {
                   <td className="text-center py-2 font-mono">{run.totalPredictions}</td>
                   <td className="text-center py-2 font-mono font-bold">
                     <span className={run.overallAccuracy > 0.524 ? "text-emerald-400" : ""}>
-                      {(run.overallAccuracy * 100).toFixed(1)}%
+                      {safePercentage(run.overallAccuracy, 1)}
                     </span>
                   </td>
                   <td className="text-center py-2 text-xs text-muted-foreground">
