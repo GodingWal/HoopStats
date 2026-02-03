@@ -275,6 +275,8 @@ class BacktestEngine:
             logger.warning("No database connection - returning empty list")
             return []
 
+        try:
+
             cursor = self.db_connection.cursor()
             
             # 1. Get Games
