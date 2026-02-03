@@ -21,13 +21,18 @@ const positionColors: Record<string, string> = {
 
 export function PlayerCard({ player, isSelected, isFavorite, onToggleFavorite, onClick }: PlayerCardProps) {
   const recentPts = player.recent_games.map((g) => g.PTS).reverse();
-  const avgPts = player.season_averages.PTS;
+
+  const avgs = player.season_averages as any;
+  const avgPts = avgs.pts ?? avgs.PTS ?? 0;
+  const avgReb = avgs.reb ?? avgs.REB ?? 0;
+  const avgAst = avgs.ast ?? avgs.AST ?? 0;
+
   const lastPts = player.recent_games[0]?.PTS ?? 0;
   const ptsTrend = lastPts - avgPts;
 
   // Determine position color (simple heuristic based on stats)
-  const isCenter = player.season_averages.REB > 7;
-  const isGuard = player.season_averages.AST > 5;
+  const isCenter = avgReb > 7;
+  const isGuard = avgAst > 5;
   const posKey = isCenter ? "C" : isGuard ? "G" : "F";
   const ringColor = positionColors[posKey] || positionColors.default;
 
@@ -52,8 +57,8 @@ export function PlayerCard({ player, isSelected, isFavorite, onToggleFavorite, o
       <button
         onClick={handleFavoriteClick}
         className={`absolute top-2 right-2 p-1 rounded-full transition-all duration-200 z-10 ${isFavorite
-            ? "text-yellow-400 hover:text-yellow-300"
-            : "text-muted-foreground/40 hover:text-yellow-400 opacity-0 group-hover:opacity-100"
+          ? "text-yellow-400 hover:text-yellow-300"
+          : "text-muted-foreground/40 hover:text-yellow-400 opacity-0 group-hover:opacity-100"
           }`}
         data-testid={`button-favorite-${player.player_id}`}
       >
@@ -87,11 +92,11 @@ export function PlayerCard({ player, isSelected, isFavorite, onToggleFavorite, o
             </div>
             <div className="flex items-center gap-1">
               <span className="text-[10px] text-muted-foreground uppercase">REB</span>
-              <span className="font-mono font-bold text-sm">{player.season_averages.REB.toFixed(1)}</span>
+              <span className="font-mono font-bold text-sm">{(avgReb || 0).toFixed(1)}</span>
             </div>
             <div className="flex items-center gap-1">
               <span className="text-[10px] text-muted-foreground uppercase">AST</span>
-              <span className="font-mono font-bold text-sm">{player.season_averages.AST.toFixed(1)}</span>
+              <span className="font-mono font-bold text-sm">{(avgAst || 0).toFixed(1)}</span>
             </div>
           </div>
         </div>

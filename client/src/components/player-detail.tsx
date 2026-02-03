@@ -112,6 +112,15 @@ export function PlayerDetail({ player }: PlayerDetailProps) {
     MIN: parseInt(entry.stats.MIN?.split(":")[0] || "0", 10),
   })) || [];
 
+  const normalizeAvgs = (avgs: any) => ({
+    PTS: avgs?.PTS ?? avgs?.pts ?? 0,
+    REB: avgs?.REB ?? avgs?.reb ?? 0,
+    AST: avgs?.AST ?? avgs?.ast ?? 0,
+    FG3M: avgs?.FG3M ?? avgs?.fg3m ?? 0,
+    PRA: (avgs?.PTS ?? avgs?.pts ?? 0) + (avgs?.REB ?? avgs?.reb ?? 0) + (avgs?.AST ?? avgs?.ast ?? 0),
+    MIN: avgs?.MIN ?? avgs?.min ?? 0,
+  });
+
   const seasonAverages = allGames.length > 0 ? {
     PTS: calcAvg(allGames, 'PTS'),
     REB: calcAvg(allGames, 'REB'),
@@ -119,7 +128,7 @@ export function PlayerDetail({ player }: PlayerDetailProps) {
     FG3M: calcAvg(allGames, 'FG3M'),
     PRA: calcAvg(allGames, 'PTS') + calcAvg(allGames, 'REB') + calcAvg(allGames, 'AST'),
     MIN: calcAvg(allGames, 'MIN'),
-  } : player.season_averages;
+  } : normalizeAvgs(player.season_averages);
 
   const last10Games = allGames.slice(0, 10);
   const last10Averages = last10Games.length > 0 ? {

@@ -60,8 +60,9 @@ export default function Home() {
     // Position filter (heuristic based on stats)
     if (positionFilter !== "all") {
       result = result.filter((p) => {
-        const reb = p.season_averages.REB;
-        const ast = p.season_averages.AST;
+        const avgs = p.season_averages as any;
+        const reb = avgs.reb ?? avgs.REB ?? 0;
+        const ast = avgs.ast ?? avgs.AST ?? 0;
         if (positionFilter === "C") return reb > 7;
         if (positionFilter === "G") return ast > 5 && reb <= 7;
         if (positionFilter === "F") return ast <= 5 && reb <= 7;
@@ -72,7 +73,11 @@ export default function Home() {
     // Min points filter
     const minPtsNum = parseFloat(minPts);
     if (!isNaN(minPtsNum) && minPtsNum > 0) {
-      result = result.filter((p) => p.season_averages.PTS >= minPtsNum);
+      result = result.filter((p) => {
+        const avgs = p.season_averages as any;
+        const pts = avgs.pts ?? avgs.PTS ?? 0;
+        return pts >= minPtsNum;
+      });
     }
 
     return result;
