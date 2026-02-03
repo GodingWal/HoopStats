@@ -526,6 +526,31 @@ def update_weights(days: int = 60) -> Dict[str, Any]:
         return {}
 
 
+
+def backfill_data(season: str = '2025-26') -> None:
+    """
+    Run data backfill for a specific season.
+    
+    Args:
+        season: Season to fetch (e.g. 2025-26)
+    """
+    logger.info(f"Starting backfill for {season}...")
+    try:
+        # Import dynamically to avoid circular imports or path issues
+        from scripts import backfill_players
+        
+        # Mock sys.argv for the script
+        old_argv = sys.argv
+        sys.argv = ['backfill_players.py', '--season', season]
+        
+        backfill_players.main()
+        
+        sys.argv = old_argv
+        logger.info("Backfill finished")
+    except Exception as e:
+        logger.error(f"Error running backfill: {e}")
+
+
 def run_full_pipeline() -> Dict[str, Any]:
     """
     Run full pipeline (for testing/manual runs).
@@ -568,7 +593,7 @@ def main():
 
     parser.add_argument(
         'command',
-        choices=['capture', 'actuals', 'validate', 'weights', 'all'],
+        choices=['capture', 'actuals', 'validate', 'weights', 'backfill', 'all'],
         help='Command to run'
     )
 
@@ -617,6 +642,10 @@ def main():
     elif args.command == 'all':
         result = run_full_pipeline()
         print(json.dumps(result, indent=2, default=str))
+
+    elif args.command == 'backfill':
+        backfill_data()
+
 
 
 if __name__ == '__main__':
