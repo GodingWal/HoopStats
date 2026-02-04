@@ -114,6 +114,27 @@ STAT_CONFIGS = {
         "combination": ["points", "rebounds", "assists"],
         "volatility": "low",  # Diversification reduces variance
     },
+    "pts_reb": {
+        "distribution": "normal",
+        "combination": ["points", "rebounds"],
+        "volatility": "low",
+    },
+    "pts_ast": {
+        "distribution": "normal",
+        "combination": ["points", "assists"],
+        "volatility": "medium",
+    },
+    "reb_ast": {
+        "distribution": "normal",
+        "combination": ["rebounds", "assists"],
+        "volatility": "medium",
+    },
+    "fouls": {
+        "distribution": "poisson",
+        "per_minute_baseline": True,
+        "key_features": ["foul_rate", "referee_tendency", "opp_fta_rate"],
+        "volatility": "high",
+    },
 }
 
 # Position mappings

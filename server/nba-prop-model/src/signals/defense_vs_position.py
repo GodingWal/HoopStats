@@ -30,7 +30,10 @@ class DefenseVsPositionSignal(BaseSignal):
 
     name = "defense"
     description = "Opponent defense vs position matchup"
-    stat_types = ["Points", "Rebounds", "Assists", "3-Pointers Made", "Pts+Rebs+Asts"]
+    stat_types = [
+        "Points", "Rebounds", "Assists", "3-Pointers Made", "Pts+Rebs+Asts",
+        "Steals", "Blocks", "Turnovers", "Pts+Rebs", "Pts+Asts", "Rebs+Asts",
+    ]
     default_confidence = 0.58
 
     # Minimum matchup factor deviation to fire signal
@@ -40,29 +43,29 @@ class DefenseVsPositionSignal(BaseSignal):
     # These should match matchup_features.py defaults
     DEFAULT_DEFENSE_RATINGS = {
         "BOS": {  # Elite defense
-            "G": {'pts': 0.92, 'ast': 0.94, 'reb': 0.98},
-            "F": {'pts': 0.94, 'ast': 1.00, 'reb': 0.96},
-            "C": {'pts': 0.90, 'ast': 1.05, 'reb': 0.93}
+            "G": {'pts': 0.92, 'ast': 0.94, 'reb': 0.98, 'stl': 0.95, 'blk': 0.97, 'tov': 0.93},
+            "F": {'pts': 0.94, 'ast': 1.00, 'reb': 0.96, 'stl': 0.96, 'blk': 0.94, 'tov': 0.94},
+            "C": {'pts': 0.90, 'ast': 1.05, 'reb': 0.93, 'stl': 0.98, 'blk': 0.92, 'tov': 0.95}
         },
         "GSW": {  # Vulnerable to guards
-            "G": {'pts': 1.06, 'ast': 1.04, 'reb': 1.02},
-            "F": {'pts': 0.98, 'ast': 0.99, 'reb': 1.01},
-            "C": {'pts': 0.94, 'ast': 1.00, 'reb': 0.97}
+            "G": {'pts': 1.06, 'ast': 1.04, 'reb': 1.02, 'stl': 1.03, 'blk': 1.00, 'tov': 1.04},
+            "F": {'pts': 0.98, 'ast': 0.99, 'reb': 1.01, 'stl': 1.00, 'blk': 0.99, 'tov': 1.01},
+            "C": {'pts': 0.94, 'ast': 1.00, 'reb': 0.97, 'stl': 0.98, 'blk': 0.96, 'tov': 0.99}
         },
         "PHX": {  # Vulnerable to bigs
-            "G": {'pts': 1.00, 'ast': 1.02, 'reb': 0.98},
-            "F": {'pts': 1.04, 'ast': 1.01, 'reb': 1.05},
-            "C": {'pts': 1.08, 'ast': 0.98, 'reb': 1.10}
+            "G": {'pts': 1.00, 'ast': 1.02, 'reb': 0.98, 'stl': 1.01, 'blk': 1.00, 'tov': 1.02},
+            "F": {'pts': 1.04, 'ast': 1.01, 'reb': 1.05, 'stl': 1.02, 'blk': 1.03, 'tov': 1.03},
+            "C": {'pts': 1.08, 'ast': 0.98, 'reb': 1.10, 'stl': 1.00, 'blk': 1.06, 'tov': 1.05}
         },
         "WAS": {  # Bad defense overall
-            "G": {'pts': 1.10, 'ast': 1.08, 'reb': 1.04},
-            "F": {'pts': 1.08, 'ast': 1.05, 'reb': 1.06},
-            "C": {'pts': 1.06, 'ast': 1.02, 'reb': 1.08}
+            "G": {'pts': 1.10, 'ast': 1.08, 'reb': 1.04, 'stl': 1.06, 'blk': 1.02, 'tov': 1.08},
+            "F": {'pts': 1.08, 'ast': 1.05, 'reb': 1.06, 'stl': 1.05, 'blk': 1.04, 'tov': 1.06},
+            "C": {'pts': 1.06, 'ast': 1.02, 'reb': 1.08, 'stl': 1.03, 'blk': 1.05, 'tov': 1.04}
         },
         "SAC": {  # Fast pace, average defense
-            "G": {'pts': 1.02, 'ast': 1.04, 'reb': 1.00},
-            "F": {'pts': 1.01, 'ast': 1.02, 'reb': 1.02},
-            "C": {'pts': 1.00, 'ast': 1.00, 'reb': 1.03}
+            "G": {'pts': 1.02, 'ast': 1.04, 'reb': 1.00, 'stl': 1.02, 'blk': 1.00, 'tov': 1.03},
+            "F": {'pts': 1.01, 'ast': 1.02, 'reb': 1.02, 'stl': 1.01, 'blk': 1.01, 'tov': 1.02},
+            "C": {'pts': 1.00, 'ast': 1.00, 'reb': 1.03, 'stl': 1.00, 'blk': 1.02, 'tov': 1.01}
         },
     }
 
@@ -181,35 +184,19 @@ class DefenseVsPositionSignal(BaseSignal):
             'Assists': 'ast',
             '3-Pointers Made': 'pts',  # Use points as proxy
             'Pts+Rebs+Asts': 'pts',    # Use points as primary
+            'Steals': 'stl',
+            'Blocks': 'blk',
+            'Turnovers': 'tov',
+            'Pts+Rebs': 'pts',
+            'Pts+Asts': 'pts',
+            'Rebs+Asts': 'reb',
         }
         return stat_key_map.get(stat_type, 'pts')
 
     def _get_baseline(self, stat_type: str, context: Dict[str, Any]) -> Optional[float]:
         """Get baseline value for a stat type from context."""
-
-        season_avgs = context.get('season_averages') or {}
-
-        stat_key_map = {
-            'Points': 'pts',
-            'Rebounds': 'reb',
-            'Assists': 'ast',
-            '3-Pointers Made': 'fg3m',
-            'Pts+Rebs+Asts': 'pra',
-        }
-
-        key = stat_key_map.get(stat_type)
-        if key and key in season_avgs:
-            return season_avgs[key]
-
-        # Handle PRA
-        if stat_type == 'Pts+Rebs+Asts':
-            pts = season_avgs.get('pts', 0)
-            reb = season_avgs.get('reb', 0)
-            ast = season_avgs.get('ast', 0)
-            if pts + reb + ast > 0:
-                return pts + reb + ast
-
-        return None
+        from .stat_helpers import get_baseline
+        return get_baseline(stat_type, context)
 
 
 # Register signal with global registry

@@ -16,6 +16,10 @@ interface RecentGamesTableProps {
     REB: number;
     AST: number;
     FG3M: number;
+    STL?: number;
+    BLK?: number;
+    TOV?: number;
+    PF?: number;
   };
 }
 
@@ -40,6 +44,10 @@ export function RecentGamesTable({ games, seasonAvg }: RecentGamesTableProps) {
             <TableHead className="text-xs font-medium text-muted-foreground text-right">REB</TableHead>
             <TableHead className="text-xs font-medium text-muted-foreground text-right">AST</TableHead>
             <TableHead className="text-xs font-medium text-muted-foreground text-right">3PM</TableHead>
+            <TableHead className="text-xs font-medium text-muted-foreground text-right">STL</TableHead>
+            <TableHead className="text-xs font-medium text-muted-foreground text-right">BLK</TableHead>
+            <TableHead className="text-xs font-medium text-muted-foreground text-right">TOV</TableHead>
+            <TableHead className="text-xs font-medium text-muted-foreground text-right">PF</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -85,12 +93,36 @@ export function RecentGamesTable({ games, seasonAvg }: RecentGamesTableProps) {
               >
                 {game.AST}
               </TableCell>
-              <TableCell 
+              <TableCell
                 className={`text-xs font-mono text-right py-2 font-semibold ${
                   seasonAvg ? getStatColor(game.FG3M, seasonAvg.FG3M) : ""
                 }`}
               >
                 {game.FG3M}
+              </TableCell>
+              <TableCell
+                className={`text-xs font-mono text-right py-2 font-semibold ${
+                  seasonAvg?.STL ? getStatColor(game.STL ?? 0, seasonAvg.STL) : ""
+                }`}
+              >
+                {game.STL ?? 0}
+              </TableCell>
+              <TableCell
+                className={`text-xs font-mono text-right py-2 font-semibold ${
+                  seasonAvg?.BLK ? getStatColor(game.BLK ?? 0, seasonAvg.BLK) : ""
+                }`}
+              >
+                {game.BLK ?? 0}
+              </TableCell>
+              <TableCell
+                className={`text-xs font-mono text-right py-2 font-semibold ${
+                  seasonAvg?.TOV ? getStatColor(game.TOV ?? 0, seasonAvg.TOV) : ""
+                }`}
+              >
+                {game.TOV ?? 0}
+              </TableCell>
+              <TableCell className="text-xs font-mono text-right py-2 text-muted-foreground">
+                {game.PF ?? 0}
               </TableCell>
             </TableRow>
           ))}

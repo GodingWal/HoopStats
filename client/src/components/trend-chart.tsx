@@ -4,7 +4,7 @@ import type { GameLog } from "@shared/schema";
 
 interface TrendChartProps {
     games: GameLog[];
-    stat: "PTS" | "REB" | "AST" | "FG3M" | "PRA";
+    stat: "PTS" | "REB" | "AST" | "FG3M" | "PRA" | "STL" | "BLK" | "TOV" | "PF";
     seasonAvg?: number;
     className?: string;
 }
@@ -15,6 +15,10 @@ const statLabels: Record<string, string> = {
     AST: "Assists",
     FG3M: "3-Pointers",
     PRA: "PTS+REB+AST",
+    STL: "Steals",
+    BLK: "Blocks",
+    TOV: "Turnovers",
+    PF: "Fouls",
 };
 
 const statColors: Record<string, string> = {
@@ -23,6 +27,10 @@ const statColors: Record<string, string> = {
     AST: "hsl(var(--chart-3))",
     FG3M: "hsl(var(--chart-4))",
     PRA: "hsl(var(--chart-5))",
+    STL: "#22c55e",
+    BLK: "#a855f7",
+    TOV: "#ef4444",
+    PF: "#f59e0b",
 };
 
 export function TrendChart({ games, stat, seasonAvg, className = "" }: TrendChartProps) {
@@ -35,7 +43,7 @@ export function TrendChart({ games, stat, seasonAvg, className = "" }: TrendChar
             if (stat === "PRA") {
                 value = game.PTS + game.REB + game.AST;
             } else {
-                value = game[stat] as number;
+                value = (game[stat] as number) ?? 0;
             }
 
             return {
