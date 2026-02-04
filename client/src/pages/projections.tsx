@@ -315,6 +315,9 @@ function EnrichedPlayerCard({ player, data }: { player: string; data: PlayerProj
                                         <th className="text-center py-2 text-muted-foreground font-medium">REB</th>
                                         <th className="text-center py-2 text-muted-foreground font-medium">AST</th>
                                         <th className="text-center py-2 text-muted-foreground font-medium">3PM</th>
+                                        <th className="text-center py-2 text-muted-foreground font-medium">STL</th>
+                                        <th className="text-center py-2 text-muted-foreground font-medium">BLK</th>
+                                        <th className="text-center py-2 text-muted-foreground font-medium">TOV</th>
                                         <th className="text-center py-2 text-muted-foreground font-medium">MIN</th>
                                         <th className="text-center py-2 text-muted-foreground font-medium">FG%</th>
                                     </tr>
@@ -327,6 +330,9 @@ function EnrichedPlayerCard({ player, data }: { player: string; data: PlayerProj
                                         <td className="text-center py-2 font-mono">{season.reb}</td>
                                         <td className="text-center py-2 font-mono">{season.ast}</td>
                                         <td className="text-center py-2 font-mono">{season.fg3m}</td>
+                                        <td className="text-center py-2 font-mono">{season.stl}</td>
+                                        <td className="text-center py-2 font-mono">{season.blk}</td>
+                                        <td className="text-center py-2 font-mono">{season.tov}</td>
                                         <td className="text-center py-2 font-mono">{season.min}</td>
                                         <td className="text-center py-2 font-mono">{season.fgPct}%</td>
                                     </tr>
@@ -338,6 +344,9 @@ function EnrichedPlayerCard({ player, data }: { player: string; data: PlayerProj
                                             <td className="text-center py-2 font-mono">{last10.reb}</td>
                                             <td className="text-center py-2 font-mono">{last10.ast}</td>
                                             <td className="text-center py-2 font-mono">{last10.fg3m}</td>
+                                            <td className="text-center py-2 font-mono">{last10.stl}</td>
+                                            <td className="text-center py-2 font-mono">{last10.blk}</td>
+                                            <td className="text-center py-2 font-mono">{last10.tov}</td>
                                             <td className="text-center py-2 font-mono">{last10.min}</td>
                                             <td className="text-center py-2 font-mono">{last10.fgPct}%</td>
                                         </tr>
@@ -350,6 +359,9 @@ function EnrichedPlayerCard({ player, data }: { player: string; data: PlayerProj
                                             <td className="text-center py-2 font-mono font-bold">{last5.reb}</td>
                                             <td className="text-center py-2 font-mono font-bold">{last5.ast}</td>
                                             <td className="text-center py-2 font-mono font-bold">{last5.fg3m}</td>
+                                            <td className="text-center py-2 font-mono font-bold">{last5.stl}</td>
+                                            <td className="text-center py-2 font-mono font-bold">{last5.blk}</td>
+                                            <td className="text-center py-2 font-mono font-bold">{last5.tov}</td>
                                             <td className="text-center py-2 font-mono">{last5.min}</td>
                                             <td className="text-center py-2 font-mono">{last5.fgPct}%</td>
                                         </tr>
@@ -378,6 +390,9 @@ function EnrichedPlayerCard({ player, data }: { player: string; data: PlayerProj
                                         <th className="text-center py-2 text-muted-foreground font-medium">REB</th>
                                         <th className="text-center py-2 text-muted-foreground font-medium">AST</th>
                                         <th className="text-center py-2 text-muted-foreground font-medium">3PM</th>
+                                        <th className="text-center py-2 text-muted-foreground font-medium">STL</th>
+                                        <th className="text-center py-2 text-muted-foreground font-medium">BLK</th>
+                                        <th className="text-center py-2 text-muted-foreground font-medium">TOV</th>
                                         <th className="text-center py-2 text-muted-foreground font-medium">MIN</th>
                                     </tr>
                                 </thead>
@@ -395,6 +410,9 @@ function EnrichedPlayerCard({ player, data }: { player: string; data: PlayerProj
                                             <td className="text-center py-2 font-mono">{game.reb}</td>
                                             <td className="text-center py-2 font-mono">{game.ast}</td>
                                             <td className="text-center py-2 font-mono">{game.fg3m}</td>
+                                            <td className="text-center py-2 font-mono">{game.stl ?? 0}</td>
+                                            <td className="text-center py-2 font-mono">{game.blk ?? 0}</td>
+                                            <td className="text-center py-2 font-mono">{game.tov ?? 0}</td>
                                             <td className="text-center py-2 font-mono text-muted-foreground">{game.min}</td>
                                         </tr>
                                     ))}

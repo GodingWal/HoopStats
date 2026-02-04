@@ -53,6 +53,15 @@ export function HomeAwaySplits({ homeAverages, awayAverages }: HomeAwaySplitsPro
         <StatComparison label="PTS" home={homeAverages.PTS} away={awayAverages.PTS} />
         <StatComparison label="REB" home={homeAverages.REB} away={awayAverages.REB} />
         <StatComparison label="AST" home={homeAverages.AST} away={awayAverages.AST} />
+        {homeAverages.STL != null && awayAverages.STL != null && (
+          <StatComparison label="STL" home={homeAverages.STL} away={awayAverages.STL} />
+        )}
+        {homeAverages.BLK != null && awayAverages.BLK != null && (
+          <StatComparison label="BLK" home={homeAverages.BLK} away={awayAverages.BLK} />
+        )}
+        {homeAverages.TOV != null && awayAverages.TOV != null && (
+          <StatComparison label="TOV" home={homeAverages.TOV} away={awayAverages.TOV} />
+        )}
         <StatComparison label="PRA" home={homeAverages.PRA} away={awayAverages.PRA} />
       </div>
     </div>

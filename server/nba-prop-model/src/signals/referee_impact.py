@@ -15,7 +15,10 @@ class RefereeImpactSignal(BaseSignal):
     
     name = "referee_impact"
     description = "Adjusts for referee foul tendencies"
-    stat_types = ["Points", "Pts+Rebs+Asts"]
+    stat_types = [
+        "Points", "Pts+Rebs+Asts",
+        "Steals", "Blocks", "Turnovers", "Pts+Rebs", "Pts+Asts", "Rebs+Asts",
+    ]
     default_confidence = 0.6
     
     # League average fouls per game (approximate, should be dynamic ideally)

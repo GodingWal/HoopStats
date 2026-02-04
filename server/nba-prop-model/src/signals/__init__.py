@@ -94,6 +94,12 @@ SUPPORTED_STAT_TYPES = [
     "Assists",
     "3-Pointers Made",
     "Pts+Rebs+Asts",
+    "Steals",
+    "Blocks",
+    "Turnovers",
+    "Pts+Rebs",
+    "Pts+Asts",
+    "Rebs+Asts",
 ]
 
 

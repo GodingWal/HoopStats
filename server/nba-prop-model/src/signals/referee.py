@@ -28,7 +28,10 @@ class RefereeSignal(BaseSignal):
 
     name = "referee"
     description = "Referee tendency adjustment"
-    stat_types = ["Points", "Rebounds", "Assists", "3-Pointers Made", "Pts+Rebs+Asts"]
+    stat_types = [
+        "Points", "Rebounds", "Assists", "3-Pointers Made", "Pts+Rebs+Asts",
+        "Steals", "Blocks", "Turnovers", "Pts+Rebs", "Pts+Asts", "Rebs+Asts",
+    ]
     default_confidence = 0.55
 
     # League average fouls per game (per crew)
@@ -69,11 +72,17 @@ class RefereeSignal(BaseSignal):
 
     # Stat sensitivity to referee style
     STAT_FTA_SENSITIVITY = {
-        'Points': 0.8,       # Points heavily affected by FT volume
-        'Rebounds': 0.2,     # Slight effect (more FTs = more missed FT rebounds)
-        'Assists': 0.3,      # Moderate (more stops = different flow)
+        'Points': 0.8,           # Points heavily affected by FT volume
+        'Rebounds': 0.2,         # Slight effect (more FTs = more missed FT rebounds)
+        'Assists': 0.3,          # Moderate (more stops = different flow)
         '3-Pointers Made': 0.1,  # Minimal direct effect
         'Pts+Rebs+Asts': 0.5,
+        'Steals': 0.3,           # Refs affect aggressiveness on D
+        'Blocks': 0.2,           # Slight effect via foul trouble
+        'Turnovers': 0.4,        # Tight whistles = more careful ball handling
+        'Pts+Rebs': 0.5,
+        'Pts+Asts': 0.55,
+        'Rebs+Asts': 0.25,
     }
 
     def calculate(
@@ -192,21 +201,8 @@ class RefereeSignal(BaseSignal):
 
     def _get_baseline(self, stat_type: str, context: Dict[str, Any]) -> Optional[float]:
         """Get baseline value for a stat type from context."""
-        season_avgs = context.get('season_averages') or {}
-        stat_key_map = {
-            'Points': 'pts', 'Rebounds': 'reb', 'Assists': 'ast',
-            '3-Pointers Made': 'fg3m', 'Pts+Rebs+Asts': 'pra',
-        }
-        key = stat_key_map.get(stat_type)
-        if key and key in season_avgs:
-            return season_avgs[key]
-        if stat_type == 'Pts+Rebs+Asts':
-            pts = season_avgs.get('pts', 0)
-            reb = season_avgs.get('reb', 0)
-            ast = season_avgs.get('ast', 0)
-            if pts + reb + ast > 0:
-                return pts + reb + ast
-        return None
+        from .stat_helpers import get_baseline
+        return get_baseline(stat_type, context)
 
 
 # Register signal with global registry

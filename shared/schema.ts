@@ -10,6 +10,10 @@ export const gameLogSchema = z.object({
   REB: z.number(),
   AST: z.number(),
   FG3M: z.number(),
+  STL: z.number().optional(),
+  BLK: z.number().optional(),
+  TOV: z.number().optional(),
+  PF: z.number().optional(),
   WL: z.string(),
   MIN: z.number(),
 });
@@ -24,9 +28,10 @@ export const seasonAveragesSchema = z.object({
   FG3M: z.number(),
   STL: z.number().optional(),
   BLK: z.number().optional(),
+  TOV: z.number().optional(),
+  PF: z.number().optional(),
   PRA: z.number(),
   MIN: z.number(),
-  TOV: z.number().optional(),
 });
 
 export type SeasonAverages = z.infer<typeof seasonAveragesSchema>;
@@ -44,6 +49,9 @@ export const vsTeamStatsSchema = z.object({
   AST: z.number(),
   PRA: z.number(),
   FG3M: z.number().optional(),
+  STL: z.number().optional(),
+  BLK: z.number().optional(),
+  TOV: z.number().optional(),
 });
 
 export type VsTeamStats = z.infer<typeof vsTeamStatsSchema>;
@@ -68,6 +76,10 @@ export const splitAveragesSchema = z.object({
   REB: z.number(),
   AST: z.number(),
   PRA: z.number(),
+  FG3M: z.number().optional(),
+  STL: z.number().optional(),
+  BLK: z.number().optional(),
+  TOV: z.number().optional(),
 });
 
 export type SplitAverages = z.infer<typeof splitAveragesSchema>;

@@ -41,7 +41,10 @@ class FatigueSignal(BaseSignal):
 
     name = "fatigue"
     description = "Continuous fatigue model (schedule, travel, load)"
-    stat_types = ["Points", "Rebounds", "Assists", "3-Pointers Made", "Pts+Rebs+Asts"]
+    stat_types = [
+        "Points", "Rebounds", "Assists", "3-Pointers Made", "Pts+Rebs+Asts",
+        "Steals", "Blocks", "Turnovers", "Pts+Rebs", "Pts+Asts", "Rebs+Asts",
+    ]
     default_confidence = 0.55
 
     # Schedule density thresholds
@@ -80,11 +83,17 @@ class FatigueSignal(BaseSignal):
 
     # Stat reduction per fatigue unit
     STAT_FATIGUE_SENSITIVITY = {
-        'Points': -0.03,       # 3% per fatigue unit
-        'Rebounds': -0.02,     # 2% (effort stat, but less affected)
-        'Assists': -0.025,     # 2.5% (decision-making affected)
+        'Points': -0.03,           # 3% per fatigue unit
+        'Rebounds': -0.02,         # 2% (effort stat, but less affected)
+        'Assists': -0.025,         # 2.5% (decision-making affected)
         '3-Pointers Made': -0.04,  # 4% (shooting most affected by fatigue)
         'Pts+Rebs+Asts': -0.025,
+        'Steals': -0.02,           # 2% (effort/alertness stat)
+        'Blocks': -0.02,           # 2% (timing/effort stat)
+        'Turnovers': 0.03,         # 3% INCREASE (fatigue → sloppy handles)
+        'Pts+Rebs': -0.025,
+        'Pts+Asts': -0.028,
+        'Rebs+Asts': -0.022,
     }
 
     def calculate(
@@ -290,21 +299,8 @@ class FatigueSignal(BaseSignal):
 
     def _get_baseline(self, stat_type: str, context: Dict[str, Any]) -> Optional[float]:
         """Get baseline value for a stat type from context."""
-        season_avgs = context.get('season_averages') or {}
-        stat_key_map = {
-            'Points': 'pts', 'Rebounds': 'reb', 'Assists': 'ast',
-            '3-Pointers Made': 'fg3m', 'Pts+Rebs+Asts': 'pra',
-        }
-        key = stat_key_map.get(stat_type)
-        if key and key in season_avgs:
-            return season_avgs[key]
-        if stat_type == 'Pts+Rebs+Asts':
-            pts = season_avgs.get('pts', 0)
-            reb = season_avgs.get('reb', 0)
-            ast = season_avgs.get('ast', 0)
-            if pts + reb + ast > 0:
-                return pts + reb + ast
-        return None
+        from .stat_helpers import get_baseline
+        return get_baseline(stat_type, context)
 
 
 # Register signal with global registry

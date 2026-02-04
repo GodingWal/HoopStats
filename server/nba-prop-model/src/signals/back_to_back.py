@@ -32,7 +32,10 @@ class BackToBackSignal(BaseSignal):
 
     name = "b2b"
     description = "Back-to-back game fatigue penalty"
-    stat_types = ["Points", "Rebounds", "Assists", "3-Pointers Made", "Pts+Rebs+Asts"]
+    stat_types = [
+        "Points", "Rebounds", "Assists", "3-Pointers Made", "Pts+Rebs+Asts",
+        "Steals", "Blocks", "Turnovers", "Pts+Rebs", "Pts+Asts", "Rebs+Asts",
+    ]
     default_confidence = 0.65  # B2B is a strong, well-documented signal
 
     # Percentage adjustments by stat type (negative = reduction)
@@ -42,6 +45,12 @@ class BackToBackSignal(BaseSignal):
         "Assists": -0.06,          # 6% reduction
         "3-Pointers Made": -0.10,  # 10% reduction (shooting suffers)
         "Pts+Rebs+Asts": -0.07,    # 7% reduction (weighted average)
+        "Steals": -0.05,           # 5% reduction (effort/energy stat)
+        "Blocks": -0.05,           # 5% reduction (effort/energy stat)
+        "Turnovers": 0.04,         # 4% INCREASE (fatigue → more turnovers)
+        "Pts+Rebs": -0.07,         # 7% reduction
+        "Pts+Asts": -0.07,         # 7% reduction
+        "Rebs+Asts": -0.06,        # 6% reduction
     }
 
     def calculate(
@@ -113,19 +122,28 @@ class BackToBackSignal(BaseSignal):
             'Assists': 'ast',
             '3-Pointers Made': 'fg3m',
             'Pts+Rebs+Asts': 'pra',
+            'Steals': 'stl',
+            'Blocks': 'blk',
+            'Turnovers': 'tov',
         }
 
         key = stat_key_map.get(stat_type)
         if key and key in season_avgs:
             return season_avgs[key]
 
-        # Handle PRA if not directly available
-        if stat_type == 'Pts+Rebs+Asts':
-            pts = season_avgs.get('pts', 0)
-            reb = season_avgs.get('reb', 0)
-            ast = season_avgs.get('ast', 0)
-            if pts + reb + ast > 0:
-                return pts + reb + ast
+        # Handle composite stats if not directly available
+        pts = season_avgs.get('pts', 0)
+        reb = season_avgs.get('reb', 0)
+        ast = season_avgs.get('ast', 0)
+
+        if stat_type == 'Pts+Rebs+Asts' and pts + reb + ast > 0:
+            return pts + reb + ast
+        elif stat_type == 'Pts+Rebs' and pts + reb > 0:
+            return pts + reb
+        elif stat_type == 'Pts+Asts' and pts + ast > 0:
+            return pts + ast
+        elif stat_type == 'Rebs+Asts' and reb + ast > 0:
+            return reb + ast
 
         return None
 
