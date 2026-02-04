@@ -12,6 +12,7 @@ from datetime import datetime, timedelta
 from collections import defaultdict
 import logging
 import json
+import pandas as pd
 import unicodedata
 
 logger = logging.getLogger(__name__)
@@ -174,7 +175,15 @@ class BacktestEngine:
             db_connection: Optional database connection for loading data
         """
         self.db_connection = db_connection
+        self.team_stats = {}
+        self.game_referees = {}  # {game_id: [ref_names]}
+        self.line_history = {}   # {(player, stat, date): [movements]}
         self._signal_registry = None
+
+        if self.db_connection:
+            self._load_team_stats()
+            self._load_referees()
+            self._load_line_history()
 
     @property
     def signal_registry(self):
@@ -286,6 +295,8 @@ class BacktestEngine:
                     team,
                     stat_type,
                     game_date,
+                    opening_line,
+                    closing_line,
                     opening_line as line,
                     actual_value,
                     hit_over,
@@ -389,20 +400,128 @@ class BacktestEngine:
 
         return filtered.to_dict('records')
 
+    def _load_team_stats(self):
+        """Load team defense stats from database."""
+        if self.db_connection is None:
+            return
+
+        try:
+            df = pd.read_sql("SELECT * FROM team_defense", self.db_connection)
+            # Create a lookup dict by team_abbr
+            # Structure: {'BOS': {'pace': 98.5, 'def_rating': 110.2, ...}}
+            for _, row in df.iterrows():
+                abbr = row['team_abbr']
+                self.team_stats[abbr] = {
+                    'pace': row['pace'],
+                    'def_rating': row['def_rating'],
+                    'opp_pts': row['opp_pts_allowed'],
+                    'opp_reb': row['opp_reb_allowed'],
+                    'opp_ast': row['opp_ast_allowed'],
+                    'opp_3pt': row['opp_3pt_pct_allowed']
+                }
+            
+            # Compute league averages
+            self.league_averages = {
+                'pts': df['opp_pts_allowed'].mean(),
+                'reb': df['opp_reb_allowed'].mean(),
+                'ast': df['opp_ast_allowed'].mean(),
+                '3pt_pct': df['opp_3pt_pct_allowed'].mean()
+            }
+            logger.info(f"Loaded defense stats for {len(self.team_stats)} teams. League Avgs: {self.league_averages}")
+
+        except Exception as e:
+            logger.error(f"Failed to load team stats: {e}")
+            self.league_averages = {'pts': 114.5, 'reb': 44.0, 'ast': 26.5, '3pt_pct': 0.366}
+
+    def _load_referees(self):
+        """Load referee assignments and game mapping."""
+        if self.db_connection is None:
+            return
+
+        try:
+            # 1. Load Game Mapping (Team + Date -> GameID)
+            self.game_map = {} # (team, date) -> game_id
+            games_df = pd.read_sql("SELECT game_id, game_date, home_team, visitor_team FROM games", self.db_connection)
+            for _, row in games_df.iterrows():
+                gid = row['game_id']
+                date_str = str(row['game_date'])
+                self.game_map[(row['home_team'], date_str)] = gid
+                self.game_map[(row['visitor_team'], date_str)] = gid
+
+            # 2. Load Referees
+            df = pd.read_sql("""
+                SELECT gr.game_id, r.first_name || ' ' || r.last_name as name
+                FROM game_referees gr
+                JOIN referees r ON gr.referee_id = r.id
+            """, self.db_connection)
+            
+            for _, row in df.iterrows():
+                gid = row['game_id']
+                if gid not in self.game_referees:
+                    self.game_referees[gid] = []
+                self.game_referees[gid].append(row['name'])
+            
+            logger.info(f"Loaded referees for {len(self.game_referees)} games")
+        except Exception as e:
+            logger.error(f"Failed to load referees: {e}")
+            if hasattr(self.db_connection, 'rollback'):
+                self.db_connection.rollback()
+
+    def _load_line_history(self):
+        """Load line movement history."""
+        if self.db_connection is None:
+            return
+
+        try:
+            logger.info("Loading line movement history...")
+            df = pd.read_sql("""
+                SELECT player_name, stat_type, game_time::date::text as game_date, 
+                       new_line as line, detected_at as timestamp
+                FROM prizepicks_line_movements
+                WHERE detected_at >= NOW() - INTERVAL '60 days'
+            """, self.db_connection)
+            
+            self.line_history = {}
+            count = 0
+            for _, row in df.iterrows():
+                key = (row['player_name'], row['stat_type'], row['game_date'])
+                if key not in self.line_history:
+                    self.line_history[key] = []
+                self.line_history[key].append({
+                    'line': row['line'],
+                    'timestamp': row['timestamp']
+                })
+                count += 1
+            
+            logger.info(f"Loaded {count} line checks for history")
+        except Exception as e:
+            logger.error(f"Failed to load line history: {e}")
+            if hasattr(self.db_connection, 'rollback'):
+                self.db_connection.rollback()
+
     def _build_context(self, game: Dict, players_df=None) -> Dict[str, Any]:
         """
         Build pre-game context from stored data.
-
-        Reconstructs the context dictionary needed by signals:
-        - Calculate is_b2b from schedule (if available)
-        - Pull player averages from players table
-        - Pull opponent data if available
         """
+        team = game.get('team', '')
+        game_date = str(game.get('game_date', ''))
+        stat_type = game.get('stat_type', '')
+        player_name = game.get('player_name', '')
+        
+        # Lookup game_id from custom map
+        game_id = self.game_map.get((team, game_date))
+        
         context = {
-            'player_name': game.get('player_name', ''),
-            'team': game.get('team', ''),
+            'player_name': player_name,
+            'team': team,
             'opponent': game.get('opponent', ''),
-            'game_date': game.get('game_date', ''),
+            'game_date': game_date,
+            'stat_type': stat_type,
+            'opening_line': game.get('opening_line') or game.get('line'),
+            'current_line': game.get('closing_line') or game.get('line'),
+            'closing_line': game.get('closing_line'),
+            'referee_names': self.game_referees.get(game_id, []) if game_id else [],
+            'line_history': self.line_history.get((player_name, stat_type, game_date), []),
         }
 
         # Parse JSON fields if stored as strings
@@ -441,11 +560,16 @@ class BacktestEngine:
             except:
                 away_avgs = {}
 
-        context['season_averages'] = season_avgs
-        context['last_5_averages'] = l5_avgs
-        context['last_10_averages'] = l10_avgs
-        context['home_averages'] = home_avgs
-        context['away_averages'] = away_avgs
+        # Helper to normalize keys
+        def normalize_keys(d):
+            if not d: return {}
+            return {k.lower(): v for k, v in d.items()}
+
+        context['season_averages'] = normalize_keys(season_avgs)
+        context['last_5_averages'] = normalize_keys(l5_avgs)
+        context['last_10_averages'] = normalize_keys(l10_avgs)
+        context['home_averages'] = normalize_keys(home_avgs)
+        context['away_averages'] = normalize_keys(away_avgs)
 
         # Position
         position = game.get('position', '')
@@ -471,6 +595,34 @@ class BacktestEngine:
         if opponent_clean:
             context['opponent_team'] = opponent_clean
             context['opponent'] = opponent_clean
+            
+            # Inject Team Stats (Pace, Defense)
+            if opponent_clean in self.team_stats:
+                stats = self.team_stats[opponent_clean]
+                context['opponent_pace'] = stats.get('pace')
+                context['opponent_def_rating'] = stats.get('def_rating')
+                context['opponent_stats'] = stats
+                
+                # Calculate universal defense factors
+                # Factor > 1.0 means team allows MORE than average (Bad defense / Good Matchup)
+                pts_factor = stats.get('opp_pts', 114.0) / self.league_averages.get('pts', 114.0)
+                reb_factor = stats.get('opp_reb', 44.0) / self.league_averages.get('reb', 44.0)
+                ast_factor = stats.get('opp_ast', 26.0) / self.league_averages.get('ast', 26.0)
+                
+                # Assign to all positions (general team defense)
+                # Future: Scrape actual position splits
+                def_profile = {
+                   'pts': pts_factor,
+                   'reb': reb_factor,
+                   'ast': ast_factor
+                }
+                
+                context['opponent_def_vs_position'] = {
+                    'G': def_profile,
+                    'F': def_profile,
+                    'C': def_profile,
+                }
+
 
         # B2B detection - check if team played on previous day
         context['is_b2b'] = self._detect_b2b(game)
@@ -642,15 +794,15 @@ class BacktestEngine:
                     sa.signal_name,
                     sa.stat_type,
                     results.end_date,
-                    sa.total_predictions,
-                    sa.correct_predictions,
-                    sa.accuracy,
-                    sa.over_predictions,
-                    sa.over_correct,
-                    sa.under_predictions,
-                    sa.under_correct,
-                    sa.avg_error,
-                    sa.total_predictions >= 10,
+                    int(sa.total_predictions),
+                    int(sa.correct_predictions),
+                    float(sa.accuracy),
+                    int(sa.over_predictions),
+                    int(sa.over_correct),
+                    int(sa.under_predictions),
+                    int(sa.under_correct),
+                    float(sa.avg_error),
+                    bool(sa.total_predictions >= 10),
                 ))
 
             self.db_connection.commit()

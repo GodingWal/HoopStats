@@ -1,5 +1,6 @@
 import paramiko
 import sys
+import time
 
 if sys.platform == 'win32':
     sys.stdout.reconfigure(encoding='utf-8')
@@ -13,10 +14,14 @@ client = paramiko.SSHClient()
 client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 client.connect(HOST, username=USERNAME, password=PASSWORD, timeout=30)
 
-print("Restarting PM2...")
-cmd = "pm2 restart hoopstats-server"
-stdin, stdout, stderr = client.exec_command(cmd)
-print(stdout.read().decode().strip())
-print(stderr.read().decode().strip())
+print("Checking log completion...")
+stdin, stdout, stderr = client.exec_command(f"cd {MODEL_DIR} && grep 'Backfill complete!' backfill.log")
+complete = stdout.read().decode().strip()
+print(complete)
+
+if not complete:
+    print("Not done. Checking tail:")
+    stdin, stdout, stderr = client.exec_command(f"cd {MODEL_DIR} && tail -n 5 backfill.log")
+    print(stdout.read().decode().strip())
 
 client.close()

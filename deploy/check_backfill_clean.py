@@ -1,5 +1,6 @@
 import paramiko
 import sys
+import time
 
 if sys.platform == 'win32':
     sys.stdout.reconfigure(encoding='utf-8')
@@ -13,10 +14,10 @@ client = paramiko.SSHClient()
 client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 client.connect(HOST, username=USERNAME, password=PASSWORD, timeout=30)
 
-print("Restarting PM2...")
-cmd = "pm2 restart hoopstats-server"
-stdin, stdout, stderr = client.exec_command(cmd)
-print(stdout.read().decode().strip())
-print(stderr.read().decode().strip())
+print("Checking latest log tail...")
+# Tail 40 lines
+stdin, stdout, stderr = client.exec_command(f"cd {MODEL_DIR} && tail -n 40 backfill.log")
+log = stdout.read().decode().strip()
+print(log)
 
 client.close()

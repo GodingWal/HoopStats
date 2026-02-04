@@ -13,10 +13,8 @@ client = paramiko.SSHClient()
 client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 client.connect(HOST, username=USERNAME, password=PASSWORD, timeout=30)
 
-print("Restarting PM2...")
-cmd = "pm2 restart hoopstats-server"
-stdin, stdout, stderr = client.exec_command(cmd)
+print("Checking backfill.log...")
+stdin, stdout, stderr = client.exec_command(f"cd {MODEL_DIR} && tail -n 20 backfill.log")
 print(stdout.read().decode().strip())
-print(stderr.read().decode().strip())
 
 client.close()

@@ -13,8 +13,8 @@ client = paramiko.SSHClient()
 client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 client.connect(HOST, username=USERNAME, password=PASSWORD, timeout=30)
 
-print("Restarting PM2...")
-cmd = "pm2 restart hoopstats-server"
+print("Restarting PM2 (hoopstats)...")
+cmd = "pm2 restart hoopstats"
 stdin, stdout, stderr = client.exec_command(cmd)
 print(stdout.read().decode().strip())
 print(stderr.read().decode().strip())

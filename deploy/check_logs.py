@@ -7,42 +7,17 @@ if sys.platform == 'win32':
 HOST = "76.13.100.125"
 USERNAME = "root"
 PASSWORD = "Wittymango520@"
+MODEL_DIR = "/var/www/hoopstats/server/nba-prop-model"
 
-def run_command(client, command, timeout=60):
-    print(f"\nRunning: {command}")
-    stdin, stdout, stderr = client.exec_command(command, timeout=timeout)
-    exit_status = stdout.channel.recv_exit_status()
-    out = stdout.read().decode().strip()
-    err = stderr.read().decode().strip()
-    if out:
-        print(f"Output:\n{out}")
-    if err:
-        print(f"Stderr:\n{err}")
-    return exit_status == 0
+client = paramiko.SSHClient()
+client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+client.connect(HOST, username=USERNAME, password=PASSWORD, timeout=30)
 
-def main():
-    client = paramiko.SSHClient()
-    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    print(f"Connecting to {HOST}...")
-    client.connect(HOST, username=USERNAME, password=PASSWORD, timeout=30)
-    print("Connected!")
-    
-    print("\n" + "="*60)
-    print("CHECKING LOGS FOR 429 ERRORS")
-    print("="*60)
-    
-    # Check error log
-    print("\n[1] Tail of hoopstats-error.log...")
-    run_command(client, "tail -n 50 /root/.pm2/logs/hoopstats-error.log")
+print("Fetching PM2 logs...")
+# Get last 100 lines of logs
+cmd = "pm2 logs hoopstats --lines 100 --nostream"
+stdin, stdout, stderr = client.exec_command(cmd)
+print(stdout.read().decode().strip())
+print(stderr.read().decode().strip())
 
-    # Check out log
-    print("\n[2] Tail of hoopstats-out.log...")
-    run_command(client, "tail -n 50 /root/.pm2/logs/hoopstats-out.log")
-    
-    client.close()
-    print("\n" + "="*60)
-    print("DONE")
-    print("="*60)
-
-if __name__ == "__main__":
-    main()
+client.close()

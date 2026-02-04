@@ -7,16 +7,27 @@ if sys.platform == 'win32':
 HOST = "76.13.100.125"
 USERNAME = "root"
 PASSWORD = "Wittymango520@"
-MODEL_DIR = "/var/www/hoopstats/server/nba-prop-model"
+PROJECT_DIR = "/var/www/hoopstats"
 
 client = paramiko.SSHClient()
 client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 client.connect(HOST, username=USERNAME, password=PASSWORD, timeout=30)
 
-print("Restarting PM2...")
-cmd = "pm2 restart hoopstats-server"
-stdin, stdout, stderr = client.exec_command(cmd)
-print(stdout.read().decode().strip())
-print(stderr.read().decode().strip())
+print("Deploying update...")
+cmd = f"""
+cd {PROJECT_DIR} &&
+git pull origin main &&
+echo "Rebuilding frontend..." &&
+npm run build &&
+pm2 restart hoopstats
+"""
 
+stdin, stdout, stderr = client.exec_command(cmd)
+while True:
+    line = stdout.readline()
+    if not line:
+        break
+    print(line.strip())
+
+print(stderr.read().decode().strip())
 client.close()

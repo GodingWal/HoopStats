@@ -8,13 +8,19 @@ HOST = "76.13.100.125"
 USERNAME = "root"
 PASSWORD = "Wittymango520@"
 MODEL_DIR = "/var/www/hoopstats/server/nba-prop-model"
+VENV_PYTHON = f"{MODEL_DIR}/venv/bin/python"
 
 client = paramiko.SSHClient()
 client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 client.connect(HOST, username=USERNAME, password=PASSWORD, timeout=30)
 
-print("Restarting PM2...")
-cmd = "pm2 restart hoopstats-server"
+print("Running capture to refresh projections...")
+# Run capture for today
+cmd = f"""
+cd {MODEL_DIR} && 
+export $(cat ../../.env | xargs 2>/dev/null) &&
+{VENV_PYTHON} scripts/cron_jobs.py capture
+"""
 stdin, stdout, stderr = client.exec_command(cmd)
 print(stdout.read().decode().strip())
 print(stderr.read().decode().strip())

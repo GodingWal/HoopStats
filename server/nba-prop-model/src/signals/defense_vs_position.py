@@ -34,7 +34,7 @@ class DefenseVsPositionSignal(BaseSignal):
     default_confidence = 0.58
 
     # Minimum matchup factor deviation to fire signal
-    MIN_MATCHUP_THRESHOLD = 0.03  # 3%
+    MIN_MATCHUP_THRESHOLD = 0.01  # 1% (was 3%)
 
     # Default positional defense ratings (can be overridden by context)
     # These should match matchup_features.py defaults
