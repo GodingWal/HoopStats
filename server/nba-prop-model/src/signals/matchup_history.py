@@ -29,7 +29,10 @@ class MatchupHistorySignal(BaseSignal):
 
     name = "matchup_history"
     description = "Recency-weighted head-to-head matchup history"
-    stat_types = ["Points", "Rebounds", "Assists", "3-Pointers Made", "Pts+Rebs+Asts"]
+    stat_types = [
+        "Points", "Rebounds", "Assists", "3-Pointers Made", "Pts+Rebs+Asts",
+        "Steals", "Blocks", "Turnovers", "Pts+Rebs", "Pts+Asts", "Rebs+Asts",
+    ]
     default_confidence = 0.55
 
     # Minimum games vs this opponent to fire
@@ -189,57 +192,18 @@ class MatchupHistorySignal(BaseSignal):
         stat_type: str
     ) -> Optional[float]:
         """Extract stat value from a game log entry."""
-        # Try uppercase keys (NBA API format)
-        key_map = {
-            'pts': ['PTS', 'pts', 'points'],
-            'reb': ['REB', 'reb', 'rebounds'],
-            'ast': ['AST', 'ast', 'assists'],
-            'fg3m': ['FG3M', 'fg3m', 'threes', '3pm'],
-        }
-
-        keys = key_map.get(stat_key, [stat_key])
-        for k in keys:
-            if k in game:
-                try:
-                    return float(game[k])
-                except (ValueError, TypeError):
-                    continue
-
-        # Handle PRA
-        if stat_type == 'Pts+Rebs+Asts':
-            pts = self._extract_stat(game, 'pts', 'Points')
-            reb = self._extract_stat(game, 'reb', 'Rebounds')
-            ast = self._extract_stat(game, 'ast', 'Assists')
-            if pts is not None and reb is not None and ast is not None:
-                return pts + reb + ast
-
-        return None
+        from .stat_helpers import extract_game_stat
+        return extract_game_stat(game, stat_key, stat_type)
 
     def _stat_to_key(self, stat_type: str) -> Optional[str]:
         """Map stat type to key."""
-        stat_key_map = {
-            'Points': 'pts', 'Rebounds': 'reb', 'Assists': 'ast',
-            '3-Pointers Made': 'fg3m', 'Pts+Rebs+Asts': 'pra',
-        }
-        return stat_key_map.get(stat_type)
+        from .stat_helpers import STAT_KEY_MAP
+        return STAT_KEY_MAP.get(stat_type)
 
     def _get_baseline(self, stat_type: str, context: Dict[str, Any]) -> Optional[float]:
         """Get baseline value for a stat type from context."""
-        season_avgs = context.get('season_averages') or {}
-        stat_key_map = {
-            'Points': 'pts', 'Rebounds': 'reb', 'Assists': 'ast',
-            '3-Pointers Made': 'fg3m', 'Pts+Rebs+Asts': 'pra',
-        }
-        key = stat_key_map.get(stat_type)
-        if key and key in season_avgs:
-            return season_avgs[key]
-        if stat_type == 'Pts+Rebs+Asts':
-            pts = season_avgs.get('pts', 0)
-            reb = season_avgs.get('reb', 0)
-            ast = season_avgs.get('ast', 0)
-            if pts + reb + ast > 0:
-                return pts + reb + ast
-        return None
+        from .stat_helpers import get_baseline
+        return get_baseline(stat_type, context)
 
 
 # Register signal with global registry

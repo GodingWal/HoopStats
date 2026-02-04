@@ -31,7 +31,10 @@ class InjuryAlphaSignal(BaseSignal):
 
     name = "injury_alpha"
     description = "Stats boost from injured star teammates"
-    stat_types = ["Points", "Rebounds", "Assists", "3-Pointers Made", "Pts+Rebs+Asts"]
+    stat_types = [
+        "Points", "Rebounds", "Assists", "3-Pointers Made", "Pts+Rebs+Asts",
+        "Steals", "Blocks", "Turnovers", "Pts+Rebs", "Pts+Asts", "Rebs+Asts",
+    ]
     default_confidence = 0.70  # High confidence - injuries are predictable
 
     # Default redistribution patterns (should match usage_redistribution.py)
@@ -80,6 +83,9 @@ class InjuryAlphaSignal(BaseSignal):
         'ast': 0.8,
         'reb': 0.5,
         'fg3m': 0.4,
+        'stl': 0.2,
+        'blk': 0.1,
+        'tov': 0.3,
     }
 
     def calculate(
@@ -173,12 +179,17 @@ class InjuryAlphaSignal(BaseSignal):
                 generic_boost = self.GENERIC_BOOST_PER_INJURED.get(stat_key, 0)
                 total_boost += generic_boost * 0.5  # Reduce generic boost uncertainty
 
-        # Handle PRA
-        if stat_type == 'Pts+Rebs+Asts':
-            pts_boost = self._calculate_boost(player_name, injured_names, 'Points', context)
-            reb_boost = self._calculate_boost(player_name, injured_names, 'Rebounds', context)
-            ast_boost = self._calculate_boost(player_name, injured_names, 'Assists', context)
-            return pts_boost + reb_boost + ast_boost
+        # Handle composite stats
+        from .stat_helpers import COMPOSITE_STATS
+        if stat_type in COMPOSITE_STATS:
+            component_map = {
+                'pts': 'Points', 'reb': 'Rebounds', 'ast': 'Assists',
+            }
+            components = COMPOSITE_STATS[stat_type]
+            return sum(
+                self._calculate_boost(player_name, injured_names, component_map.get(c, c), context)
+                for c in components if c in component_map
+            )
 
         return total_boost
 
@@ -243,14 +254,8 @@ class InjuryAlphaSignal(BaseSignal):
 
     def _stat_to_key(self, stat_type: str) -> str:
         """Map stat type to boost key."""
-        stat_key_map = {
-            'Points': 'pts',
-            'Rebounds': 'reb',
-            'Assists': 'ast',
-            '3-Pointers Made': 'fg3m',
-            'Pts+Rebs+Asts': 'pra',
-        }
-        return stat_key_map.get(stat_type, 'pts')
+        from .stat_helpers import STAT_KEY_MAP
+        return STAT_KEY_MAP.get(stat_type, 'pts')
 
 
 # Register signal with global registry

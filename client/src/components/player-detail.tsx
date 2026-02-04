@@ -90,6 +90,10 @@ export function PlayerDetail({ player }: PlayerDetailProps) {
     REB: parseInt(entry.stats.REB || "0", 10),
     AST: parseInt(entry.stats.AST || "0", 10),
     FG3M: parseInt(entry.stats["3PM"] || entry.stats.FG3M || "0", 10),
+    STL: parseInt(entry.stats.STL || "0", 10),
+    BLK: parseInt(entry.stats.BLK || "0", 10),
+    TOV: parseInt(entry.stats.TO || entry.stats.TOV || "0", 10),
+    PF: parseInt(entry.stats.PF || "0", 10),
     MIN: parseInt(entry.stats.MIN?.split(":")[0] || "0", 10),
     OPPONENT: entry.game.opponent?.abbreviation || "?",
     GAME_DATE: entry.game.date ? new Date(entry.game.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).toUpperCase() : "",
@@ -109,6 +113,10 @@ export function PlayerDetail({ player }: PlayerDetailProps) {
     REB: parseInt(entry.stats.REB || "0", 10),
     AST: parseInt(entry.stats.AST || "0", 10),
     FG3M: parseInt(entry.stats["3PM"] || entry.stats.FG3M || "0", 10),
+    STL: parseInt(entry.stats.STL || "0", 10),
+    BLK: parseInt(entry.stats.BLK || "0", 10),
+    TOV: parseInt(entry.stats.TO || entry.stats.TOV || "0", 10),
+    PF: parseInt(entry.stats.PF || "0", 10),
     MIN: parseInt(entry.stats.MIN?.split(":")[0] || "0", 10),
   })) || [];
 
@@ -117,6 +125,10 @@ export function PlayerDetail({ player }: PlayerDetailProps) {
     REB: avgs?.REB ?? avgs?.reb ?? 0,
     AST: avgs?.AST ?? avgs?.ast ?? 0,
     FG3M: avgs?.FG3M ?? avgs?.fg3m ?? 0,
+    STL: avgs?.STL ?? avgs?.stl ?? 0,
+    BLK: avgs?.BLK ?? avgs?.blk ?? 0,
+    TOV: avgs?.TOV ?? avgs?.tov ?? 0,
+    PF: avgs?.PF ?? avgs?.pf ?? 0,
     PRA: (avgs?.PTS ?? avgs?.pts ?? 0) + (avgs?.REB ?? avgs?.reb ?? 0) + (avgs?.AST ?? avgs?.ast ?? 0),
     MIN: avgs?.MIN ?? avgs?.min ?? 0,
   });
@@ -126,6 +138,10 @@ export function PlayerDetail({ player }: PlayerDetailProps) {
     REB: calcAvg(allGames, 'REB'),
     AST: calcAvg(allGames, 'AST'),
     FG3M: calcAvg(allGames, 'FG3M'),
+    STL: calcAvg(allGames, 'STL'),
+    BLK: calcAvg(allGames, 'BLK'),
+    TOV: calcAvg(allGames, 'TOV'),
+    PF: calcAvg(allGames, 'PF'),
     PRA: calcAvg(allGames, 'PTS') + calcAvg(allGames, 'REB') + calcAvg(allGames, 'AST'),
     MIN: calcAvg(allGames, 'MIN'),
   } : normalizeAvgs(player.season_averages);
@@ -136,6 +152,10 @@ export function PlayerDetail({ player }: PlayerDetailProps) {
     REB: calcAvg(last10Games, 'REB'),
     AST: calcAvg(last10Games, 'AST'),
     FG3M: calcAvg(last10Games, 'FG3M'),
+    STL: calcAvg(last10Games, 'STL'),
+    BLK: calcAvg(last10Games, 'BLK'),
+    TOV: calcAvg(last10Games, 'TOV'),
+    PF: calcAvg(last10Games, 'PF'),
     PRA: calcAvg(last10Games, 'PTS') + calcAvg(last10Games, 'REB') + calcAvg(last10Games, 'AST'),
     MIN: calcAvg(last10Games, 'MIN'),
   } : player.last_10_averages;
@@ -146,6 +166,10 @@ export function PlayerDetail({ player }: PlayerDetailProps) {
     REB: calcAvg(last5Games, 'REB'),
     AST: calcAvg(last5Games, 'AST'),
     FG3M: calcAvg(last5Games, 'FG3M'),
+    STL: calcAvg(last5Games, 'STL'),
+    BLK: calcAvg(last5Games, 'BLK'),
+    TOV: calcAvg(last5Games, 'TOV'),
+    PF: calcAvg(last5Games, 'PF'),
     PRA: calcAvg(last5Games, 'PTS') + calcAvg(last5Games, 'REB') + calcAvg(last5Games, 'AST'),
     MIN: calcAvg(last5Games, 'MIN'),
   } : player.last_5_averages;
@@ -162,21 +186,24 @@ export function PlayerDetail({ player }: PlayerDetailProps) {
 
   // Calculate vs_team matchup stats from live gamelog
   const vsTeamFromGamelog = liveGamelog ? (() => {
-    const teamMap: Record<string, { pts: number[]; reb: number[]; ast: number[]; fg3m: number[] }> = {};
+    const teamMap: Record<string, { pts: number[]; reb: number[]; ast: number[]; fg3m: number[]; stl: number[]; blk: number[]; tov: number[] }> = {};
 
     for (const entry of liveGamelog) {
       const opp = entry.game.opponent?.abbreviation;
       if (!opp) continue;
       if (!teamMap[opp]) {
-        teamMap[opp] = { pts: [], reb: [], ast: [], fg3m: [] };
+        teamMap[opp] = { pts: [], reb: [], ast: [], fg3m: [], stl: [], blk: [], tov: [] };
       }
       teamMap[opp].pts.push(parseInt(entry.stats.PTS || "0"));
       teamMap[opp].reb.push(parseInt(entry.stats.REB || "0"));
       teamMap[opp].ast.push(parseInt(entry.stats.AST || "0"));
       teamMap[opp].fg3m.push(parseInt(entry.stats["3PM"] || entry.stats.FG3M || "0"));
+      teamMap[opp].stl.push(parseInt(entry.stats.STL || "0"));
+      teamMap[opp].blk.push(parseInt(entry.stats.BLK || "0"));
+      teamMap[opp].tov.push(parseInt(entry.stats.TO || entry.stats.TOV || "0"));
     }
 
-    const result: Record<string, { games: number; PTS: number; REB: number; AST: number; FG3M: number; PRA: number }> = {};
+    const result: Record<string, { games: number; PTS: number; REB: number; AST: number; FG3M: number; STL: number; BLK: number; TOV: number; PRA: number }> = {};
     for (const [team, data] of Object.entries(teamMap)) {
       const avg = (arr: number[]) => arr.length > 0 ? Math.round((arr.reduce((a, b) => a + b, 0) / arr.length) * 10) / 10 : 0;
       const pts = avg(data.pts);
@@ -188,6 +215,9 @@ export function PlayerDetail({ player }: PlayerDetailProps) {
         REB: reb,
         AST: ast,
         FG3M: avg(data.fg3m),
+        STL: avg(data.stl),
+        BLK: avg(data.blk),
+        TOV: avg(data.tov),
         PRA: Math.round((pts + reb + ast) * 10) / 10,
       };
     }
@@ -272,6 +302,10 @@ export function PlayerDetail({ player }: PlayerDetailProps) {
               <StatBadge label="REB" value={seasonAverages.REB} size="sm" />
               <StatBadge label="AST" value={seasonAverages.AST} size="sm" />
               <StatBadge label="3PM" value={seasonAverages.FG3M} size="sm" />
+              <StatBadge label="STL" value={seasonAverages.STL} size="sm" />
+              <StatBadge label="BLK" value={seasonAverages.BLK} size="sm" />
+              <StatBadge label="TOV" value={seasonAverages.TOV} size="sm" />
+              <StatBadge label="PF" value={seasonAverages.PF} size="sm" />
             </div>
           </CardContent>
         </Card>
@@ -308,6 +342,21 @@ export function PlayerDetail({ player }: PlayerDetailProps) {
                 value={last10Averages.FG3M ?? 0}
                 size="sm"
               />
+              <StatBadge
+                label="STL"
+                value={last10Averages.STL ?? 0}
+                size="sm"
+              />
+              <StatBadge
+                label="BLK"
+                value={last10Averages.BLK ?? 0}
+                size="sm"
+              />
+              <StatBadge
+                label="TOV"
+                value={last10Averages.TOV ?? 0}
+                size="sm"
+              />
             </div>
           </CardContent>
         </Card>
@@ -334,6 +383,21 @@ export function PlayerDetail({ player }: PlayerDetailProps) {
               <StatBadge
                 label="AST"
                 value={last5Averages.AST ?? 0}
+                size="sm"
+              />
+              <StatBadge
+                label="STL"
+                value={last5Averages.STL ?? 0}
+                size="sm"
+              />
+              <StatBadge
+                label="BLK"
+                value={last5Averages.BLK ?? 0}
+                size="sm"
+              />
+              <StatBadge
+                label="TOV"
+                value={last5Averages.TOV ?? 0}
                 size="sm"
               />
               <StatBadge
@@ -444,6 +508,42 @@ export function PlayerDetail({ player }: PlayerDetailProps) {
                 />
               </CardContent>
             </Card>
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium">Steals Trend</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <TrendChart
+                  games={recentGames}
+                  stat="STL"
+                  seasonAvg={seasonAverages.STL}
+                />
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium">Blocks Trend</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <TrendChart
+                  games={recentGames}
+                  stat="BLK"
+                  seasonAvg={seasonAverages.BLK}
+                />
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium">Turnovers Trend</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <TrendChart
+                  games={recentGames}
+                  stat="TOV"
+                  seasonAvg={seasonAverages.TOV}
+                />
+              </CardContent>
+            </Card>
           </div>
         </TabsContent>
 
@@ -479,6 +579,30 @@ export function PlayerDetail({ player }: PlayerDetailProps) {
               </CardHeader>
               <CardContent>
                 <HitRateGrid hitRates={player.hit_rates} stat="PRA" />
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium">Steals</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <HitRateGrid hitRates={player.hit_rates} stat="STL" />
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium">Blocks</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <HitRateGrid hitRates={player.hit_rates} stat="BLK" />
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium">Turnovers</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <HitRateGrid hitRates={player.hit_rates} stat="TOV" />
               </CardContent>
             </Card>
           </div>

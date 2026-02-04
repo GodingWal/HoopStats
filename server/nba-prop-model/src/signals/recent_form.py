@@ -30,7 +30,10 @@ class RecentFormSignal(BaseSignal):
 
     name = "recent_form"
     description = "Recent performance hot/cold detection"
-    stat_types = ["Points", "Rebounds", "Assists", "3-Pointers Made", "Pts+Rebs+Asts"]
+    stat_types = [
+        "Points", "Rebounds", "Assists", "3-Pointers Made", "Pts+Rebs+Asts",
+        "Steals", "Blocks", "Turnovers", "Pts+Rebs", "Pts+Asts", "Rebs+Asts",
+    ]
     default_confidence = 0.50  # Lower confidence - streaks are noisy
 
     # Thresholds for detecting form
@@ -121,14 +124,8 @@ class RecentFormSignal(BaseSignal):
 
     def _get_stat_key(self, stat_type: str) -> Optional[str]:
         """Map stat type to key in averages dict."""
-        stat_key_map = {
-            'Points': 'pts',
-            'Rebounds': 'reb',
-            'Assists': 'ast',
-            '3-Pointers Made': 'fg3m',
-            'Pts+Rebs+Asts': 'pra',
-        }
-        return stat_key_map.get(stat_type)
+        from .stat_helpers import STAT_KEY_MAP
+        return STAT_KEY_MAP.get(stat_type)
 
     def _get_stat_value(
         self,
@@ -137,19 +134,8 @@ class RecentFormSignal(BaseSignal):
         stat_type: str
     ) -> Optional[float]:
         """Get stat value from averages dict."""
-
-        if stat_key in averages:
-            return averages[stat_key]
-
-        # Handle PRA
-        if stat_type == 'Pts+Rebs+Asts':
-            pts = averages.get('pts', 0)
-            reb = averages.get('reb', 0)
-            ast = averages.get('ast', 0)
-            if pts + reb + ast > 0:
-                return pts + reb + ast
-
-        return None
+        from .stat_helpers import get_stat_value
+        return get_stat_value(averages, stat_key, stat_type)
 
 
 # Register signal with global registry

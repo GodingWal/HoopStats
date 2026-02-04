@@ -36,7 +36,10 @@ class CLVTrackerSignal(BaseSignal):
 
     name = "clv_tracker"
     description = "Closing line value tracking and filtering"
-    stat_types = ["Points", "Rebounds", "Assists", "3-Pointers Made", "Pts+Rebs+Asts"]
+    stat_types = [
+        "Points", "Rebounds", "Assists", "3-Pointers Made", "Pts+Rebs+Asts",
+        "Steals", "Blocks", "Turnovers", "Pts+Rebs", "Pts+Asts", "Rebs+Asts",
+    ]
     default_confidence = 0.60
 
     # Minimum CLV records needed to fire
@@ -250,21 +253,8 @@ class CLVTrackerSignal(BaseSignal):
 
     def _get_baseline(self, stat_type: str, context: Dict[str, Any]) -> Optional[float]:
         """Get baseline value for a stat type from context."""
-        season_avgs = context.get('season_averages', {})
-        stat_key_map = {
-            'Points': 'pts', 'Rebounds': 'reb', 'Assists': 'ast',
-            '3-Pointers Made': 'fg3m', 'Pts+Rebs+Asts': 'pra',
-        }
-        key = stat_key_map.get(stat_type)
-        if key and key in season_avgs:
-            return season_avgs[key]
-        if stat_type == 'Pts+Rebs+Asts':
-            pts = season_avgs.get('pts', 0)
-            reb = season_avgs.get('reb', 0)
-            ast = season_avgs.get('ast', 0)
-            if pts + reb + ast > 0:
-                return pts + reb + ast
-        return None
+        from .stat_helpers import get_baseline
+        return get_baseline(stat_type, context)
 
 
 # Register signal with global registry

@@ -71,7 +71,7 @@ interface HitRateSummaryProps {
 }
 
 export function HitRateSummary({ hitRates }: HitRateSummaryProps) {
-  const stats = ["PTS", "REB", "AST", "PRA", "FG3M"];
+  const stats = ["PTS", "REB", "AST", "PRA", "FG3M", "STL", "BLK", "TOV"];
   
   return (
     <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">

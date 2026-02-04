@@ -112,6 +112,8 @@ export const STAT_LABELS: Record<string, string> = {
   STL: "Steals",
   BLK: "Blocks",
   TO: "Turnovers",
+  TOV: "Turnovers",
+  PF: "Fouls",
   PR: "PTS+REB",
   PA: "PTS+AST",
   RA: "REB+AST",
@@ -125,7 +127,7 @@ export const STAT_LABELS: Record<string, string> = {
 
 export const VALID_STAT_TYPES = [
   "PTS", "REB", "AST", "PRA", "FG3M", "FPTS",
-  "STL", "BLK", "TO", "PR", "PA", "RA", "MIN", "FGA"
+  "STL", "BLK", "TO", "TOV", "PF", "PR", "PA", "RA", "MIN", "FGA"
 ] as const;
 
 export type StatType = typeof VALID_STAT_TYPES[number];

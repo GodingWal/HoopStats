@@ -56,7 +56,7 @@ export function VsTeamStats({ vsTeam, seasonAvg }: VsTeamStatsProps) {
                 {stats.PRA.toFixed(1)} PRA
               </div>
             </div>
-            <div className="grid grid-cols-4 gap-2 text-xs">
+            <div className="grid grid-cols-7 gap-2 text-xs">
               <div className="text-center">
                 <div className="text-muted-foreground mb-0.5">PTS</div>
                 <div className="font-mono font-semibold">{stats.PTS.toFixed(1)}</div>
@@ -75,6 +75,18 @@ export function VsTeamStats({ vsTeam, seasonAvg }: VsTeamStatsProps) {
               <div className="text-center">
                 <div className="text-muted-foreground mb-0.5">3PM</div>
                 <div className="font-mono font-semibold">{stats.FG3M?.toFixed(1) ?? "-"}</div>
+              </div>
+              <div className="text-center">
+                <div className="text-muted-foreground mb-0.5">STL</div>
+                <div className="font-mono font-semibold">{stats.STL?.toFixed(1) ?? "-"}</div>
+              </div>
+              <div className="text-center">
+                <div className="text-muted-foreground mb-0.5">BLK</div>
+                <div className="font-mono font-semibold">{stats.BLK?.toFixed(1) ?? "-"}</div>
+              </div>
+              <div className="text-center">
+                <div className="text-muted-foreground mb-0.5">TOV</div>
+                <div className="font-mono font-semibold">{stats.TOV?.toFixed(1) ?? "-"}</div>
               </div>
             </div>
           </div>
