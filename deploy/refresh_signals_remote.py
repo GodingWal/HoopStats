@@ -42,8 +42,13 @@ print("Initializing Backtest Engine...")
 bt = BacktestEngine(conn)
 
 print("Running Backtest for last 3 days to populate signals...")
-# Run for Points, Rebounds, Assists to cover most signals
-for stat in ['Points', 'Rebounds', 'Assists']:
+# Run for all available stats
+stats_to_test = [
+    'Points', 'Rebounds', 'Assists', '3-PT Made', 'Pts+Rebs+Asts', 
+    'Pts+Rebs', 'Pts+Asts', 'Rebs+Asts', 'Steals', 'Blocks', 
+    'Turnovers', 'Fantasy Score', 'Blks+Stls', 'Dunks', 'FG Made'
+]
+for stat in stats_to_test:
     print(f"  Analysing {stat}...")
     try:
         results = bt.run(days=3, stat_type=stat)

@@ -25,14 +25,14 @@ if DB_URL.startswith("postgres://"):
 engine = create_engine(DB_URL)
 
 with engine.connect() as conn:
-    print("--- prizepicks_daily_lines Schema ---")
-    res = conn.execute(text("SELECT column_name, data_type FROM information_schema.columns WHERE table_name = 'prizepicks_daily_lines'"))
+    print("--- Injury History Schema ---")
+    res = conn.execute(text("SELECT column_name, data_type FROM information_schema.columns WHERE table_name = 'injury_history'"))
     for row in res:
         print(row)
 """
 
 sftp = client.open_sftp()
-remote_path = "/var/www/hoopstats/server/nba-prop-model/scripts/check_pp_schema.py"
+remote_path = "/var/www/hoopstats/server/nba-prop-model/scripts/check_injury_history_schema.py"
 with sftp.file(remote_path, "w") as f:
     f.write(script_content)
 sftp.close()

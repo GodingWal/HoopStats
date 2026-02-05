@@ -16,6 +16,7 @@ script_content = """
 from sqlalchemy import create_engine, text
 from dotenv import load_dotenv
 import os
+import pandas as pd
 
 load_dotenv("/var/www/hoopstats/.env")
 DB_URL = os.getenv("DATABASE_URL")
@@ -25,19 +26,26 @@ if DB_URL.startswith("postgres://"):
 engine = create_engine(DB_URL)
 
 with engine.connect() as conn:
-    print("--- prizepicks_daily_lines Schema ---")
-    res = conn.execute(text("SELECT column_name, data_type FROM information_schema.columns WHERE table_name = 'prizepicks_daily_lines'"))
-    for row in res:
-        print(row)
+    print("--- Injury History Content ---")
+    df = pd.read_sql(\"\"\"
+        SELECT * FROM injury_history
+        ORDER BY detected_at DESC
+        LIMIT 20
+    \"\"\", conn)
+    print(df)
+    
+    print("\\n--- Count ---")
+    count = pd.read_sql("SELECT COUNT(*) FROM injury_history", conn)
+    print(count)
 """
 
 sftp = client.open_sftp()
-remote_path = "/var/www/hoopstats/server/nba-prop-model/scripts/check_pp_schema.py"
+remote_path = "/var/www/hoopstats/server/nba-prop-model/scripts/check_injury_content.py"
 with sftp.file(remote_path, "w") as f:
     f.write(script_content)
 sftp.close()
 
-print("Running schema check...")
+print("Running check...")
 cmd_run = f"python3 {remote_path}"
 stdin, stdout, stderr = client.exec_command(cmd_run)
 print(stdout.read().decode())

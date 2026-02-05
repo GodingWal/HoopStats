@@ -16,6 +16,7 @@ script_content = """
 from sqlalchemy import create_engine, text
 from dotenv import load_dotenv
 import os
+import pandas as pd
 
 load_dotenv("/var/www/hoopstats/.env")
 DB_URL = os.getenv("DATABASE_URL")
@@ -25,19 +26,33 @@ if DB_URL.startswith("postgres://"):
 engine = create_engine(DB_URL)
 
 with engine.connect() as conn:
-    print("--- prizepicks_daily_lines Schema ---")
-    res = conn.execute(text("SELECT column_name, data_type FROM information_schema.columns WHERE table_name = 'prizepicks_daily_lines'"))
-    for row in res:
-        print(row)
+    print("--- Injection of Injury Data? ---")
+    # Check if we have injury data for recent dates
+    inj = pd.read_sql(\"\"\"
+        SELECT * FROM player_injuries
+        WHERE date >= '2026-01-30'
+        LIMIT 5
+    \"\"\", conn)
+    print("Player Injuries Table:")
+    print(inj)
+    
+    print("\\n--- Injury History Table ---")
+    hist = pd.read_sql(\"\"\"
+        SELECT * FROM injury_history
+        WHERE date >= '2026-01-30'
+        LIMIT 5
+    \"\"\", conn)
+    print(hist)
+
 """
 
 sftp = client.open_sftp()
-remote_path = "/var/www/hoopstats/server/nba-prop-model/scripts/check_pp_schema.py"
+remote_path = "/var/www/hoopstats/server/nba-prop-model/scripts/check_injuries.py"
 with sftp.file(remote_path, "w") as f:
     f.write(script_content)
 sftp.close()
 
-print("Running schema check...")
+print("Running check...")
 cmd_run = f"python3 {remote_path}"
 stdin, stdout, stderr = client.exec_command(cmd_run)
 print(stdout.read().decode())

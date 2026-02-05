@@ -318,11 +318,19 @@ export default function BacktestPage() {
 
       {/* Stat Type Tabs */}
       <Tabs value={statType} onValueChange={setStatType}>
-        <TabsList>
-          <TabsTrigger value="Points">Points</TabsTrigger>
-          <TabsTrigger value="Rebounds">Rebounds</TabsTrigger>
-          <TabsTrigger value="Assists">Assists</TabsTrigger>
-        </TabsList>
+        <div className="overflow-x-auto pb-2">
+          <TabsList className="inline-flex w-auto justify-start">
+            {[
+              "Points", "Rebounds", "Assists", "3-PT Made",
+              "Pts+Rebs+Asts", "Pts+Rebs", "Pts+Asts", "Rebs+Asts",
+              "Steals", "Blocks", "Turnovers", "Fantasy Score", "Blks+Stls"
+            ].map((type) => (
+              <TabsTrigger key={type} value={type} className="whitespace-nowrap px-4">
+                {type}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </div>
 
         <TabsContent value={statType} className="space-y-6 mt-4">
           {/* Overview Stats */}

@@ -38,8 +38,13 @@ print("Initializing Backtest Engine...")
 bt = BacktestEngine(conn)
 
 print("Running Backtest...")
-# Only test 'Points' to see details
-for stat in ['Points']:
+# Test all available stats
+stats_to_test = [
+    'Points', 'Rebounds', 'Assists', '3-PT Made', 'Pts+Rebs+Asts', 
+    'Pts+Rebs', 'Pts+Asts', 'Rebs+Asts', 'Steals', 'Blocks', 
+    'Turnovers', 'Fantasy Score', 'Blks+Stls', 'Dunks', 'FG Made'
+]
+for stat in stats_to_test:
     print(f"  Analysing {stat}...")
     try:
         results = bt.run(days=3, stat_type=stat)
