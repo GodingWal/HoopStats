@@ -145,6 +145,12 @@ const SIGNAL_DISPLAY: Record<string, { label: string; description: string; color
   home_away: { label: "Home/Away", description: "Location split analysis", color: "hsl(47, 96%, 53%)" },
   recent_form: { label: "Recent Form", description: "Hot/cold streak detection", color: "hsl(199, 89%, 48%)" },
   referee_impact: { label: "Referee Impact", description: "Referee foul tendency", color: "hsl(320, 70%, 50%)" },
+  clv_tracker: { label: "CLV Tracker", description: "Closing line value tracking", color: "hsl(280, 68%, 55%)" },
+  defender_matchup: { label: "Defender Matchup", description: "Primary defender impact", color: "hsl(160, 60%, 45%)" },
+  matchup_history: { label: "Matchup History", description: "Head-to-head performance", color: "hsl(35, 90%, 50%)" },
+  line_movement: { label: "Line Movement", description: "Sharp money detection", color: "hsl(190, 75%, 45%)" },
+  fatigue: { label: "Fatigue", description: "Schedule & travel load", color: "hsl(10, 70%, 55%)" },
+  referee: { label: "Referee", description: "Referee tendency adjustment", color: "hsl(340, 65%, 50%)" },
 };
 
 const GRADE_COLORS: Record<string, string> = {
