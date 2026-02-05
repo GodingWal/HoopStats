@@ -2790,6 +2790,27 @@ export async function registerRoutes(
         ORDER BY game_date
       `);
 
+      // Check for stale data - projections missing actuals for games that should be complete
+      // (games from yesterday or earlier)
+      const staleActualsResult = await pool.query(`
+        SELECT COUNT(*) as pending_count
+        FROM projection_logs
+        WHERE actual_value IS NULL
+          AND game_date < CURRENT_DATE
+      `);
+      const pendingActuals = parseInt(staleActualsResult.rows[0]?.pending_count) || 0;
+
+      // Check when validation was last run
+      const lastValidationResult = await pool.query(`
+        SELECT MAX(evaluation_date) as last_date
+        FROM signal_performance
+      `);
+      const lastValidationDate = lastValidationResult.rows[0]?.last_date;
+
+      // Data is stale if: there are pending actuals OR validation hasn't run recently
+      const today = new Date().toISOString().split('T')[0];
+      const validationStale = !lastValidationDate || lastValidationDate < today;
+
       const stats = projStats.rows[0];
       const total = parseInt(stats.total) || 0;
       const completed = parseInt(stats.completed) || 0;
@@ -2821,6 +2842,13 @@ export async function registerRoutes(
           hits: parseInt(row.hits),
           accuracy: parseFloat(row.accuracy),
         })),
+        // Staleness info for auto-refresh
+        staleness: {
+          pendingActuals,
+          validationStale,
+          lastValidationDate,
+          needsRefresh: pendingActuals > 0 || validationStale,
+        },
       });
     } catch (error: any) {
       if (error.code === '42P01') {
@@ -2838,6 +2866,124 @@ export async function registerRoutes(
       console.error("Error fetching backtest overview:", error);
       res.status(500).json({ error: "Failed to fetch backtest overview" });
     }
+  });
+
+  // =============== BACKTEST AUTO-REFRESH ENDPOINTS ===============
+
+  // Store refresh state to prevent concurrent refreshes
+  let isRefreshing = false;
+  let lastRefreshTime: Date | null = null;
+  let lastRefreshResult: any = null;
+
+  // POST /api/backtest/refresh - Trigger full data refresh (actuals + validation)
+  app.post("/api/backtest/refresh", async (req, res) => {
+    // Prevent concurrent refreshes
+    if (isRefreshing) {
+      return res.status(409).json({
+        error: "Refresh already in progress",
+        lastRefreshTime: lastRefreshTime?.toISOString(),
+      });
+    }
+
+    // Rate limit - only allow refresh every 5 minutes
+    const minInterval = 5 * 60 * 1000; // 5 minutes
+    if (lastRefreshTime && (Date.now() - lastRefreshTime.getTime()) < minInterval) {
+      return res.json({
+        status: "skipped",
+        message: "Refresh was run recently",
+        lastRefreshTime: lastRefreshTime.toISOString(),
+        lastResult: lastRefreshResult,
+      });
+    }
+
+    isRefreshing = true;
+    const startTime = Date.now();
+    console.log("[Backtest Refresh] Starting auto-refresh...");
+
+    try {
+      const scriptPath = path.join(process.cwd(), "server", "nba-prop-model", "scripts", "cron_jobs.py");
+
+      // Run actuals first, then validation
+      const runPythonScript = (command: string): Promise<{ success: boolean; output: string; error: string }> => {
+        return new Promise((resolve) => {
+          const pythonProcess = spawn(getPythonCommand(), [scriptPath, command]);
+          let stdout = "";
+          let stderr = "";
+
+          pythonProcess.stdout.on("data", (data) => {
+            stdout += data.toString();
+          });
+
+          pythonProcess.stderr.on("data", (data) => {
+            stderr += data.toString();
+          });
+
+          pythonProcess.on("close", (code) => {
+            resolve({
+              success: code === 0,
+              output: stdout,
+              error: stderr,
+            });
+          });
+
+          pythonProcess.on("error", (err) => {
+            resolve({
+              success: false,
+              output: "",
+              error: err.message,
+            });
+          });
+        });
+      };
+
+      // Step 1: Populate actuals for yesterday's games
+      console.log("[Backtest Refresh] Running actuals population...");
+      const actualsResult = await runPythonScript("actuals");
+
+      // Step 2: Run validation
+      console.log("[Backtest Refresh] Running validation...");
+      const validationResult = await runPythonScript("validate");
+
+      const duration = Date.now() - startTime;
+      lastRefreshTime = new Date();
+      lastRefreshResult = {
+        actuals: {
+          success: actualsResult.success,
+          message: actualsResult.output.trim() || (actualsResult.success ? "Completed" : actualsResult.error),
+        },
+        validation: {
+          success: validationResult.success,
+          message: validationResult.output.trim() || (validationResult.success ? "Completed" : validationResult.error),
+        },
+        duration: `${(duration / 1000).toFixed(1)}s`,
+      };
+
+      console.log(`[Backtest Refresh] Completed in ${lastRefreshResult.duration}`);
+
+      res.json({
+        status: "completed",
+        refreshTime: lastRefreshTime.toISOString(),
+        result: lastRefreshResult,
+      });
+    } catch (error: any) {
+      console.error("[Backtest Refresh] Error:", error);
+      lastRefreshResult = { error: error.message };
+      res.status(500).json({
+        status: "error",
+        error: error.message,
+      });
+    } finally {
+      isRefreshing = false;
+    }
+  });
+
+  // GET /api/backtest/refresh/status - Check refresh status
+  app.get("/api/backtest/refresh/status", (req, res) => {
+    res.json({
+      isRefreshing,
+      lastRefreshTime: lastRefreshTime?.toISOString() || null,
+      lastResult: lastRefreshResult,
+    });
   });
 
   return httpServer;
