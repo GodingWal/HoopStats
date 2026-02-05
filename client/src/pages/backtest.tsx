@@ -1,7 +1,8 @@
-import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useState, useEffect, useCallback } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -12,6 +13,7 @@ import {
   Loader2, FlaskConical, TrendingUp, TrendingDown,
   Target, Scale, Activity, CheckCircle2, XCircle,
   ArrowUpRight, ArrowDownRight, Minus, Clock, AlertTriangle,
+  RefreshCw,
 } from "lucide-react";
 
 // ==================== HELPERS ====================
@@ -99,6 +101,23 @@ interface OverviewData {
   }>;
   recentAccuracy: Array<{ date: string; total: number; hits: number; accuracy: number }>;
   message?: string;
+  staleness?: {
+    pendingActuals: number;
+    validationStale: boolean;
+    lastValidationDate: string | null;
+    needsRefresh: boolean;
+  };
+}
+
+interface RefreshStatus {
+  isRefreshing: boolean;
+  lastRefreshTime: string | null;
+  lastResult: {
+    actuals?: { success: boolean; message: string };
+    validation?: { success: boolean; message: string };
+    duration?: string;
+    error?: string;
+  } | null;
 }
 
 interface BacktestRun {
@@ -139,11 +158,54 @@ const GRADE_COLORS: Record<string, string> = {
 
 export default function BacktestPage() {
   const [statType, setStatType] = useState("Points");
+  const [autoRefreshTriggered, setAutoRefreshTriggered] = useState(false);
+  const queryClient = useQueryClient();
 
   const { data: overview, isLoading: overviewLoading } = useQuery<OverviewData>({
     queryKey: ["/api/backtest/overview"],
-    refetchInterval: 300000,
+    refetchInterval: 60000, // Check every minute for staleness
   });
+
+  // Refresh status query
+  const { data: refreshStatus } = useQuery<RefreshStatus>({
+    queryKey: ["/api/backtest/refresh/status"],
+    refetchInterval: 5000, // Poll while refreshing
+  });
+
+  // Refresh mutation
+  const refreshMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch("/api/backtest/refresh", { method: "POST" });
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || "Refresh failed");
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      // Invalidate all backtest queries to refetch fresh data
+      queryClient.invalidateQueries({ queryKey: ["/api/backtest"] });
+    },
+  });
+
+  // Auto-refresh when data is stale (only once per page load)
+  useEffect(() => {
+    if (
+      overview?.staleness?.needsRefresh &&
+      !autoRefreshTriggered &&
+      !refreshMutation.isPending &&
+      !refreshStatus?.isRefreshing
+    ) {
+      console.log("[Backtest] Auto-refreshing stale data...");
+      setAutoRefreshTriggered(true);
+      refreshMutation.mutate();
+    }
+  }, [overview?.staleness?.needsRefresh, autoRefreshTriggered, refreshMutation.isPending, refreshStatus?.isRefreshing]);
+
+  const handleManualRefresh = useCallback(() => {
+    setAutoRefreshTriggered(true); // Prevent auto-refresh from triggering again
+    refreshMutation.mutate();
+  }, [refreshMutation]);
 
   const { data: signalsData, isLoading: signalsLoading } = useQuery<{ signals: SignalData[] }>({
     queryKey: ["/api/backtest/signals", statType],
@@ -176,6 +238,8 @@ export default function BacktestPage() {
     queryKey: ["/api/backtest/runs"],
   });
 
+  const isRefreshing = refreshMutation.isPending || refreshStatus?.isRefreshing;
+
   if (overviewLoading) {
     return (
       <div className="flex justify-center items-center min-h-screen">
@@ -192,17 +256,65 @@ export default function BacktestPage() {
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-6 fade-in">
       {/* Header */}
-      <div className="flex items-center gap-3">
-        <div className="p-2 rounded-xl bg-gradient-to-br from-purple-500/20 to-primary/20">
-          <FlaskConical className="w-7 h-7 text-primary" />
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="p-2 rounded-xl bg-gradient-to-br from-purple-500/20 to-primary/20">
+            <FlaskConical className="w-7 h-7 text-primary" />
+          </div>
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight">Backtest Lab</h1>
+            <p className="text-muted-foreground">
+              Signal accuracy, learned weights, and projection validation
+            </p>
+          </div>
         </div>
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Backtest Lab</h1>
-          <p className="text-muted-foreground">
-            Signal accuracy, learned weights, and projection validation
-          </p>
+
+        {/* Refresh Controls */}
+        <div className="flex items-center gap-3">
+          {/* Staleness Indicator */}
+          {overview?.staleness?.needsRefresh && !isRefreshing && (
+            <Badge className="bg-amber-500/15 text-amber-400 border-amber-500/30 text-xs">
+              <AlertTriangle className="w-3 h-3 mr-1" />
+              {overview.staleness.pendingActuals > 0
+                ? `${overview.staleness.pendingActuals} pending actuals`
+                : "Validation needed"}
+            </Badge>
+          )}
+
+          {/* Refresh Status */}
+          {isRefreshing && (
+            <Badge className="bg-primary/15 text-primary border-primary/30 text-xs">
+              <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+              Updating data...
+            </Badge>
+          )}
+
+          {/* Last Refresh Time */}
+          {refreshStatus?.lastRefreshTime && !isRefreshing && (
+            <span className="text-xs text-muted-foreground">
+              Updated {new Date(refreshStatus.lastRefreshTime).toLocaleTimeString()}
+            </span>
+          )}
+
+          {/* Refresh Button */}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleManualRefresh}
+            disabled={isRefreshing}
+          >
+            <RefreshCw className={`w-4 h-4 mr-1 ${isRefreshing ? "animate-spin" : ""}`} />
+            {isRefreshing ? "Refreshing..." : "Refresh"}
+          </Button>
         </div>
       </div>
+
+      {/* Refresh Error Alert */}
+      {refreshMutation.isError && (
+        <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-sm">
+          <span className="font-medium">Refresh failed:</span> {refreshMutation.error?.message}
+        </div>
+      )}
 
       {/* Stat Type Tabs */}
       <Tabs value={statType} onValueChange={setStatType}>
@@ -240,17 +352,17 @@ export default function BacktestPage() {
                 <FlaskConical className="w-16 h-16 mx-auto mb-4 text-muted-foreground/30" />
                 <h3 className="text-xl font-semibold mb-2">No Backtest Data Yet</h3>
                 <p className="text-muted-foreground max-w-md mx-auto mb-4">
-                  The backtest infrastructure is set up and ready. Run the cron jobs
-                  to start capturing projections and validating signals.
+                  The backtest infrastructure is set up and ready. Data will automatically
+                  update when projections are captured and games complete.
                 </p>
-                <div className="text-left max-w-lg mx-auto bg-muted/30 rounded-lg p-4 font-mono text-sm text-muted-foreground space-y-1">
-                  <p># Capture today's projections</p>
-                  <p className="text-foreground">python scripts/cron_jobs.py capture</p>
-                  <p className="mt-2"># Populate actuals (after games)</p>
-                  <p className="text-foreground">python scripts/cron_jobs.py actuals</p>
-                  <p className="mt-2"># Run signal validation</p>
-                  <p className="text-foreground">python scripts/cron_jobs.py validate</p>
-                </div>
+                <Button
+                  variant="outline"
+                  onClick={handleManualRefresh}
+                  disabled={isRefreshing}
+                >
+                  <RefreshCw className={`w-4 h-4 mr-2 ${isRefreshing ? "animate-spin" : ""}`} />
+                  {isRefreshing ? "Checking for data..." : "Check for Updates"}
+                </Button>
               </CardContent>
             </Card>
           )}
