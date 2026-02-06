@@ -190,7 +190,13 @@ export default function BacktestPage() {
     },
     onSuccess: () => {
       // Invalidate all backtest queries to refetch fresh data
-      queryClient.invalidateQueries({ queryKey: ["/api/backtest"] });
+      // Must use predicate for string-prefix matching since query keys are
+      // full paths like ["/api/backtest/overview"], not nested arrays like ["/api/backtest", "overview"]
+      queryClient.invalidateQueries({
+        predicate: (query) =>
+          typeof query.queryKey[0] === 'string' &&
+          query.queryKey[0].startsWith('/api/backtest'),
+      });
     },
   });
 
