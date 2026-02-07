@@ -178,12 +178,16 @@ class BacktestEngine:
         self.team_stats = {}
         self.game_referees = {}  # {game_id: [ref_names]}
         self.line_history = {}   # {(player, stat, date): [movements]}
+        self.injury_data = {}    # {(team, date): [injured_player_names]}
+        self.team_rosters = {}   # {team: [player_names_with_positions]}
         self._signal_registry = None
 
         if self.db_connection:
             self._load_team_stats()
             self._load_referees()
             self._load_line_history()
+            self._load_injuries()
+            self._load_team_rosters()
 
     @property
     def signal_registry(self):
@@ -499,6 +503,175 @@ class BacktestEngine:
             if hasattr(self.db_connection, 'rollback'):
                 self.db_connection.rollback()
 
+    def _load_injuries(self):
+        """Load injury history to find players OUT on specific dates."""
+        if self.db_connection is None:
+            return
+
+        try:
+            # Load significant injury status changes (player marked OUT)
+            # Use injury_history to reconstruct who was out on each date
+            df = pd.read_sql("""
+                SELECT player_name, team, new_status, detected_at::date as status_date
+                FROM injury_history
+                WHERE new_status IN ('out', 'doubtful')
+                  AND detected_at >= NOW() - INTERVAL '90 days'
+                ORDER BY detected_at
+            """, self.db_connection)
+
+            # Build lookup: (team, date) -> list of injured player names
+            self.injury_data = {}
+            for _, row in df.iterrows():
+                team = row['team']
+                date_str = str(row['status_date'])
+                key = (team, date_str)
+                if key not in self.injury_data:
+                    self.injury_data[key] = []
+                name = row['player_name']
+                if name not in self.injury_data[key]:
+                    self.injury_data[key].append(name)
+
+            logger.info(f"Loaded injury data for {len(self.injury_data)} team-dates")
+        except Exception as e:
+            logger.error(f"Failed to load injuries: {e}")
+            if hasattr(self.db_connection, 'rollback'):
+                self.db_connection.rollback()
+
+    def _load_team_rosters(self):
+        """Load team rosters with positions for defender matchup heuristics."""
+        if self.db_connection is None:
+            return
+
+        try:
+            df = pd.read_sql("""
+                SELECT player_name, team, position
+                FROM players
+                WHERE team IS NOT NULL AND position IS NOT NULL
+            """, self.db_connection)
+
+            self.team_rosters = {}
+            for _, row in df.iterrows():
+                team = row['team']
+                if team not in self.team_rosters:
+                    self.team_rosters[team] = []
+                self.team_rosters[team].append({
+                    'name': row['player_name'],
+                    'position': row['position'],
+                })
+
+            logger.info(f"Loaded rosters for {len(self.team_rosters)} teams")
+        except Exception as e:
+            logger.error(f"Failed to load team rosters: {e}")
+            if hasattr(self.db_connection, 'rollback'):
+                self.db_connection.rollback()
+
+    def _find_injured_teammates(self, team: str, game_date: str) -> List[str]:
+        """Find teammates who were OUT on or near the game date."""
+        # Check exact date and day before (injury reported day before game)
+        injured = set()
+        for offset in range(0, 3):  # Check game day, day before, 2 days before
+            try:
+                if isinstance(game_date, str):
+                    dt = datetime.strptime(game_date, '%Y-%m-%d')
+                else:
+                    dt = game_date
+                check_date = (dt - timedelta(days=offset)).strftime('%Y-%m-%d')
+                key = (team, check_date)
+                if key in self.injury_data:
+                    injured.update(self.injury_data[key])
+            except (ValueError, TypeError):
+                pass
+        return list(injured)
+
+    def _find_primary_defender(self, opponent_team: str, player_position: str) -> Optional[str]:
+        """
+        Heuristic: find a known elite/weak defender on the opponent team
+        whose position matches the player.
+        """
+        # Import known defenders from the signal
+        from ..signals.defender_matchup import DefenderMatchupSignal
+        known_defenders = {}
+        known_defenders.update(DefenderMatchupSignal.ELITE_DEFENDERS)
+        known_defenders.update(DefenderMatchupSignal.WEAK_DEFENDERS)
+
+        roster = self.team_rosters.get(opponent_team, [])
+        if not roster:
+            return None
+
+        # Normalize player position to G/F/C
+        pos = (player_position or '').upper()
+        if not pos:
+            return None
+        pos_category = pos[0] if pos else ''  # G, F, or C
+
+        for player in roster:
+            name = player['name']
+            if name in known_defenders:
+                defender_pos = known_defenders[name].get('position', '')
+                # Match position category (G vs G, F vs F, C vs C)
+                if defender_pos and defender_pos[0] == pos_category:
+                    return name
+
+        return None
+
+    def _estimate_spread(self, team: str, opponent: str, is_home: bool) -> Optional[float]:
+        """
+        Estimate game spread from team defensive ratings.
+        Positive = underdog, Negative = favorite.
+        Returns the spread from the player's team perspective.
+        """
+        team_stats = self.team_stats.get(team)
+        opp_stats = self.team_stats.get(opponent)
+
+        if not team_stats or not opp_stats:
+            return None
+
+        # Use defensive rating differential as proxy for spread
+        # Lower def_rating = better defense = likely favored
+        team_def = team_stats.get('def_rating', 112)
+        opp_def = opp_stats.get('def_rating', 112)
+
+        # Net rating proxy: team with lower def_rating is better
+        # Scale: 1 point of def_rating diff ≈ 0.5 points of spread
+        rating_diff = (team_def - opp_def) * 0.5
+
+        # Home court advantage: ~3 points
+        if is_home:
+            rating_diff -= 3.0
+        else:
+            rating_diff += 3.0
+
+        return rating_diff
+
+    def _extract_vs_team_history(self, game: Dict, opponent: str) -> List[Dict]:
+        """
+        Extract matchup history vs specific opponent from recent_games JSONB.
+        """
+        recent_games = game.get('recent_games') or []
+        if isinstance(recent_games, str):
+            try:
+                recent_games = json.loads(recent_games)
+            except (json.JSONDecodeError, TypeError):
+                return []
+
+        if not isinstance(recent_games, list):
+            return []
+
+        vs_games = []
+        # Normalize opponent for matching
+        opp_clean = opponent.strip().upper() if opponent else ''
+        if not opp_clean:
+            return []
+
+        for g in recent_games:
+            game_opp = (g.get('OPPONENT') or g.get('opponent') or '').strip().upper()
+            # Handle formats like "@ BOS", "vs BOS", "BOS"
+            game_opp_clean = game_opp.replace('@', '').replace('VS', '').strip()
+            if game_opp_clean == opp_clean or opp_clean in game_opp_clean:
+                vs_games.append(g)
+
+        return vs_games
+
     def _build_context(self, game: Dict, players_df=None) -> Dict[str, Any]:
         """
         Build pre-game context from stored data.
@@ -625,45 +798,110 @@ class BacktestEngine:
 
 
         # B2B detection - check if team played on previous day
+        # Use DB query first, fall back to recent_games
         context['is_b2b'] = self._detect_b2b(game)
+
+        # --- Injury Alpha: find injured teammates ---
+        if team and game_date:
+            injured = self._find_injured_teammates(team, game_date)
+            # Remove the player themselves from injured list
+            injured = [p for p in injured if p.lower() != player_name.lower()]
+            if injured:
+                context['injured_teammates'] = injured
+
+        # --- Matchup History: extract vs-team games from recent_games ---
+        if opponent_clean:
+            vs_history = self._extract_vs_team_history(game, opponent_clean)
+            if vs_history:
+                context['vs_team_history'] = vs_history
+
+        # --- CLV Tracker: compute model_direction from baseline vs line ---
+        line = context.get('opening_line') or context.get('current_line')
+        try:
+            from ..signals.stat_helpers import get_baseline
+            season_avg_baseline = get_baseline(stat_type, context)
+        except ImportError:
+            season_avg_baseline = None
+        if season_avg_baseline is not None and line is not None:
+            if season_avg_baseline > line:
+                context['model_direction'] = 'OVER'
+            elif season_avg_baseline < line:
+                context['model_direction'] = 'UNDER'
+
+        # --- Blowout Risk: estimate spread from team ratings ---
+        is_home = context.get('is_home', True)
+        if team and opponent_clean:
+            estimated_spread = self._estimate_spread(team, opponent_clean, is_home)
+            if estimated_spread is not None:
+                context['vegas_spread'] = estimated_spread
+                # Also set avg_minutes from season averages if available
+                sa = context.get('season_averages', {})
+                if sa.get('min'):
+                    context['avg_minutes'] = sa['min']
+
+        # --- Defender Matchup: find known defender on opponent ---
+        position = game.get('position', '')
+        if opponent_clean and position:
+            defender = self._find_primary_defender(opponent_clean, position)
+            if defender:
+                context['primary_defender'] = defender
 
         return context
 
     def _detect_b2b(self, game: Dict) -> bool:
         """
         Detect if this game is a back-to-back by checking if the team
-        played on the previous day.
+        played on the previous day. Uses DB query first, then falls back
+        to recent_games JSONB data.
         """
-        if self.db_connection is None:
-            return False
-
         team = game.get('team', '')
         game_date = game.get('game_date', '')
-        
+
         if not team or not game_date:
             return False
 
         try:
             # Handle both string and date objects
             if isinstance(game_date, str):
-                from datetime import datetime
                 game_dt = datetime.strptime(game_date, '%Y-%m-%d')
             else:
                 game_dt = game_date
-            
+
             prev_date = (game_dt - timedelta(days=1)).strftime('%Y-%m-%d')
 
-            cursor = self.db_connection.cursor()
-            cursor.execute("""
-                SELECT COUNT(*) FROM prizepicks_daily_lines
-                WHERE team = %s AND game_date = %s
-                LIMIT 1
-            """, (team, prev_date))
-            
-            result = cursor.fetchone()
-            cursor.close()
-            
-            return result and result[0] > 0
+            # Method 1: DB query
+            if self.db_connection is not None:
+                try:
+                    cursor = self.db_connection.cursor()
+                    cursor.execute("""
+                        SELECT COUNT(*) FROM prizepicks_daily_lines
+                        WHERE team = %s AND game_date = %s
+                        LIMIT 1
+                    """, (team, prev_date))
+
+                    result = cursor.fetchone()
+                    cursor.close()
+
+                    if result and result[0] > 0:
+                        return True
+                except Exception as e:
+                    logger.debug(f"B2B DB detection failed: {e}")
+
+            # Method 2: Check recent_games JSONB for game on previous day
+            recent_games = game.get('recent_games') or []
+            if isinstance(recent_games, str):
+                try:
+                    recent_games = json.loads(recent_games)
+                except (json.JSONDecodeError, TypeError):
+                    recent_games = []
+
+            if isinstance(recent_games, list):
+                for g in recent_games:
+                    g_date = g.get('GAME_DATE') or g.get('game_date', '')
+                    if isinstance(g_date, str) and prev_date in g_date:
+                        return True
+
+            return False
         except Exception as e:
             logger.debug(f"B2B detection failed: {e}")
             return False

@@ -184,15 +184,19 @@ export function PlayerDetail({ player }: PlayerDetailProps) {
   const rebTrend = (last5Averages.REB ?? seasonAverages.REB) - seasonAverages.REB;
   const astTrend = (last5Averages.AST ?? seasonAverages.AST) - seasonAverages.AST;
 
-  // Calculate vs_team matchup stats from live gamelog
+  // Calculate vs_team matchup stats from live gamelog (all teams, current season)
   const vsTeamFromGamelog = liveGamelog ? (() => {
-    const teamMap: Record<string, { pts: number[]; reb: number[]; ast: number[]; fg3m: number[]; stl: number[]; blk: number[]; tov: number[] }> = {};
+    const teamMap: Record<string, {
+      pts: number[]; reb: number[]; ast: number[]; fg3m: number[];
+      stl: number[]; blk: number[]; tov: number[];
+      wins: number; losses: number; lastGameDate: string;
+    }> = {};
 
     for (const entry of liveGamelog) {
       const opp = entry.game.opponent?.abbreviation;
       if (!opp) continue;
       if (!teamMap[opp]) {
-        teamMap[opp] = { pts: [], reb: [], ast: [], fg3m: [], stl: [], blk: [], tov: [] };
+        teamMap[opp] = { pts: [], reb: [], ast: [], fg3m: [], stl: [], blk: [], tov: [], wins: 0, losses: 0, lastGameDate: "" };
       }
       teamMap[opp].pts.push(parseInt(entry.stats.PTS || "0"));
       teamMap[opp].reb.push(parseInt(entry.stats.REB || "0"));
@@ -201,9 +205,26 @@ export function PlayerDetail({ player }: PlayerDetailProps) {
       teamMap[opp].stl.push(parseInt(entry.stats.STL || "0"));
       teamMap[opp].blk.push(parseInt(entry.stats.BLK || "0"));
       teamMap[opp].tov.push(parseInt(entry.stats.TO || entry.stats.TOV || "0"));
+
+      // Track W/L record
+      const result = entry.game.result?.charAt(0);
+      if (result === "W") teamMap[opp].wins++;
+      else if (result === "L") teamMap[opp].losses++;
+
+      // Track most recent game date per opponent
+      if (entry.game.date) {
+        const dateStr = new Date(entry.game.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        if (!teamMap[opp].lastGameDate) {
+          teamMap[opp].lastGameDate = dateStr;
+        }
+      }
     }
 
-    const result: Record<string, { games: number; PTS: number; REB: number; AST: number; FG3M: number; STL: number; BLK: number; TOV: number; PRA: number }> = {};
+    const result: Record<string, {
+      games: number; PTS: number; REB: number; AST: number; FG3M: number;
+      STL: number; BLK: number; TOV: number; PRA: number;
+      wins: number; losses: number; lastGameDate: string;
+    }> = {};
     for (const [team, data] of Object.entries(teamMap)) {
       const avg = (arr: number[]) => arr.length > 0 ? Math.round((arr.reduce((a, b) => a + b, 0) / arr.length) * 10) / 10 : 0;
       const pts = avg(data.pts);
@@ -219,6 +240,9 @@ export function PlayerDetail({ player }: PlayerDetailProps) {
         BLK: avg(data.blk),
         TOV: avg(data.tov),
         PRA: Math.round((pts + reb + ast) * 10) / 10,
+        wins: data.wins,
+        losses: data.losses,
+        lastGameDate: data.lastGameDate,
       };
     }
     return result;
