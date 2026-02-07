@@ -479,6 +479,126 @@ function AdvancedStatsRadar({ stats }: { stats: TeamStats['advancedStats'] }) {
   );
 }
 
+// Player comparison table for team matchups
+function PlayerComparisonTable({ comparison }: { comparison: TeamComparison }) {
+  const { team1, team2 } = comparison;
+
+  // Get top players sorted by minutes, limit to 8 per team
+  const team1Players = [...team1.rotation]
+    .sort((a, b) => b.overallMpg - a.overallMpg)
+    .slice(0, 8);
+  const team2Players = [...team2.rotation]
+    .sort((a, b) => b.overallMpg - a.overallMpg)
+    .slice(0, 8);
+
+  // Ensure we have enough rows (max of both teams)
+  const maxRows = Math.max(team1Players.length, team2Players.length);
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Player Comparison</CardTitle>
+        <CardDescription>
+          Top rotation players by minutes - season averages
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="grid grid-cols-2 gap-4">
+          {/* Team 1 Players */}
+          <div>
+            <h4 className="text-sm font-semibold mb-3 text-center bg-primary/10 py-2 rounded-t-lg">
+              {team1.teamAbbr}
+            </h4>
+            <div className="space-y-2">
+              {team1Players.map((player) => (
+                <div
+                  key={player.playerId}
+                  className="flex items-center justify-between p-2 bg-muted/30 rounded-lg hover:bg-muted/50 transition-colors"
+                >
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <span className="font-medium text-sm truncate">{player.playerName}</span>
+                      {player.isStarter && (
+                        <Badge variant="outline" className="text-[10px] px-1 py-0">S</Badge>
+                      )}
+                    </div>
+                    {player.position && (
+                      <span className="text-xs text-muted-foreground">{player.position}</span>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-4 gap-2 text-center text-xs">
+                    <div>
+                      <div className="font-semibold text-blue-500">{player.overallMpg.toFixed(1)}</div>
+                      <div className="text-muted-foreground">MIN</div>
+                    </div>
+                    <div>
+                      <div className="font-semibold">{player.overallPpg.toFixed(1)}</div>
+                      <div className="text-muted-foreground">PTS</div>
+                    </div>
+                    <div>
+                      <div className="font-semibold">{player.overallRpg.toFixed(1)}</div>
+                      <div className="text-muted-foreground">REB</div>
+                    </div>
+                    <div>
+                      <div className="font-semibold">{player.overallApg.toFixed(1)}</div>
+                      <div className="text-muted-foreground">AST</div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Team 2 Players */}
+          <div>
+            <h4 className="text-sm font-semibold mb-3 text-center bg-muted/50 py-2 rounded-t-lg">
+              {team2.teamAbbr}
+            </h4>
+            <div className="space-y-2">
+              {team2Players.map((player) => (
+                <div
+                  key={player.playerId}
+                  className="flex items-center justify-between p-2 bg-muted/30 rounded-lg hover:bg-muted/50 transition-colors"
+                >
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <span className="font-medium text-sm truncate">{player.playerName}</span>
+                      {player.isStarter && (
+                        <Badge variant="outline" className="text-[10px] px-1 py-0">S</Badge>
+                      )}
+                    </div>
+                    {player.position && (
+                      <span className="text-xs text-muted-foreground">{player.position}</span>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-4 gap-2 text-center text-xs">
+                    <div>
+                      <div className="font-semibold text-blue-500">{player.overallMpg.toFixed(1)}</div>
+                      <div className="text-muted-foreground">MIN</div>
+                    </div>
+                    <div>
+                      <div className="font-semibold">{player.overallPpg.toFixed(1)}</div>
+                      <div className="text-muted-foreground">PTS</div>
+                    </div>
+                    <div>
+                      <div className="font-semibold">{player.overallRpg.toFixed(1)}</div>
+                      <div className="text-muted-foreground">REB</div>
+                    </div>
+                    <div>
+                      <div className="font-semibold">{player.overallApg.toFixed(1)}</div>
+                      <div className="text-muted-foreground">AST</div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 // Team comparison component
 function TeamComparisonView({ comparison }: { comparison: TeamComparison }) {
   const { team1, team2, headToHead } = comparison;
@@ -617,6 +737,9 @@ function TeamComparisonView({ comparison }: { comparison: TeamComparison }) {
           </div>
         </CardContent>
       </Card>
+
+      {/* Player Comparison */}
+      <PlayerComparisonTable comparison={comparison} />
     </div>
   );
 }
