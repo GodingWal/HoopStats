@@ -45,7 +45,8 @@ function getPythonCommand(): string {
   if (process.platform === 'win32') {
     return 'python';
   }
-  return path.join(process.cwd(), '.venv', 'bin', 'python');
+  // On Linux, use the venv Python in the nba-prop-model directory
+  return path.join(process.cwd(), 'server', 'nba-prop-model', 'venv', 'bin', 'python');
 }
 
 // Probability helper functions

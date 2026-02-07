@@ -60,8 +60,10 @@ function getPythonCommand(): string {
   if (process.platform === 'win32') {
     return 'python';
   }
-  // On Linux, use the venv Python
-  return path.join(process.cwd(), '.venv', 'bin', 'python');
+  // On Linux, use the venv Python in the nba-prop-model directory
+  const venvPath = path.join(process.cwd(), 'server', 'nba-prop-model', 'venv', 'bin', 'python');
+  // Fallback to system python3 if venv doesn't exist
+  return venvPath;
 }
 
 // ========================================
@@ -2538,8 +2540,8 @@ export async function registerRoutes(
           lastEvaluated: row.last_evaluated,
           grade: parseFloat(row.accuracy) >= 0.65 ? 'HIGH'
             : parseFloat(row.accuracy) >= 0.55 ? 'MEDIUM'
-            : parseFloat(row.accuracy) >= 0.52 ? 'LOW'
-            : 'NOISE',
+              : parseFloat(row.accuracy) >= 0.52 ? 'LOW'
+                : 'NOISE',
         })),
         statType,
         days,
