@@ -49,7 +49,7 @@ sftp.close()
 
 print("Running check...")
 cmd_run = "python3 /var/www/hoopstats/server/nba-prop-model/scripts/check_ref_api_v3.py"
-stdin, stdout, stderr = client.exec_command(cmd_run)
+stdin, stdout, stderr = client.exec_command(cmd_run, timeout=60)  # 60 second timeout
 print(stdout.read().decode())
 print(stderr.read().decode())
 

@@ -49,7 +49,7 @@ def main():
         
         # Step 3: Run db:push
         print("\n[3/4] Running database migrations...")
-        run_command(client, f"cd {REMOTE_DIR} && npm run db:push", timeout=120)
+        run_command(client, f"cd {REMOTE_DIR} && npm run db:push", timeout=1200)
         
         # Step 4: Build
         print("\n[4/4] Building application...")
