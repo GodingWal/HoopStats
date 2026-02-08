@@ -189,7 +189,7 @@ async function fetchViaScraperApi(targetUrl: string, headers: Record<string, str
     scraperUrl.searchParams.set("url", targetUrl);
     scraperUrl.searchParams.set("render", "true"); // Enable JS rendering for captcha bypass
     scraperUrl.searchParams.set("country_code", "us");
-    scraperUrl.searchParams.set("premium", "true"); // Required for protected domains like PrizePicks
+    scraperUrl.searchParams.set("ultra_premium", "true"); // Required for protected domains like PrizePicks
     scraperUrl.searchParams.set("keep_headers", "true"); // Preserve custom headers
 
     apiLogger.info("Fetching via ScraperAPI URL method", { targetUrl });
