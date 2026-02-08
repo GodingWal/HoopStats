@@ -17,6 +17,13 @@ import { fetchWithPuppeteer, isPuppeteerAvailable } from "./puppeteer-scraper";
 const PRIZEPICKS_API_BASE = "https://api.prizepicks.com";
 const NBA_LEAGUE_ID = 7;
 const USE_PUPPETEER = process.env.USE_PUPPETEER === "true";
+const CACHE_TTL_MS = 30 * 60 * 1000; // 30 minutes cache
+const STALE_CACHE_TTL_MS = 2 * 60 * 60 * 1000; // 2 hours stale cache
+
+// Block cooldown tracking
+let lastBlockTime = 0;
+const BLOCK_COOLDOWN_MS = 60 * 1000; // 1 minute cooldown after block
+let staleCacheData: { data: PrizePicksProjection[]; timestamp: number } | null = null;
 
 // Singleton scraper instance optimized for PrizePicks
 let prizePicksScraper: Scraper | null = null;
@@ -182,6 +189,7 @@ async function fetchViaScraperApi(targetUrl: string, headers: Record<string, str
     scraperUrl.searchParams.set("url", targetUrl);
     scraperUrl.searchParams.set("render", "true"); // Enable JS rendering for captcha bypass
     scraperUrl.searchParams.set("country_code", "us");
+    scraperUrl.searchParams.set("premium", "true"); // Required for protected domains like PrizePicks
     scraperUrl.searchParams.set("keep_headers", "true"); // Preserve custom headers
 
     apiLogger.info("Fetching via ScraperAPI URL method", { targetUrl });
@@ -205,7 +213,20 @@ export async function fetchPrizePicksProjections(): Promise<PrizePicksProjection
     const cached = apiCache.get<PrizePicksProjection[]>(cacheKey);
     if (cached) {
         apiLogger.debug("Cache hit for PrizePicks projections");
+        // Also update stale cache
+        staleCacheData = { data: cached, timestamp: Date.now() };
         return cached;
+    }
+
+    // Check if we're in cooldown from a recent block
+    const timeSinceBlock = Date.now() - lastBlockTime;
+    if (timeSinceBlock < BLOCK_COOLDOWN_MS) {
+        apiLogger.info(`In block cooldown, ${Math.ceil((BLOCK_COOLDOWN_MS - timeSinceBlock) / 1000)}s remaining`);
+        // Return stale cache if available during cooldown
+        if (staleCacheData && Date.now() - staleCacheData.timestamp < STALE_CACHE_TTL_MS) {
+            apiLogger.info("Returning stale cache during cooldown");
+            return staleCacheData.data;
+        }
     }
 
     const targetUrl = `${PRIZEPICKS_API_BASE}/projections?league_id=${NBA_LEAGUE_ID}&per_page=250&single_stat=true`;
@@ -263,6 +284,10 @@ export async function fetchPrizePicksProjections(): Promise<PrizePicksProjection
             });
 
             if (!response.ok) {
+                // Track block time for cooldown
+                if (response.status === 429 || response.status === 403) {
+                    lastBlockTime = Date.now();
+                }
                 const errorMsg = `PrizePicks blocked (${response.status}) - try adding proxies via PROXY_LIST env var`;
                 apiLogger.warn(errorMsg, {
                     status: response.status,
@@ -345,12 +370,23 @@ export async function fetchPrizePicksProjections(): Promise<PrizePicksProjection
             count: projections.length,
         });
 
-        // Cache for 10 minutes
-        apiCache.set(cacheKey, projections, 10 * 60 * 1000);
+        // Cache for 30 minutes and update stale cache backup
+        apiCache.set(cacheKey, projections, CACHE_TTL_MS);
+        staleCacheData = { data: projections, timestamp: Date.now() };
 
         return projections;
     } catch (error) {
         apiLogger.error("Failed to fetch PrizePicks projections", error);
+
+        // Return stale cache as fallback if available
+        if (staleCacheData && Date.now() - staleCacheData.timestamp < STALE_CACHE_TTL_MS) {
+            apiLogger.info("Returning stale cache as fallback after fetch failure", {
+                staleCacheAge: Math.round((Date.now() - staleCacheData.timestamp) / 1000 / 60) + " minutes",
+                count: staleCacheData.data.length,
+            });
+            return staleCacheData.data;
+        }
+
         throw error;
     }
 }
