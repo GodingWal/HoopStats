@@ -10,6 +10,7 @@ import { pool } from "./db";
 import type { Player } from "@shared/schema";
 import { fetchAndBuildAllPlayers } from "./nba-api";
 import { analyzeEdges } from "./edge-detection";
+import { loadSignalWeights, calculateSignalScore, hasStrongSignalSupport, getSignalDescription } from "./signal-scoring";
 import {
   fetchLiveGames,
   fetchPlayerGamelog,
@@ -217,9 +218,16 @@ async function generateBetsFromPrizePicks(players: Player[]) {
     edge_type: string | null;
     edge_score: number | null;
     edge_description: string | null;
+    signal_score: number | null;
+    signal_confidence: string | null;
+    active_signals: string[] | null;
+    signal_description: string | null;
   }> = [];
 
   try {
+    // Load signal weights from database
+    await loadSignalWeights(pool);
+
     // Fetch current PrizePicks projections
     const projections = await fetchPrizePicksProjections();
     console.log(`Fetched ${projections.length} PrizePicks projections`);
@@ -289,6 +297,15 @@ async function generateBetsFromPrizePicks(players: Player[]) {
         // Analyze edges for this bet
         const edgeAnalysis = analyzeEdges(player, statType, recommendation, hitRate);
 
+        // Calculate signal-based score using learned weights from backtest
+        const signalScore = calculateSignalScore(
+          player,
+          statType,
+          recommendation,
+          hitRate,
+          edgeAnalysis.edges
+        );
+
         bets.push({
           player_id: player.player_id,
           player_name: player.player_name,
@@ -303,19 +320,36 @@ async function generateBetsFromPrizePicks(players: Player[]) {
           edge_type: edgeAnalysis.bestEdge?.type || null,
           edge_score: edgeAnalysis.totalScore || null,
           edge_description: edgeAnalysis.bestEdge?.description || null,
+          signal_score: signalScore.signalScore || null,
+          signal_confidence: signalScore.signalConfidence || null,
+          active_signals: signalScore.signals.length > 0 ? signalScore.signals : null,
+          signal_description: getSignalDescription(signalScore) || null,
         });
       }
     }
 
-    // Sort by edge score first, then by hit rate
+    // Sort by signal score first (backtest-backed), then edge score, then hit rate
     return bets.sort((a, b) => {
+      // Priority 1: Signal score (backtest-proven signals)
+      const aSignal = a.signal_score || 0;
+      const bSignal = b.signal_score || 0;
+      if (Math.abs(aSignal - bSignal) > 0.1) return bSignal - aSignal;
+
+      // Priority 2: Signal confidence level
+      if (a.signal_confidence === "HIGH" && b.signal_confidence !== "HIGH") return -1;
+      if (b.signal_confidence === "HIGH" && a.signal_confidence !== "HIGH") return 1;
+
+      // Priority 3: Edge score  
       if (a.edge_score && !b.edge_score) return -1;
       if (!a.edge_score && b.edge_score) return 1;
       if (a.edge_score && b.edge_score) {
         if (a.edge_score !== b.edge_score) return b.edge_score - a.edge_score;
       }
+
+      // Priority 4: Basic confidence
       if (a.confidence === "HIGH" && b.confidence !== "HIGH") return -1;
       if (b.confidence === "HIGH" && a.confidence !== "HIGH") return 1;
+
       return b.hit_rate - a.hit_rate;
     });
   } catch (error) {
