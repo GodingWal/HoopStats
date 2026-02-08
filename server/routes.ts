@@ -516,6 +516,9 @@ export async function registerRoutes(
 
   app.get("/api/bets", async (req, res) => {
     try {
+      // Load signal weights for enrichment
+      await loadSignalWeights(pool);
+
       let bets = await storage.getPotentialBets();
       if (bets.length === 0) {
         let players = await storage.getPlayers();
@@ -531,12 +534,44 @@ export async function registerRoutes(
         bets = await storage.getPotentialBets();
       }
 
+      // Enrich bets with signal scores if not already present
+      const enrichedBets = bets.map(bet => {
+        // If bet already has signal_score, return as-is
+        if ((bet as any).signal_score !== undefined && (bet as any).signal_score !== null) {
+          return bet;
+        }
+
+        // Compute signal score based on edge type
+        const edges: Array<{ type: string; score: number }> = [];
+        if (bet.edge_type) {
+          edges.push({ type: bet.edge_type, score: bet.edge_score || 5 });
+        }
+
+        const recommendation = bet.recommendation as 'OVER' | 'UNDER';
+        const signalScore = calculateSignalScore(
+          {} as any, // Player not needed for edge-based scoring
+          bet.stat_type || '',
+          recommendation,
+          bet.hit_rate || 50,
+          edges
+        );
+
+        return {
+          ...bet,
+          signal_score: signalScore.signalScore,
+          signal_confidence: signalScore.signalConfidence,
+          active_signals: signalScore.signals.length > 0 ? signalScore.signals : null,
+          signal_description: getSignalDescription(signalScore),
+        };
+      });
+
       // Filter to only show the BEST bets - those with meaningful edges or high confidence
       // Criteria for "best bets":
       // 1. HIGH confidence (hit rate >= 80% or <= 25%)
       // 2. Edge score >= 5 (meaningful edge detected)
       // 3. Hit rate >= 75% (OVER) or <= 30% (UNDER) with any edge
-      const filteredBets = bets.filter(bet => {
+      // 4. HIGH signal confidence from backtest
+      const filteredBets = enrichedBets.filter(bet => {
         // Always include HIGH confidence bets
         if (bet.confidence === "HIGH") return true;
 
@@ -551,21 +586,31 @@ export async function registerRoutes(
         // Include extreme hit rates even without edges
         if (bet.hit_rate >= 78 || bet.hit_rate <= 22) return true;
 
+        // Include bets with HIGH signal confidence
+        if ((bet as any).signal_confidence === "HIGH") return true;
+
         return false;
       });
 
-      // Sort by best bets first: edge score, then confidence, then hit rate
+      // Sort by signal score first (backtest-backed), then edge score, then hit rate
       const sortedBets = filteredBets.sort((a, b) => {
-        // Prioritize bets with edges
+        // Priority 1: Signal score (backtest-proven signals)
+        const aSignal = (a as any).signal_score || 0;
+        const bSignal = (b as any).signal_score || 0;
+        if (Math.abs(aSignal - bSignal) > 0.1) return bSignal - aSignal;
+
+        // Priority 2: Signal confidence level
+        if ((a as any).signal_confidence === "HIGH" && (b as any).signal_confidence !== "HIGH") return -1;
+        if ((b as any).signal_confidence === "HIGH" && (a as any).signal_confidence !== "HIGH") return 1;
+
+        // Priority 3: Edge score
         if (a.edge_score && !b.edge_score) return -1;
         if (!a.edge_score && b.edge_score) return 1;
-
-        // Both have edges - sort by edge score
         if (a.edge_score && b.edge_score) {
           if (a.edge_score !== b.edge_score) return b.edge_score - a.edge_score;
         }
 
-        // Same edge score or no edges - sort by confidence then hit rate
+        // Priority 4: Basic confidence
         if (a.confidence === "HIGH" && b.confidence !== "HIGH") return -1;
         if (b.confidence === "HIGH" && a.confidence !== "HIGH") return 1;
 
