@@ -91,11 +91,11 @@ export const RATE_LIMIT_CONFIG = {
   /** Rate limit window in milliseconds (15 minutes) */
   WINDOW_MS: 15 * 60 * 1000,
 
-  /** Maximum requests per window */
-  MAX_REQUESTS: 100,
+  /** Maximum requests per window (increased for backtest polling) */
+  MAX_REQUESTS: 500,
 
   /** Maximum requests for expensive endpoints */
-  MAX_EXPENSIVE_REQUESTS: 20,
+  MAX_EXPENSIVE_REQUESTS: 50,
 } as const;
 
 // ========================================

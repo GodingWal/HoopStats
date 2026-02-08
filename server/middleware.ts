@@ -71,8 +71,11 @@ export const apiRateLimiter = rateLimit({
     res.status(429).json(options.message);
   },
   skip: (req) => {
-    // Skip rate limiting for health checks
-    return req.path === "/health" || req.path === "/api/health";
+    // Skip rate limiting for health checks and backtest endpoints
+    return req.path === "/health" ||
+      req.path === "/api/health" ||
+      req.path.startsWith("/backtest/") ||
+      req.path.startsWith("/api/backtest/");
   },
 });
 
