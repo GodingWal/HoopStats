@@ -162,72 +162,27 @@ export async function scrapeRefereeAssignments(): Promise<RefAssignment[]> {
 
 /**
  * Get today's games with referee assignments
- * Falls back to NBA API schedule if scraper fails
+ * Uses ESPN API for games, static REFEREE_DB for tier calculations
+ * Note: Referee scraping disabled on VPS (no Puppeteer)
  */
 export async function getTodaysGamesWithRefs(dateStr?: string): Promise<GameWithRefs[]> {
     const targetDate = dateStr || new Date().toISOString().split('T')[0];
 
     try {
-        // Try to get from database first
-        const dbResult = await pool.query(`
-            SELECT 
-                g.game_id,
-                g.home_team,
-                g.away_team,
-                g.game_time,
-                g.game_date,
-                array_agg(r.first_name || ' ' || r.last_name) as referees
-            FROM games g
-            LEFT JOIN game_referees gr ON g.game_id = gr.game_id
-            LEFT JOIN referees r ON gr.referee_id = r.id
-            WHERE g.game_date = $1
-            GROUP BY g.game_id, g.home_team, g.away_team, g.game_time, g.game_date
-        `, [targetDate]);
-
-        if (dbResult.rows.length > 0) {
-            return dbResult.rows.map(row => {
-                const refs = row.referees.filter((r: string | null) => r);
-                const { tier, avgFouls } = calculateCrewTier(refs);
-                return {
-                    gameId: row.game_id,
-                    homeTeam: row.home_team,
-                    awayTeam: row.away_team,
-                    gameTime: row.game_time || '',
-                    gameDate: row.game_date,
-                    referees: refs,
-                    crewTier: tier,
-                    avgFouls,
-                };
-            });
-        }
-    } catch (error) {
-        apiLogger.warn('[RefScraper] DB query failed, will try scraper', { error: String(error) });
-    }
-
-    // Fallback: fetch schedule from ESPN and add scraped refs
-    try {
+        // Fetch schedule from ESPN
         const { fetchLiveGames } = await import('../espn-api');
         const espnDateStr = targetDate.replace(/-/g, '');
         const games = await fetchLiveGames(espnDateStr);
 
-        // Try to get refs
-        const assignments = await scrapeRefereeAssignments();
+        if (!games || games.length === 0) {
+            apiLogger.info('[RefScraper] No games found for date', { date: targetDate });
+            return [];
+        }
 
+        // Map games - refs not available until we can scrape them
         return games.map(game => {
             const homeAbbr = game.competitors.find(c => c.homeAway === 'home')?.team.abbreviation || '';
             const awayAbbr = game.competitors.find(c => c.homeAway === 'away')?.team.abbreviation || '';
-
-            // Match assignment to game
-            const assignment = assignments.find(a =>
-                (a.homeTeam === homeAbbr && a.awayTeam === awayAbbr) ||
-                (a.homeTeam === awayAbbr && a.awayTeam === homeAbbr)
-            );
-
-            const refs = assignment
-                ? [assignment.crewChief, assignment.referee, assignment.umpire].filter(Boolean)
-                : [];
-
-            const { tier, avgFouls } = calculateCrewTier(refs);
 
             return {
                 gameId: game.id,
@@ -235,16 +190,17 @@ export async function getTodaysGamesWithRefs(dateStr?: string): Promise<GameWith
                 awayTeam: awayAbbr,
                 gameTime: game.status.type.detail || '',
                 gameDate: targetDate,
-                referees: refs,
-                crewTier: refs.length > 0 ? tier : undefined,
-                avgFouls: refs.length > 0 ? avgFouls : undefined,
+                referees: [], // Refs not available without scraper
+                crewTier: undefined,
+                avgFouls: undefined,
             };
         });
     } catch (error) {
-        apiLogger.error('[RefScraper] Failed to get games', { error: String(error) });
+        apiLogger.error('[RefScraper] Failed to get games from ESPN', { error: String(error) });
         return [];
     }
 }
+
 
 /**
  * Store scraped assignments in database
