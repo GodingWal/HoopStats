@@ -162,6 +162,17 @@ const S = {
     background: "#0f1520", border: "1px solid #1a2332", borderRadius: 8,
     padding: 16, cursor: "pointer", transition: "all 0.2s",
   },
+  tableHeader: {
+    background: "#0a0e17", borderBottom: "2px solid #1a2332",
+  },
+  tr: {
+    transition: "background 0.15s",
+  },
+  primaryBtn: {
+    background: "#00ffc8", color: "#0a0e17", border: "none", borderRadius: 6,
+    padding: "10px 20px", fontSize: 13, fontWeight: 700, cursor: "pointer",
+    fontFamily: "inherit", letterSpacing: 0.5, transition: "opacity 0.2s",
+  },
 };
 
 const tierColor = (tier?: string) => {
@@ -198,6 +209,7 @@ export default function RefFoulSignal() {
   const [tomorrowGames, setTomorrowGames] = useState<GameWithRefs[]>([]);
   const [gamesLoading, setGamesLoading] = useState(false);
   const [gamesError, setGamesError] = useState<string | null>(null);
+  const [selectedGame, setSelectedGame] = useState<GameWithRefs | null>(null);
 
   // Fetch games on mount
   useEffect(() => {
@@ -230,12 +242,50 @@ export default function RefFoulSignal() {
     fetchGames();
   }, []);
 
-  // Handle game click - populate refs
+  // Handle game click - open modal with player projections
   const handleGameClick = (game: GameWithRefs) => {
-    if (game.referees.length > 0) {
-      setSelectedRefs(game.referees.slice(0, 3));
-      setActiveView("calculator");
-    }
+    setSelectedGame(game);
+  };
+
+  // Get players for selected game's teams
+  const getGamePlayers = (game: GameWithRefs) => {
+    if (!game) return [];
+
+    // Map abbreviated team names
+    const teamAbbrs = [game.homeTeam, game.awayTeam];
+    const teamMappings: Record<string, string[]> = {
+      "GS": ["GSW", "GS"], "NO": ["NOP", "NO"], "SA": ["SAS", "SA"],
+      "NY": ["NYK", "NY"], "UTAH": ["UTA", "UTAH"],
+    };
+
+    return Object.entries(PLAYER_DB)
+      .filter(([_, p]) => {
+        return teamAbbrs.some(abbr => {
+          const mapped = teamMappings[abbr] || [abbr];
+          return mapped.includes(p.team) || p.team === abbr;
+        });
+      })
+      .map(([name, p]) => {
+        // Calculate projection based on crew uplift
+        const crewUplift = TIER_UPLIFT[game.crewTier as keyof typeof TIER_UPLIFT] ?? 0;
+        let proj = p.pf * (1 + crewUplift);
+        proj = Math.round(proj * 100) / 100;
+
+        const defaultLine = ["VERY_HIGH", "HIGH", "MID_HIGH"].includes(p.tier) ? 3.5 : 2.5;
+        const signal = Math.round(((proj - defaultLine) / p.std) * 100) / 100;
+
+        let action;
+        if (signal >= 1.5) action = "SMASH_OVER";
+        else if (signal >= 1.0) action = "STRONG_OVER";
+        else if (signal >= 0.5) action = "LEAN_OVER";
+        else if (signal <= -1.5) action = "SMASH_UNDER";
+        else if (signal <= -1.0) action = "STRONG_UNDER";
+        else if (signal <= -0.5) action = "LEAN_UNDER";
+        else action = "NO_PLAY";
+
+        return { name, ...p, projected: proj, line: defaultLine, signal, action };
+      })
+      .sort((a, b) => Math.abs(b.signal) - Math.abs(a.signal));
   };
 
   const refNames = Object.keys(REFEREE_DB);
@@ -715,6 +765,153 @@ export default function RefFoulSignal() {
             </tbody>
           </table>
         </>
+      )}
+
+      {/* Game Detail Modal */}
+      {selectedGame && (
+        <div
+          style={{
+            position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
+            background: "rgba(0,0,0,0.85)", zIndex: 1000,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            padding: 20
+          }}
+          onClick={() => setSelectedGame(null)}
+        >
+          <div
+            style={{
+              background: "#0d1117", border: "1px solid #1a2332", borderRadius: 12,
+              maxWidth: 900, width: "100%", maxHeight: "90vh", overflow: "auto",
+              padding: 24
+            }}
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+              <div>
+                <div style={{ fontSize: 20, fontWeight: 700, color: "#fff" }}>
+                  <span style={{ color: "#c8d6e5" }}>{selectedGame.awayTeam}</span>
+                  <span style={{ color: "#5a6a7a", margin: "0 10px" }}>@</span>
+                  <span style={{ color: "#00ffc8" }}>{selectedGame.homeTeam}</span>
+                </div>
+                <div style={{ color: "#5a6a7a", fontSize: 12, marginTop: 4 }}>{selectedGame.gameTime}</div>
+              </div>
+              <button
+                onClick={() => setSelectedGame(null)}
+                style={{
+                  background: "#1a2332", border: "none", borderRadius: 8,
+                  padding: "8px 16px", color: "#fff", cursor: "pointer",
+                  fontSize: 14, fontWeight: 600
+                }}
+              >
+                × Close
+              </button>
+            </div>
+
+            {/* Crew Info */}
+            {selectedGame.referees.length > 0 && (
+              <div style={{ ...S.card, marginBottom: 20 }}>
+                <div style={{ fontSize: 11, color: "#5a6a7a", marginBottom: 8, textTransform: "uppercase" }}>Referee Crew</div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>
+                  {selectedGame.referees.map(ref => (
+                    <span key={ref} style={S.badge("#00ffc8")}>{ref}</span>
+                  ))}
+                </div>
+                {selectedGame.crewTier && (
+                  <div style={{ display: "flex", gap: 24 }}>
+                    <div>
+                      <div style={{ fontSize: 10, color: "#5a6a7a" }}>CREW TIER</div>
+                      <span style={S.badge(tierColor(selectedGame.crewTier))}>{selectedGame.crewTier}</span>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 10, color: "#5a6a7a" }}>AVG FOULS/G</div>
+                      <div style={{ color: "#fff", fontWeight: 700, fontSize: 16 }}>{selectedGame.avgFouls}</div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 10, color: "#5a6a7a" }}>FOUL UPLIFT</div>
+                      <div style={{ color: tierColor(selectedGame.crewTier), fontWeight: 700, fontSize: 16 }}>
+                        {((TIER_UPLIFT[selectedGame.crewTier as keyof typeof TIER_UPLIFT] || 0) * 100).toFixed(1)}%
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Player Projections */}
+            <div style={{ fontSize: 11, color: "#5a6a7a", marginBottom: 8, textTransform: "uppercase" }}>Player Foul Projections</div>
+
+            {getGamePlayers(selectedGame).length === 0 ? (
+              <div style={{ ...S.card, textAlign: "center", padding: 30, color: "#5a6a7a" }}>
+                No tracked players for this matchup. Use the Calculator tab to manually analyze.
+              </div>
+            ) : (
+              <table style={S.table}>
+                <thead>
+                  <tr style={S.tableHeader}>
+                    <th style={S.th}>Player</th>
+                    <th style={S.th}>Team</th>
+                    <th style={S.th}>Pos</th>
+                    <th style={S.th}>Avg PF</th>
+                    <th style={S.th}>Projected</th>
+                    <th style={S.th}>Line</th>
+                    <th style={S.th}>Signal</th>
+                    <th style={S.th}>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {getGamePlayers(selectedGame).map(p => (
+                    <tr
+                      key={p.name}
+                      style={S.tr}
+                      onMouseEnter={e => e.currentTarget.style.background = "#1a2332"}
+                      onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+                    >
+                      <td style={{ ...S.td, color: "#fff", fontWeight: 500 }}>{p.name}</td>
+                      <td style={{ ...S.td, color: "#00ffc8" }}>{p.team}</td>
+                      <td style={S.td}>{p.pos}</td>
+                      <td style={S.td}>{p.pf.toFixed(1)}</td>
+                      <td style={{ ...S.td, fontWeight: 700, color: p.projected > p.pf ? "#ff6348" : "#2ed573" }}>
+                        {p.projected.toFixed(2)}
+                      </td>
+                      <td style={S.td}>{p.line}</td>
+                      <td style={{ ...S.td, fontWeight: 700, color: actionColor[p.action as keyof typeof actionColor] }}>
+                        {p.signal > 0 ? "+" : ""}{p.signal.toFixed(2)}
+                      </td>
+                      <td style={S.td}>
+                        <span style={{
+                          ...S.badge(actionColor[p.action as keyof typeof actionColor]),
+                          fontSize: 9, padding: "3px 8px"
+                        }}>
+                          {p.action.replace("_", " ")}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+
+            {/* Actions */}
+            <div style={{ marginTop: 20, display: "flex", gap: 12 }}>
+              <button
+                onClick={() => {
+                  if (selectedGame.referees.length > 0) {
+                    setSelectedRefs(selectedGame.referees.map(r => r.replace(/\s*\(#?\d+\)\s*$/, '').trim()).slice(0, 3));
+                    setActiveView("calculator");
+                    setSelectedGame(null);
+                  }
+                }}
+                style={{
+                  ...S.primaryBtn,
+                  flex: 1, padding: "12px 20px", fontSize: 14
+                }}
+              >
+                🔬 Open in Calculator
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Footer */}
