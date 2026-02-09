@@ -36,64 +36,64 @@ interface PlayerFoulData {
 }
 
 const REFEREE_DB: Record<string, Omit<RefData, 'name'>> = {
-  "Tony Brothers":     { fouls_pg: 42.3, fta_pg: 48.1, techs: 15, over_rate: 0.58, diff_vs_avg: 4.5,  tier: "HIGH",     exp_yrs: 30 },
-  "Scott Foster":      { fouls_pg: 41.8, fta_pg: 47.5, techs: 12, over_rate: 0.55, diff_vs_avg: 4.0,  tier: "HIGH",     exp_yrs: 30 },
-  "Kane Fitzgerald":   { fouls_pg: 41.2, fta_pg: 46.8, techs: 10, over_rate: 0.54, diff_vs_avg: 3.4,  tier: "HIGH",     exp_yrs: 15 },
-  "James Williams":    { fouls_pg: 40.8, fta_pg: 46.5, techs: 18, over_rate: 0.55, diff_vs_avg: 3.0,  tier: "HIGH",     exp_yrs: 8  },
-  "Ed Malloy":         { fouls_pg: 40.5, fta_pg: 45.9, techs: 9,  over_rate: 0.53, diff_vs_avg: 2.7,  tier: "HIGH",     exp_yrs: 22 },
-  "Andy Nagy":         { fouls_pg: 39.9, fta_pg: 46.2, techs: 8,  over_rate: 0.56, diff_vs_avg: 2.1,  tier: "HIGH",     exp_yrs: 4  },
-  "Curtis Blair":      { fouls_pg: 40.1, fta_pg: 45.3, techs: 7,  over_rate: 0.52, diff_vs_avg: 2.3,  tier: "HIGH",     exp_yrs: 10 },
-  "Brent Barnaky":     { fouls_pg: 39.8, fta_pg: 44.8, techs: 6,  over_rate: 0.51, diff_vs_avg: 2.0,  tier: "MID-HIGH", exp_yrs: 6  },
-  "Bill Kennedy":      { fouls_pg: 39.5, fta_pg: 44.5, techs: 11, over_rate: 0.51, diff_vs_avg: 1.7,  tier: "MID-HIGH", exp_yrs: 28 },
-  "Sean Corbin":       { fouls_pg: 39.2, fta_pg: 44.2, techs: 8,  over_rate: 0.50, diff_vs_avg: 1.4,  tier: "MID-HIGH", exp_yrs: 20 },
-  "Rodney Mott":       { fouls_pg: 39.0, fta_pg: 43.8, techs: 7,  over_rate: 0.49, diff_vs_avg: 1.2,  tier: "MID",      exp_yrs: 18 },
-  "Leon Wood":         { fouls_pg: 38.7, fta_pg: 43.5, techs: 6,  over_rate: 0.48, diff_vs_avg: 0.9,  tier: "MID",      exp_yrs: 17 },
-  "Sha'Rae Mitchell":  { fouls_pg: 38.8, fta_pg: 43.6, techs: 3,  over_rate: 0.49, diff_vs_avg: 1.0,  tier: "MID",      exp_yrs: 3  },
-  "Marc Davis":        { fouls_pg: 38.0, fta_pg: 42.8, techs: 9,  over_rate: 0.46, diff_vs_avg: 0.2,  tier: "MID",      exp_yrs: 25 },
-  "Zach Zarba":        { fouls_pg: 37.8, fta_pg: 42.5, techs: 8,  over_rate: 0.45, diff_vs_avg: 0.0,  tier: "MID",      exp_yrs: 18 },
-  "Josh Tiven":        { fouls_pg: 37.5, fta_pg: 42.2, techs: 7,  over_rate: 0.44, diff_vs_avg: -0.3, tier: "MID",      exp_yrs: 12 },
-  "Ben Taylor":        { fouls_pg: 37.2, fta_pg: 41.8, techs: 5,  over_rate: 0.43, diff_vs_avg: -0.6, tier: "MID-LOW",  exp_yrs: 8  },
-  "JB DeRosa":         { fouls_pg: 37.0, fta_pg: 41.5, techs: 6,  over_rate: 0.42, diff_vs_avg: -0.8, tier: "MID-LOW",  exp_yrs: 14 },
-  "Derrick Collins":   { fouls_pg: 36.8, fta_pg: 41.2, techs: 4,  over_rate: 0.41, diff_vs_avg: -1.0, tier: "MID-LOW",  exp_yrs: 9  },
-  "Eric Lewis":        { fouls_pg: 36.5, fta_pg: 40.8, techs: 5,  over_rate: 0.40, diff_vs_avg: -1.3, tier: "LOW",      exp_yrs: 16 },
-  "Karl Lane":         { fouls_pg: 36.2, fta_pg: 40.5, techs: 3,  over_rate: 0.39, diff_vs_avg: -1.6, tier: "LOW",      exp_yrs: 6  },
-  "Marat Kogut":       { fouls_pg: 36.0, fta_pg: 40.2, techs: 4,  over_rate: 0.38, diff_vs_avg: -1.8, tier: "LOW",      exp_yrs: 10 },
-  "John Goble":        { fouls_pg: 35.5, fta_pg: 39.5, techs: 5,  over_rate: 0.36, diff_vs_avg: -2.3, tier: "LOW",      exp_yrs: 17 },
-  "Tyler Ford":        { fouls_pg: 35.2, fta_pg: 39.2, techs: 4,  over_rate: 0.35, diff_vs_avg: -2.6, tier: "LOW",      exp_yrs: 8  },
+  "Tony Brothers": { fouls_pg: 42.3, fta_pg: 48.1, techs: 15, over_rate: 0.58, diff_vs_avg: 4.5, tier: "HIGH", exp_yrs: 30 },
+  "Scott Foster": { fouls_pg: 41.8, fta_pg: 47.5, techs: 12, over_rate: 0.55, diff_vs_avg: 4.0, tier: "HIGH", exp_yrs: 30 },
+  "Kane Fitzgerald": { fouls_pg: 41.2, fta_pg: 46.8, techs: 10, over_rate: 0.54, diff_vs_avg: 3.4, tier: "HIGH", exp_yrs: 15 },
+  "James Williams": { fouls_pg: 40.8, fta_pg: 46.5, techs: 18, over_rate: 0.55, diff_vs_avg: 3.0, tier: "HIGH", exp_yrs: 8 },
+  "Ed Malloy": { fouls_pg: 40.5, fta_pg: 45.9, techs: 9, over_rate: 0.53, diff_vs_avg: 2.7, tier: "HIGH", exp_yrs: 22 },
+  "Andy Nagy": { fouls_pg: 39.9, fta_pg: 46.2, techs: 8, over_rate: 0.56, diff_vs_avg: 2.1, tier: "HIGH", exp_yrs: 4 },
+  "Curtis Blair": { fouls_pg: 40.1, fta_pg: 45.3, techs: 7, over_rate: 0.52, diff_vs_avg: 2.3, tier: "HIGH", exp_yrs: 10 },
+  "Brent Barnaky": { fouls_pg: 39.8, fta_pg: 44.8, techs: 6, over_rate: 0.51, diff_vs_avg: 2.0, tier: "MID-HIGH", exp_yrs: 6 },
+  "Bill Kennedy": { fouls_pg: 39.5, fta_pg: 44.5, techs: 11, over_rate: 0.51, diff_vs_avg: 1.7, tier: "MID-HIGH", exp_yrs: 28 },
+  "Sean Corbin": { fouls_pg: 39.2, fta_pg: 44.2, techs: 8, over_rate: 0.50, diff_vs_avg: 1.4, tier: "MID-HIGH", exp_yrs: 20 },
+  "Rodney Mott": { fouls_pg: 39.0, fta_pg: 43.8, techs: 7, over_rate: 0.49, diff_vs_avg: 1.2, tier: "MID", exp_yrs: 18 },
+  "Leon Wood": { fouls_pg: 38.7, fta_pg: 43.5, techs: 6, over_rate: 0.48, diff_vs_avg: 0.9, tier: "MID", exp_yrs: 17 },
+  "Sha'Rae Mitchell": { fouls_pg: 38.8, fta_pg: 43.6, techs: 3, over_rate: 0.49, diff_vs_avg: 1.0, tier: "MID", exp_yrs: 3 },
+  "Marc Davis": { fouls_pg: 38.0, fta_pg: 42.8, techs: 9, over_rate: 0.46, diff_vs_avg: 0.2, tier: "MID", exp_yrs: 25 },
+  "Zach Zarba": { fouls_pg: 37.8, fta_pg: 42.5, techs: 8, over_rate: 0.45, diff_vs_avg: 0.0, tier: "MID", exp_yrs: 18 },
+  "Josh Tiven": { fouls_pg: 37.5, fta_pg: 42.2, techs: 7, over_rate: 0.44, diff_vs_avg: -0.3, tier: "MID", exp_yrs: 12 },
+  "Ben Taylor": { fouls_pg: 37.2, fta_pg: 41.8, techs: 5, over_rate: 0.43, diff_vs_avg: -0.6, tier: "MID-LOW", exp_yrs: 8 },
+  "JB DeRosa": { fouls_pg: 37.0, fta_pg: 41.5, techs: 6, over_rate: 0.42, diff_vs_avg: -0.8, tier: "MID-LOW", exp_yrs: 14 },
+  "Derrick Collins": { fouls_pg: 36.8, fta_pg: 41.2, techs: 4, over_rate: 0.41, diff_vs_avg: -1.0, tier: "MID-LOW", exp_yrs: 9 },
+  "Eric Lewis": { fouls_pg: 36.5, fta_pg: 40.8, techs: 5, over_rate: 0.40, diff_vs_avg: -1.3, tier: "LOW", exp_yrs: 16 },
+  "Karl Lane": { fouls_pg: 36.2, fta_pg: 40.5, techs: 3, over_rate: 0.39, diff_vs_avg: -1.6, tier: "LOW", exp_yrs: 6 },
+  "Marat Kogut": { fouls_pg: 36.0, fta_pg: 40.2, techs: 4, over_rate: 0.38, diff_vs_avg: -1.8, tier: "LOW", exp_yrs: 10 },
+  "John Goble": { fouls_pg: 35.5, fta_pg: 39.5, techs: 5, over_rate: 0.36, diff_vs_avg: -2.3, tier: "LOW", exp_yrs: 17 },
+  "Tyler Ford": { fouls_pg: 35.2, fta_pg: 39.2, techs: 4, over_rate: 0.35, diff_vs_avg: -2.6, tier: "LOW", exp_yrs: 8 },
 };
 
 const PLAYER_FOUL_DB: Record<string, Omit<PlayerFoulData, 'name'>> = {
-  "Jaren Jackson Jr.":      { team: "MEM", pos: "PF", pf_pg: 3.8, pf_36: 4.3, foul_tier: "VERY_HIGH", std_dev: 1.1 },
-  "Chet Holmgren":          { team: "OKC", pos: "PF", pf_pg: 3.6, pf_36: 4.3, foul_tier: "VERY_HIGH", std_dev: 1.0 },
-  "Alperen Sengun":         { team: "HOU", pos: "C",  pf_pg: 3.5, pf_36: 3.9, foul_tier: "VERY_HIGH", std_dev: 1.0 },
-  "Walker Kessler":         { team: "UTA", pos: "C",  pf_pg: 3.1, pf_36: 4.6, foul_tier: "VERY_HIGH", std_dev: 1.1 },
-  "Jalen Duren":            { team: "DET", pos: "C",  pf_pg: 3.3, pf_36: 4.2, foul_tier: "VERY_HIGH", std_dev: 1.0 },
-  "Daniel Gafford":         { team: "DAL", pos: "C",  pf_pg: 2.8, pf_36: 4.6, foul_tier: "VERY_HIGH", std_dev: 0.9 },
-  "Giannis Antetokounmpo":  { team: "MIL", pos: "PF", pf_pg: 3.5, pf_36: 3.5, foul_tier: "HIGH",      std_dev: 0.9 },
-  "Victor Wembanyama":      { team: "SAS", pos: "C",  pf_pg: 3.4, pf_36: 3.7, foul_tier: "HIGH",      std_dev: 1.0 },
-  "Nikola Jokic":           { team: "DEN", pos: "C",  pf_pg: 3.3, pf_36: 3.3, foul_tier: "HIGH",      std_dev: 0.8 },
-  "Rudy Gobert":            { team: "MIN", pos: "C",  pf_pg: 3.3, pf_36: 3.9, foul_tier: "HIGH",      std_dev: 0.9 },
-  "Domantas Sabonis":       { team: "SAC", pos: "C",  pf_pg: 3.2, pf_36: 3.3, foul_tier: "HIGH",      std_dev: 0.8 },
-  "Karl-Anthony Towns":     { team: "NYK", pos: "C",  pf_pg: 3.2, pf_36: 3.3, foul_tier: "HIGH",      std_dev: 0.9 },
-  "Brook Lopez":            { team: "MIL", pos: "C",  pf_pg: 3.1, pf_36: 3.9, foul_tier: "HIGH",      std_dev: 0.9 },
-  "Joel Embiid":            { team: "PHI", pos: "C",  pf_pg: 3.1, pf_36: 3.3, foul_tier: "HIGH",      std_dev: 0.9 },
-  "Bam Adebayo":            { team: "MIA", pos: "C",  pf_pg: 3.0, pf_36: 3.1, foul_tier: "HIGH",      std_dev: 0.8 },
-  "Scottie Barnes":         { team: "TOR", pos: "PF", pf_pg: 3.0, pf_36: 3.1, foul_tier: "HIGH",      std_dev: 0.8 },
-  "Anthony Davis":          { team: "LAL", pos: "PF", pf_pg: 2.8, pf_36: 2.8, foul_tier: "MID_HIGH",  std_dev: 0.8 },
-  "Luka Doncic":            { team: "LAL", pos: "PG", pf_pg: 2.8, pf_36: 2.8, foul_tier: "MID_HIGH",  std_dev: 0.8 },
-  "Anthony Edwards":        { team: "MIN", pos: "SG", pf_pg: 2.5, pf_36: 2.5, foul_tier: "MID",       std_dev: 0.7 },
-  "Jayson Tatum":           { team: "BOS", pos: "SF", pf_pg: 2.3, pf_36: 2.3, foul_tier: "MID",       std_dev: 0.6 },
-  "Shai Gilgeous-Alexander":{ team: "OKC", pos: "PG", pf_pg: 2.2, pf_36: 2.3, foul_tier: "MID",       std_dev: 0.6 },
-  "LeBron James":           { team: "LAL", pos: "SF", pf_pg: 1.8, pf_36: 1.9, foul_tier: "LOW",       std_dev: 0.5 },
-  "Trae Young":             { team: "ATL", pos: "PG", pf_pg: 1.5, pf_36: 1.5, foul_tier: "VERY_LOW",  std_dev: 0.4 },
+  "Jaren Jackson Jr.": { team: "MEM", pos: "PF", pf_pg: 3.8, pf_36: 4.3, foul_tier: "VERY_HIGH", std_dev: 1.1 },
+  "Chet Holmgren": { team: "OKC", pos: "PF", pf_pg: 3.6, pf_36: 4.3, foul_tier: "VERY_HIGH", std_dev: 1.0 },
+  "Alperen Sengun": { team: "HOU", pos: "C", pf_pg: 3.5, pf_36: 3.9, foul_tier: "VERY_HIGH", std_dev: 1.0 },
+  "Walker Kessler": { team: "UTA", pos: "C", pf_pg: 3.1, pf_36: 4.6, foul_tier: "VERY_HIGH", std_dev: 1.1 },
+  "Jalen Duren": { team: "DET", pos: "C", pf_pg: 3.3, pf_36: 4.2, foul_tier: "VERY_HIGH", std_dev: 1.0 },
+  "Daniel Gafford": { team: "DAL", pos: "C", pf_pg: 2.8, pf_36: 4.6, foul_tier: "VERY_HIGH", std_dev: 0.9 },
+  "Giannis Antetokounmpo": { team: "MIL", pos: "PF", pf_pg: 3.5, pf_36: 3.5, foul_tier: "HIGH", std_dev: 0.9 },
+  "Victor Wembanyama": { team: "SAS", pos: "C", pf_pg: 3.4, pf_36: 3.7, foul_tier: "HIGH", std_dev: 1.0 },
+  "Nikola Jokic": { team: "DEN", pos: "C", pf_pg: 3.3, pf_36: 3.3, foul_tier: "HIGH", std_dev: 0.8 },
+  "Rudy Gobert": { team: "MIN", pos: "C", pf_pg: 3.3, pf_36: 3.9, foul_tier: "HIGH", std_dev: 0.9 },
+  "Domantas Sabonis": { team: "SAC", pos: "C", pf_pg: 3.2, pf_36: 3.3, foul_tier: "HIGH", std_dev: 0.8 },
+  "Karl-Anthony Towns": { team: "NYK", pos: "C", pf_pg: 3.2, pf_36: 3.3, foul_tier: "HIGH", std_dev: 0.9 },
+  "Brook Lopez": { team: "MIL", pos: "C", pf_pg: 3.1, pf_36: 3.9, foul_tier: "HIGH", std_dev: 0.9 },
+  "Joel Embiid": { team: "PHI", pos: "C", pf_pg: 3.1, pf_36: 3.3, foul_tier: "HIGH", std_dev: 0.9 },
+  "Bam Adebayo": { team: "MIA", pos: "C", pf_pg: 3.0, pf_36: 3.1, foul_tier: "HIGH", std_dev: 0.8 },
+  "Scottie Barnes": { team: "TOR", pos: "PF", pf_pg: 3.0, pf_36: 3.1, foul_tier: "HIGH", std_dev: 0.8 },
+  "Anthony Davis": { team: "LAL", pos: "PF", pf_pg: 2.8, pf_36: 2.8, foul_tier: "MID_HIGH", std_dev: 0.8 },
+  "Luka Doncic": { team: "LAL", pos: "PG", pf_pg: 2.8, pf_36: 2.8, foul_tier: "MID_HIGH", std_dev: 0.8 },
+  "Anthony Edwards": { team: "MIN", pos: "SG", pf_pg: 2.5, pf_36: 2.5, foul_tier: "MID", std_dev: 0.7 },
+  "Jayson Tatum": { team: "BOS", pos: "SF", pf_pg: 2.3, pf_36: 2.3, foul_tier: "MID", std_dev: 0.6 },
+  "Shai Gilgeous-Alexander": { team: "OKC", pos: "PG", pf_pg: 2.2, pf_36: 2.3, foul_tier: "MID", std_dev: 0.6 },
+  "LeBron James": { team: "LAL", pos: "SF", pf_pg: 1.8, pf_36: 1.9, foul_tier: "LOW", std_dev: 0.5 },
+  "Trae Young": { team: "ATL", pos: "PG", pf_pg: 1.5, pf_36: 1.5, foul_tier: "VERY_LOW", std_dev: 0.4 },
 };
 
 const TIER_UPLIFT: Record<string, number> = {
-  "HIGH":     0.11,
+  "HIGH": 0.11,
   "MID-HIGH": 0.055,
-  "MID":      0.00,
+  "MID": 0.00,
   "MID-LOW": -0.04,
-  "LOW":     -0.06,
+  "LOW": -0.06,
 };
 
 // ─── SIGNAL CALCULATOR ────────────────────────────────────────────
@@ -148,13 +148,13 @@ function calculateSignal(
   const signal = Math.round(((projected - effectiveLine) / player.std_dev) * 100) / 100;
 
   let action: string, confidence: string;
-  if (signal >= 1.5)       { action = "SMASH_OVER";   confidence = "VERY_HIGH"; }
-  else if (signal >= 1.0)  { action = "STRONG_OVER";  confidence = "HIGH"; }
-  else if (signal >= 0.5)  { action = "LEAN_OVER";    confidence = "MID"; }
-  else if (signal <= -1.5) { action = "SMASH_UNDER";  confidence = "VERY_HIGH"; }
+  if (signal >= 1.5) { action = "SMASH_OVER"; confidence = "VERY_HIGH"; }
+  else if (signal >= 1.0) { action = "STRONG_OVER"; confidence = "HIGH"; }
+  else if (signal >= 0.5) { action = "LEAN_OVER"; confidence = "MID"; }
+  else if (signal <= -1.5) { action = "SMASH_UNDER"; confidence = "VERY_HIGH"; }
   else if (signal <= -1.0) { action = "STRONG_UNDER"; confidence = "HIGH"; }
-  else if (signal <= -0.5) { action = "LEAN_UNDER";   confidence = "MID"; }
-  else                     { action = "NO_PLAY";      confidence = "NONE"; }
+  else if (signal <= -0.5) { action = "LEAN_UNDER"; confidence = "MID"; }
+  else { action = "NO_PLAY"; confidence = "NONE"; }
 
   return {
     player: playerName,
@@ -232,6 +232,44 @@ export function registerRefSignalRoutes(app: Express) {
     const ref = REFEREE_DB[name];
     if (!ref) return res.status(404).json({ error: "Referee not found" });
     res.json({ name, ...ref });
+  });
+
+  // GET today's/tomorrow's games with referees
+  app.get('/api/ref-signal/games', async (req: Request, res: Response) => {
+    try {
+      const { getTodaysGamesWithRefs } = await import('../services/referee-scraper');
+      const date = req.query.date as string | undefined;
+      const games = await getTodaysGamesWithRefs(date);
+      res.json({
+        date: date || new Date().toISOString().split('T')[0],
+        games,
+        note: games.some(g => g.referees.length === 0)
+          ? "Some referee assignments not yet released (check after 9 AM ET)"
+          : undefined
+      });
+    } catch (error) {
+      console.error('[RefSignal] Games fetch error:', error);
+      res.status(500).json({ error: "Failed to fetch games" });
+    }
+  });
+
+  // POST refresh referee assignments (triggers scraper)
+  app.post('/api/ref-signal/refresh-assignments', async (_req: Request, res: Response) => {
+    try {
+      const { scrapeRefereeAssignments } = await import('../services/referee-scraper');
+      const assignments = await scrapeRefereeAssignments();
+      res.json({
+        success: true,
+        count: assignments.length,
+        assignments: assignments.map(a => ({
+          game: `${a.awayTeam} @ ${a.homeTeam}`,
+          refs: [a.crewChief, a.referee, a.umpire].filter(Boolean)
+        }))
+      });
+    } catch (error) {
+      console.error('[RefSignal] Refresh error:', error);
+      res.status(500).json({ error: "Failed to refresh assignments" });
+    }
   });
 
   console.log('✅ Ref Foul Signal routes registered');

@@ -10,78 +10,90 @@
  * Then render: {activeTab === 'ref-signal' && <RefFoulSignal />}
  */
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 
 // ─── INLINE DATA (mirrors backend - for standalone/offline use) ───
 const LEAGUE_AVG = 37.8;
 
 const REFEREE_DB = {
-  "Tony Brothers":    { fouls_pg: 42.3, diff: 4.5,  tier: "HIGH",     over_rate: 0.58 },
-  "Scott Foster":     { fouls_pg: 41.8, diff: 4.0,  tier: "HIGH",     over_rate: 0.55 },
-  "Kane Fitzgerald":  { fouls_pg: 41.2, diff: 3.4,  tier: "HIGH",     over_rate: 0.54 },
-  "James Williams":   { fouls_pg: 40.8, diff: 3.0,  tier: "HIGH",     over_rate: 0.55 },
-  "Ed Malloy":        { fouls_pg: 40.5, diff: 2.7,  tier: "HIGH",     over_rate: 0.53 },
-  "Andy Nagy":        { fouls_pg: 39.9, diff: 2.1,  tier: "HIGH",     over_rate: 0.56 },
-  "Curtis Blair":     { fouls_pg: 40.1, diff: 2.3,  tier: "HIGH",     over_rate: 0.52 },
-  "Brent Barnaky":    { fouls_pg: 39.8, diff: 2.0,  tier: "MID-HIGH", over_rate: 0.51 },
-  "Bill Kennedy":     { fouls_pg: 39.5, diff: 1.7,  tier: "MID-HIGH", over_rate: 0.51 },
-  "Sean Corbin":      { fouls_pg: 39.2, diff: 1.4,  tier: "MID-HIGH", over_rate: 0.50 },
-  "Rodney Mott":      { fouls_pg: 39.0, diff: 1.2,  tier: "MID",      over_rate: 0.49 },
-  "Sha'Rae Mitchell": { fouls_pg: 38.8, diff: 1.0,  tier: "MID",      over_rate: 0.49 },
-  "Leon Wood":        { fouls_pg: 38.7, diff: 0.9,  tier: "MID",      over_rate: 0.48 },
-  "Tre Maddox":       { fouls_pg: 38.5, diff: 0.7,  tier: "MID",      over_rate: 0.47 },
-  "Simone Jelks":     { fouls_pg: 38.2, diff: 0.4,  tier: "MID",      over_rate: 0.46 },
-  "Marc Davis":       { fouls_pg: 38.0, diff: 0.2,  tier: "MID",      over_rate: 0.46 },
-  "Zach Zarba":       { fouls_pg: 37.8, diff: 0.0,  tier: "MID",      over_rate: 0.45 },
-  "Josh Tiven":       { fouls_pg: 37.5, diff:-0.3,  tier: "MID",      over_rate: 0.44 },
-  "Natalie Sago":     { fouls_pg: 37.6, diff:-0.2,  tier: "MID",      over_rate: 0.44 },
-  "Ben Taylor":       { fouls_pg: 37.2, diff:-0.6,  tier: "MID-LOW",  over_rate: 0.43 },
-  "JB DeRosa":        { fouls_pg: 37.0, diff:-0.8,  tier: "MID-LOW",  over_rate: 0.42 },
-  "Derrick Collins":  { fouls_pg: 36.8, diff:-1.0,  tier: "MID-LOW",  over_rate: 0.41 },
-  "Jacyn Goble":      { fouls_pg: 37.0, diff:-0.8,  tier: "MID-LOW",  over_rate: 0.42 },
-  "Eric Lewis":       { fouls_pg: 36.5, diff:-1.3,  tier: "LOW",      over_rate: 0.40 },
-  "Karl Lane":        { fouls_pg: 36.2, diff:-1.6,  tier: "LOW",      over_rate: 0.39 },
-  "Marat Kogut":      { fouls_pg: 36.0, diff:-1.8,  tier: "LOW",      over_rate: 0.38 },
-  "Matt Boland":      { fouls_pg: 35.7, diff:-2.1,  tier: "LOW",      over_rate: 0.37 },
-  "John Goble":       { fouls_pg: 35.5, diff:-2.3,  tier: "LOW",      over_rate: 0.36 },
-  "Tyler Ford":       { fouls_pg: 35.2, diff:-2.6,  tier: "LOW",      over_rate: 0.35 },
+  "Tony Brothers": { fouls_pg: 42.3, diff: 4.5, tier: "HIGH", over_rate: 0.58 },
+  "Scott Foster": { fouls_pg: 41.8, diff: 4.0, tier: "HIGH", over_rate: 0.55 },
+  "Kane Fitzgerald": { fouls_pg: 41.2, diff: 3.4, tier: "HIGH", over_rate: 0.54 },
+  "James Williams": { fouls_pg: 40.8, diff: 3.0, tier: "HIGH", over_rate: 0.55 },
+  "Ed Malloy": { fouls_pg: 40.5, diff: 2.7, tier: "HIGH", over_rate: 0.53 },
+  "Andy Nagy": { fouls_pg: 39.9, diff: 2.1, tier: "HIGH", over_rate: 0.56 },
+  "Curtis Blair": { fouls_pg: 40.1, diff: 2.3, tier: "HIGH", over_rate: 0.52 },
+  "Brent Barnaky": { fouls_pg: 39.8, diff: 2.0, tier: "MID-HIGH", over_rate: 0.51 },
+  "Bill Kennedy": { fouls_pg: 39.5, diff: 1.7, tier: "MID-HIGH", over_rate: 0.51 },
+  "Sean Corbin": { fouls_pg: 39.2, diff: 1.4, tier: "MID-HIGH", over_rate: 0.50 },
+  "Rodney Mott": { fouls_pg: 39.0, diff: 1.2, tier: "MID", over_rate: 0.49 },
+  "Sha'Rae Mitchell": { fouls_pg: 38.8, diff: 1.0, tier: "MID", over_rate: 0.49 },
+  "Leon Wood": { fouls_pg: 38.7, diff: 0.9, tier: "MID", over_rate: 0.48 },
+  "Tre Maddox": { fouls_pg: 38.5, diff: 0.7, tier: "MID", over_rate: 0.47 },
+  "Simone Jelks": { fouls_pg: 38.2, diff: 0.4, tier: "MID", over_rate: 0.46 },
+  "Marc Davis": { fouls_pg: 38.0, diff: 0.2, tier: "MID", over_rate: 0.46 },
+  "Zach Zarba": { fouls_pg: 37.8, diff: 0.0, tier: "MID", over_rate: 0.45 },
+  "Josh Tiven": { fouls_pg: 37.5, diff: -0.3, tier: "MID", over_rate: 0.44 },
+  "Natalie Sago": { fouls_pg: 37.6, diff: -0.2, tier: "MID", over_rate: 0.44 },
+  "Ben Taylor": { fouls_pg: 37.2, diff: -0.6, tier: "MID-LOW", over_rate: 0.43 },
+  "JB DeRosa": { fouls_pg: 37.0, diff: -0.8, tier: "MID-LOW", over_rate: 0.42 },
+  "Derrick Collins": { fouls_pg: 36.8, diff: -1.0, tier: "MID-LOW", over_rate: 0.41 },
+  "Jacyn Goble": { fouls_pg: 37.0, diff: -0.8, tier: "MID-LOW", over_rate: 0.42 },
+  "Eric Lewis": { fouls_pg: 36.5, diff: -1.3, tier: "LOW", over_rate: 0.40 },
+  "Karl Lane": { fouls_pg: 36.2, diff: -1.6, tier: "LOW", over_rate: 0.39 },
+  "Marat Kogut": { fouls_pg: 36.0, diff: -1.8, tier: "LOW", over_rate: 0.38 },
+  "Matt Boland": { fouls_pg: 35.7, diff: -2.1, tier: "LOW", over_rate: 0.37 },
+  "John Goble": { fouls_pg: 35.5, diff: -2.3, tier: "LOW", over_rate: 0.36 },
+  "Tyler Ford": { fouls_pg: 35.2, diff: -2.6, tier: "LOW", over_rate: 0.35 },
 };
 
 const PLAYER_DB = {
-  "Jaren Jackson Jr.":      { team: "MEM", pos: "PF", pf: 3.8, pf36: 4.3, tier: "VERY_HIGH", std: 1.1 },
-  "Chet Holmgren":          { team: "OKC", pos: "PF", pf: 3.6, pf36: 4.3, tier: "VERY_HIGH", std: 1.0 },
-  "Alperen Sengun":         { team: "HOU", pos: "C",  pf: 3.5, pf36: 3.9, tier: "VERY_HIGH", std: 1.0 },
-  "Giannis Antetokounmpo":  { team: "MIL", pos: "PF", pf: 3.5, pf36: 3.5, tier: "HIGH",      std: 0.9 },
-  "Victor Wembanyama":      { team: "SAS", pos: "C",  pf: 3.4, pf36: 3.7, tier: "HIGH",      std: 1.0 },
-  "Nikola Jokic":           { team: "DEN", pos: "C",  pf: 3.3, pf36: 3.3, tier: "HIGH",      std: 0.8 },
-  "Rudy Gobert":            { team: "MIN", pos: "C",  pf: 3.3, pf36: 3.9, tier: "HIGH",      std: 0.9 },
-  "Jalen Duren":            { team: "DET", pos: "C",  pf: 3.3, pf36: 4.2, tier: "VERY_HIGH", std: 1.0 },
-  "Domantas Sabonis":       { team: "SAC", pos: "C",  pf: 3.2, pf36: 3.3, tier: "HIGH",      std: 0.8 },
-  "Karl-Anthony Towns":     { team: "NYK", pos: "C",  pf: 3.2, pf36: 3.3, tier: "HIGH",      std: 0.9 },
-  "Walker Kessler":         { team: "UTA", pos: "C",  pf: 3.1, pf36: 4.6, tier: "VERY_HIGH", std: 1.1 },
-  "Brook Lopez":            { team: "MIL", pos: "C",  pf: 3.1, pf36: 3.9, tier: "HIGH",      std: 0.9 },
-  "Joel Embiid":            { team: "PHI", pos: "C",  pf: 3.1, pf36: 3.3, tier: "HIGH",      std: 0.9 },
-  "Bam Adebayo":            { team: "MIA", pos: "C",  pf: 3.0, pf36: 3.1, tier: "HIGH",      std: 0.8 },
-  "Scottie Barnes":         { team: "TOR", pos: "PF", pf: 3.0, pf36: 3.1, tier: "HIGH",      std: 0.8 },
-  "Devin Booker":           { team: "PHX", pos: "SG", pf: 3.0, pf36: 3.1, tier: "MID_HIGH",  std: 0.8 },
-  "Ivica Zubac":            { team: "LAC", pos: "C",  pf: 3.0, pf36: 3.6, tier: "HIGH",      std: 0.9 },
-  "Isaiah Hartenstein":     { team: "OKC", pos: "C",  pf: 2.9, pf36: 3.8, tier: "HIGH",      std: 0.9 },
-  "Nic Claxton":            { team: "BKN", pos: "C",  pf: 2.9, pf36: 3.6, tier: "HIGH",      std: 0.9 },
-  "Daniel Gafford":         { team: "DAL", pos: "C",  pf: 2.8, pf36: 4.6, tier: "VERY_HIGH", std: 0.9 },
-  "Anthony Davis":          { team: "LAL", pos: "PF", pf: 2.8, pf36: 2.8, tier: "MID_HIGH",  std: 0.8 },
-  "Luka Doncic":            { team: "LAL", pos: "PG", pf: 2.8, pf36: 2.8, tier: "MID_HIGH",  std: 0.8 },
-  "Dereck Lively II":       { team: "DAL", pos: "C",  pf: 2.7, pf36: 3.8, tier: "HIGH",      std: 0.9 },
-  "De'Aaron Fox":           { team: "SAC", pos: "PG", pf: 2.7, pf36: 2.7, tier: "MID_HIGH",  std: 0.7 },
-  "Evan Mobley":            { team: "CLE", pos: "PF", pf: 2.7, pf36: 2.9, tier: "MID_HIGH",  std: 0.7 },
-  "Anthony Edwards":        { team: "MIN", pos: "SG", pf: 2.5, pf36: 2.5, tier: "MID",       std: 0.7 },
-  "Donovan Mitchell":       { team: "CLE", pos: "SG", pf: 2.4, pf36: 2.5, tier: "MID",       std: 0.6 },
-  "Jayson Tatum":           { team: "BOS", pos: "SF", pf: 2.3, pf36: 2.3, tier: "MID",       std: 0.6 },
-  "Shai Gilgeous-Alexander":{ team: "OKC", pos: "PG", pf: 2.2, pf36: 2.3, tier: "MID",       std: 0.6 },
-  "LeBron James":           { team: "LAL", pos: "SF", pf: 1.8, pf36: 1.9, tier: "LOW",       std: 0.5 },
-  "Trae Young":             { team: "ATL", pos: "PG", pf: 1.5, pf36: 1.5, tier: "VERY_LOW",  std: 0.4 },
+  "Jaren Jackson Jr.": { team: "MEM", pos: "PF", pf: 3.8, pf36: 4.3, tier: "VERY_HIGH", std: 1.1 },
+  "Chet Holmgren": { team: "OKC", pos: "PF", pf: 3.6, pf36: 4.3, tier: "VERY_HIGH", std: 1.0 },
+  "Alperen Sengun": { team: "HOU", pos: "C", pf: 3.5, pf36: 3.9, tier: "VERY_HIGH", std: 1.0 },
+  "Giannis Antetokounmpo": { team: "MIL", pos: "PF", pf: 3.5, pf36: 3.5, tier: "HIGH", std: 0.9 },
+  "Victor Wembanyama": { team: "SAS", pos: "C", pf: 3.4, pf36: 3.7, tier: "HIGH", std: 1.0 },
+  "Nikola Jokic": { team: "DEN", pos: "C", pf: 3.3, pf36: 3.3, tier: "HIGH", std: 0.8 },
+  "Rudy Gobert": { team: "MIN", pos: "C", pf: 3.3, pf36: 3.9, tier: "HIGH", std: 0.9 },
+  "Jalen Duren": { team: "DET", pos: "C", pf: 3.3, pf36: 4.2, tier: "VERY_HIGH", std: 1.0 },
+  "Domantas Sabonis": { team: "SAC", pos: "C", pf: 3.2, pf36: 3.3, tier: "HIGH", std: 0.8 },
+  "Karl-Anthony Towns": { team: "NYK", pos: "C", pf: 3.2, pf36: 3.3, tier: "HIGH", std: 0.9 },
+  "Walker Kessler": { team: "UTA", pos: "C", pf: 3.1, pf36: 4.6, tier: "VERY_HIGH", std: 1.1 },
+  "Brook Lopez": { team: "MIL", pos: "C", pf: 3.1, pf36: 3.9, tier: "HIGH", std: 0.9 },
+  "Joel Embiid": { team: "PHI", pos: "C", pf: 3.1, pf36: 3.3, tier: "HIGH", std: 0.9 },
+  "Bam Adebayo": { team: "MIA", pos: "C", pf: 3.0, pf36: 3.1, tier: "HIGH", std: 0.8 },
+  "Scottie Barnes": { team: "TOR", pos: "PF", pf: 3.0, pf36: 3.1, tier: "HIGH", std: 0.8 },
+  "Devin Booker": { team: "PHX", pos: "SG", pf: 3.0, pf36: 3.1, tier: "MID_HIGH", std: 0.8 },
+  "Ivica Zubac": { team: "LAC", pos: "C", pf: 3.0, pf36: 3.6, tier: "HIGH", std: 0.9 },
+  "Isaiah Hartenstein": { team: "OKC", pos: "C", pf: 2.9, pf36: 3.8, tier: "HIGH", std: 0.9 },
+  "Nic Claxton": { team: "BKN", pos: "C", pf: 2.9, pf36: 3.6, tier: "HIGH", std: 0.9 },
+  "Daniel Gafford": { team: "DAL", pos: "C", pf: 2.8, pf36: 4.6, tier: "VERY_HIGH", std: 0.9 },
+  "Anthony Davis": { team: "LAL", pos: "PF", pf: 2.8, pf36: 2.8, tier: "MID_HIGH", std: 0.8 },
+  "Luka Doncic": { team: "LAL", pos: "PG", pf: 2.8, pf36: 2.8, tier: "MID_HIGH", std: 0.8 },
+  "Dereck Lively II": { team: "DAL", pos: "C", pf: 2.7, pf36: 3.8, tier: "HIGH", std: 0.9 },
+  "De'Aaron Fox": { team: "SAC", pos: "PG", pf: 2.7, pf36: 2.7, tier: "MID_HIGH", std: 0.7 },
+  "Evan Mobley": { team: "CLE", pos: "PF", pf: 2.7, pf36: 2.9, tier: "MID_HIGH", std: 0.7 },
+  "Anthony Edwards": { team: "MIN", pos: "SG", pf: 2.5, pf36: 2.5, tier: "MID", std: 0.7 },
+  "Donovan Mitchell": { team: "CLE", pos: "SG", pf: 2.4, pf36: 2.5, tier: "MID", std: 0.6 },
+  "Jayson Tatum": { team: "BOS", pos: "SF", pf: 2.3, pf36: 2.3, tier: "MID", std: 0.6 },
+  "Shai Gilgeous-Alexander": { team: "OKC", pos: "PG", pf: 2.2, pf36: 2.3, tier: "MID", std: 0.6 },
+  "LeBron James": { team: "LAL", pos: "SF", pf: 1.8, pf36: 1.9, tier: "LOW", std: 0.5 },
+  "Trae Young": { team: "ATL", pos: "PG", pf: 1.5, pf36: 1.5, tier: "VERY_LOW", std: 0.4 },
 };
 
 const TIER_UPLIFT = { "HIGH": 0.11, "MID-HIGH": 0.055, "MID": 0, "MID-LOW": -0.04, "LOW": -0.06 };
+
+// Game interface for API response
+interface GameWithRefs {
+  gameId: string;
+  homeTeam: string;
+  awayTeam: string;
+  gameTime: string;
+  gameDate: string;
+  referees: string[];
+  crewTier?: string;
+  avgFouls?: number;
+}
 
 // ─── STYLES ───────────────────────────────────────────────────────
 const S = {
@@ -110,10 +122,10 @@ const S = {
     padding: 16, transition: "border-color 0.2s",
   },
   cardHover: { borderColor: "#00ffc8" },
-  table: { width: "100%", borderCollapse: "collapse" },
+  table: { width: "100%", borderCollapse: "collapse" as const },
   th: {
-    textAlign: "left", color: "#5a6a7a", fontSize: 10, fontWeight: 600,
-    textTransform: "uppercase", letterSpacing: 1, padding: "8px 10px",
+    textAlign: "left" as const, color: "#5a6a7a", fontSize: 10, fontWeight: 600,
+    textTransform: "uppercase" as const, letterSpacing: 1, padding: "8px 10px",
     borderBottom: "1px solid #1a2332",
   },
   td: { padding: "7px 10px", borderBottom: "1px solid #0d1218", fontSize: 12 },
@@ -137,30 +149,34 @@ const S = {
     borderRadius: 4, padding: "6px 14px", fontSize: 11, fontWeight: 600,
     cursor: "pointer", fontFamily: "inherit",
   },
-  badge: (color) => ({
+  badge: (color: string) => ({
     display: "inline-block", padding: "2px 8px", borderRadius: 3, fontSize: 10,
     fontWeight: 700, letterSpacing: 0.5, background: color + "22", color: color,
     border: `1px solid ${color}44`,
   }),
-  signalBar: (pct, color) => ({
-    height: 6, borderRadius: 3, background: "#1a2332", position: "relative", overflow: "hidden",
+  signalBar: (pct: number, color: string) => ({
+    height: 6, borderRadius: 3, background: "#1a2332", position: "relative" as const, overflow: "hidden" as const,
     width: 80,
   }),
+  gameCard: {
+    background: "#0f1520", border: "1px solid #1a2332", borderRadius: 8,
+    padding: 16, cursor: "pointer", transition: "all 0.2s",
+  },
 };
 
-const tierColor = (tier) => {
+const tierColor = (tier?: string) => {
   if (tier?.includes("HIGH") && !tier?.includes("MID")) return "#ff4757";
   if (tier?.includes("LOW") && !tier?.includes("MID")) return "#2ed573";
   return "#ffa502";
 };
 
-const actionEmoji = {
+const actionEmoji: Record<string, string> = {
   SMASH_OVER: "🔥", STRONG_OVER: "✅", LEAN_OVER: "👀",
   SMASH_UNDER: "🔥", STRONG_UNDER: "✅", LEAN_UNDER: "👀",
   NO_PLAY: "⏸",
 };
 
-const actionColor = {
+const actionColor: Record<string, string> = {
   SMASH_OVER: "#ff4757", STRONG_OVER: "#ff6348", LEAN_OVER: "#ffa502",
   SMASH_UNDER: "#2ed573", STRONG_UNDER: "#7bed9f", LEAN_UNDER: "#a4b0be",
   NO_PLAY: "#57606f",
@@ -169,18 +185,64 @@ const actionColor = {
 // ─── COMPONENT ────────────────────────────────────────────────────
 
 export default function RefFoulSignal() {
-  const [selectedRefs, setSelectedRefs] = useState([]);
+  const [selectedRefs, setSelectedRefs] = useState<string[]>([]);
   const [refSearch, setRefSearch] = useState("");
   const [playerFilter, setPlayerFilter] = useState("ALL");
-  const [lineOverrides, setLineOverrides] = useState({});
+  const [lineOverrides, setLineOverrides] = useState<Record<string, number>>({});
   const [paceFactor, setPaceFactor] = useState(1.0);
   const [b2b, setB2b] = useState(false);
-  const [activeView, setActiveView] = useState("calculator"); // calculator | ref-table | player-table
+  const [activeView, setActiveView] = useState("games-today"); // games-today | games-tomorrow | calculator | ref-table | player-table
+
+  // Games state
+  const [todayGames, setTodayGames] = useState<GameWithRefs[]>([]);
+  const [tomorrowGames, setTomorrowGames] = useState<GameWithRefs[]>([]);
+  const [gamesLoading, setGamesLoading] = useState(false);
+  const [gamesError, setGamesError] = useState<string | null>(null);
+
+  // Fetch games on mount
+  useEffect(() => {
+    const fetchGames = async () => {
+      setGamesLoading(true);
+      setGamesError(null);
+      try {
+        const today = new Date().toISOString().split('T')[0];
+        const tomorrow = new Date(Date.now() + 86400000).toISOString().split('T')[0];
+
+        const [todayRes, tomorrowRes] = await Promise.all([
+          fetch(`/api/ref-signal/games?date=${today}`),
+          fetch(`/api/ref-signal/games?date=${tomorrow}`)
+        ]);
+
+        if (todayRes.ok) {
+          const data = await todayRes.json();
+          setTodayGames(data.games || []);
+        }
+        if (tomorrowRes.ok) {
+          const data = await tomorrowRes.json();
+          setTomorrowGames(data.games || []);
+        }
+      } catch (err) {
+        setGamesError("Failed to load games");
+      } finally {
+        setGamesLoading(false);
+      }
+    };
+    fetchGames();
+  }, []);
+
+  // Handle game click - populate refs
+  const handleGameClick = (game: GameWithRefs) => {
+    if (game.referees.length > 0) {
+      setSelectedRefs(game.referees.slice(0, 3));
+      setActiveView("calculator");
+    }
+  };
 
   const refNames = Object.keys(REFEREE_DB);
   const filteredRefs = refNames.filter(n =>
     n.toLowerCase().includes(refSearch.toLowerCase()) && !selectedRefs.includes(n)
   );
+
 
   // Calculate crew composite
   const crewData = useMemo(() => {
@@ -252,21 +314,115 @@ export default function RefFoulSignal() {
             Referee foul tendencies × player foul proneness → PrizePicks edge
           </div>
         </div>
-        <div style={{ display: "flex", gap: 8 }}>
-          {["calculator", "ref-table", "player-table"].map(v => (
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          {[
+            { id: "games-today", label: "📅 Today" },
+            { id: "games-tomorrow", label: "📆 Tomorrow" },
+            { id: "calculator", label: "⚡ Calculator" },
+            { id: "ref-table", label: "👨‍⚖️ Refs" },
+            { id: "player-table", label: "🏀 Players" },
+          ].map(v => (
             <button
-              key={v}
-              onClick={() => setActiveView(v)}
+              key={v.id}
+              onClick={() => setActiveView(v.id)}
               style={{
                 ...S.btnOutline,
-                ...(activeView === v ? { background: "#00ffc8", color: "#0a0e17" } : {}),
+                ...(activeView === v.id ? { background: "#00ffc8", color: "#0a0e17" } : {}),
               }}
             >
-              {v === "calculator" ? "⚡ Calculator" : v === "ref-table" ? "👨‍⚖️ Refs" : "🏀 Players"}
+              {v.label}
             </button>
           ))}
         </div>
       </div>
+
+      {/* ─── GAMES VIEW ─── */}
+      {(activeView === "games-today" || activeView === "games-tomorrow") && (
+        <>
+          <div style={S.sectionTitle}>
+            {activeView === "games-today" ? "TODAY'S GAMES" : "TOMORROW'S GAMES"}
+            {gamesLoading && <span style={{ color: "#5a6a7a", marginLeft: 8 }}>Loading...</span>}
+          </div>
+
+          {gamesError && (
+            <div style={{ ...S.card, color: "#ff4757", marginBottom: 16 }}>
+              {gamesError}
+            </div>
+          )}
+
+          {!gamesLoading && (activeView === "games-today" ? todayGames : tomorrowGames).length === 0 && (
+            <div style={{ ...S.card, textAlign: "center", padding: 40, color: "#5a6a7a" }}>
+              No games scheduled for this date
+            </div>
+          )}
+
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 16 }}>
+            {(activeView === "games-today" ? todayGames : tomorrowGames).map(game => (
+              <div
+                key={game.gameId}
+                onClick={() => handleGameClick(game)}
+                style={{
+                  ...S.gameCard,
+                  borderColor: game.referees.length > 0 ? tierColor(game.crewTier) + "44" : "#1a2332",
+                }}
+                onMouseEnter={e => (e.currentTarget.style.borderColor = "#00ffc8")}
+                onMouseLeave={e => (e.currentTarget.style.borderColor = game.referees.length > 0 ? tierColor(game.crewTier) + "44" : "#1a2332")}
+              >
+                {/* Matchup */}
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                  <div style={{ fontSize: 16, fontWeight: 700 } as React.CSSProperties}>
+                    <span style={{ color: "#c8d6e5" }}>{game.awayTeam}</span>
+                    <span style={{ color: "#5a6a7a", margin: "0 8px" }}>@</span>
+                    <span style={{ color: "#00ffc8" }}>{game.homeTeam}</span>
+                  </div>
+                  <div style={{ color: "#5a6a7a", fontSize: 11 }}>{game.gameTime}</div>
+                </div>
+
+                {/* Referees */}
+                {game.referees.length > 0 ? (
+                  <>
+                    <div style={{ fontSize: 10, color: "#5a6a7a", marginBottom: 6, textTransform: "uppercase" }}>Officials</div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 8 }}>
+                      {game.referees.map(ref => (
+                        <span key={ref} style={S.badge("#00ffc8")}>{ref}</span>
+                      ))}
+                    </div>
+                    {game.crewTier && (
+                      <div style={{ display: "flex", gap: 12, marginTop: 8 }}>
+                        <div>
+                          <div style={{ fontSize: 9, color: "#5a6a7a" }}>CREW TIER</div>
+                          <span style={S.badge(tierColor(game.crewTier))}>{game.crewTier}</span>
+                        </div>
+                        {game.avgFouls && (
+                          <div>
+                            <div style={{ fontSize: 9, color: "#5a6a7a" }}>AVG F/G</div>
+                            <div style={{ color: "#fff", fontWeight: 700 }}>{game.avgFouls}</div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    <div style={{ marginTop: 12, fontSize: 10, color: "#00ffc8" }}>
+                      Click to analyze →
+                    </div>
+                  </>
+                ) : (
+                  <div style={{
+                    padding: "12px 0",
+                    color: "#ffa502",
+                    fontSize: 11,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 6
+                  }}>
+                    ⏳ Refs not yet assigned (check after 9 AM ET)
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+
 
       {/* ─── CALCULATOR VIEW ─── */}
       {activeView === "calculator" && (
@@ -498,11 +654,11 @@ export default function RefFoulSignal() {
             </thead>
             <tbody>
               {Object.entries(REFEREE_DB)
-                .sort(([,a], [,b]) => b.fouls_pg - a.fouls_pg)
+                .sort(([, a], [, b]) => b.fouls_pg - a.fouls_pg)
                 .map(([name, r]) => (
                   <tr key={name}
                     style={{ cursor: "pointer" }}
-                    onClick={() => { if (selectedRefs.length < 3 && !selectedRefs.includes(name)) { setSelectedRefs([...selectedRefs, name]); setActiveView("calculator"); }}}
+                    onClick={() => { if (selectedRefs.length < 3 && !selectedRefs.includes(name)) { setSelectedRefs([...selectedRefs, name]); setActiveView("calculator"); } }}
                     onMouseEnter={e => e.currentTarget.style.background = "#111927"}
                     onMouseLeave={e => e.currentTarget.style.background = "transparent"}
                   >
@@ -537,7 +693,7 @@ export default function RefFoulSignal() {
             </thead>
             <tbody>
               {Object.entries(PLAYER_DB)
-                .sort(([,a], [,b]) => b.pf - a.pf)
+                .sort(([, a], [, b]) => b.pf - a.pf)
                 .map(([name, p]) => (
                   <tr key={name}
                     onMouseEnter={e => e.currentTarget.style.background = "#111927"}
