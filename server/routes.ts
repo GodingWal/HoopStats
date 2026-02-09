@@ -40,6 +40,7 @@ import {
   getTeamInfo,
 } from "./team-stats-api";
 import { generateBetExplanation } from "./services/openai";
+import { registerRefSignalRoutes } from "./routes/ref-signal";
 import { lineWatcher } from "./services/line-watcher";
 
 // Load sample players from external JSON file
@@ -3068,7 +3069,6 @@ export async function registerRoutes(
   });
 
   // Register ref foul signal routes
-  const { registerRefSignalRoutes } = await import("./routes/ref-signal");
   registerRefSignalRoutes(app);
 
   return httpServer;
