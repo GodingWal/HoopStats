@@ -11,6 +11,7 @@
 
 import { Express, Request, Response } from 'express';
 import { storage } from '../storage';
+import { fetchPrizePicksProjections } from '../prizepicks-api';
 import type { Player, GameLog } from '@shared/schema';
 
 // ─── REFEREE DATABASE ─────────────────────────────────────────────
@@ -493,6 +494,17 @@ export function registerRefSignalRoutes(app: Express) {
     } catch (error) {
       console.error('[RefSignal] Refresh error:', error);
       res.status(500).json({ error: "Failed to refresh assignments" });
+    }
+  });
+
+  // GET PrizePicks projections for filtering
+  app.get('/api/ref-signal/prizepicks', async (_req: Request, res: Response) => {
+    try {
+      const projections = await fetchPrizePicksProjections();
+      res.json({ projections, count: projections.length });
+    } catch (error) {
+      console.error('[RefSignal] PrizePicks fetch error:', error);
+      res.status(500).json({ error: "Failed to fetch PrizePicks data" });
     }
   });
 
