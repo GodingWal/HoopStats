@@ -65,8 +65,17 @@ const REFEREE_DB: Record<string, { fouls_pg: number; tier: string }> = {
     "Kevin Scott": { fouls_pg: 38.3, tier: "MID" },
 };
 
+/**
+ * Strip jersey number from referee name (e.g., "Tony Brothers (#25)" -> "Tony Brothers")
+ */
+function stripJerseyNumber(name: string): string {
+    return name.replace(/\s*\(#?\d+\)\s*$/, '').trim();
+}
+
 function calculateCrewTier(refs: string[]): { tier: string; avgFouls: number } {
-    const found = refs.map(r => REFEREE_DB[r]).filter(Boolean);
+    // Strip jersey numbers from names before lookup
+    const cleanedRefs = refs.map(stripJerseyNumber);
+    const found = cleanedRefs.map(r => REFEREE_DB[r]).filter(Boolean);
     if (!found.length) return { tier: "UNKNOWN", avgFouls: 37.8 };
 
     const avgFouls = found.reduce((s, r) => s + r.fouls_pg, 0) / found.length;
@@ -78,6 +87,7 @@ function calculateCrewTier(refs: string[]): { tier: string; avgFouls: number } {
     else if (avgDiff >= -0.5) tier = "MID";
     else if (avgDiff >= -1.5) tier = "MID-LOW";
     else tier = "LOW";
+
 
     return { tier, avgFouls: Math.round(avgFouls * 10) / 10 };
 }
