@@ -164,11 +164,18 @@ def main():
             recent_games = []
             for _, game in games.head(10).iterrows():
                 recent_games.append({
-                    'date': game['GAME_DATE'].strftime('%Y-%m-%d'),
-                    'pts': int(game['PTS']),
-                    'reb': int(game['REB']),
-                    'ast': int(game['AST']),
-                    'min': float(game['MIN'])
+                    'GAME_DATE': game['GAME_DATE'].strftime('%Y-%m-%d'),
+                    'PTS': int(game['PTS']),
+                    'REB': int(game['REB']),
+                    'AST': int(game['AST']),
+                    'MIN': float(game['MIN']),
+                    'PF': int(game['PF']) if 'PF' in game and pd.notna(game['PF']) else 0,
+                    'FG3M': int(game['FG3M']) if 'FG3M' in game and pd.notna(game['FG3M']) else 0,
+                    'STL': int(game['STL']) if 'STL' in game and pd.notna(game['STL']) else 0,
+                    'BLK': int(game['BLK']) if 'BLK' in game and pd.notna(game['BLK']) else 0,
+                    'TOV': int(game['TOV']) if 'TOV' in game and pd.notna(game['TOV']) else 0,
+                    'OPPONENT': game['MATCHUP'] if 'MATCHUP' in game else 'UNK',
+                    'WL': game['WL'] if 'WL' in game and pd.notna(game['WL']) else 'U'
                 })
             
             # Determine Upsert Strategy
