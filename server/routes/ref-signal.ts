@@ -14,6 +14,8 @@ import { storage } from '../storage';
 import { fetchPrizePicksProjections } from '../prizepicks-api';
 import type { Player, GameLog } from '@shared/schema';
 
+console.log("DEBUG: Ref Signal Module Loaded");
+
 // ─── REFEREE DATABASE ─────────────────────────────────────────────
 const LEAGUE_AVG_FOULS_PG = 37.8;
 
@@ -499,6 +501,7 @@ export function registerRefSignalRoutes(app: Express) {
 
   // GET PrizePicks projections for filtering
   app.get('/api/ref-signal/prizepicks', async (_req: Request, res: Response) => {
+    console.log("DEBUG: Hit PrizePicks Route");
     try {
       const projections = await fetchPrizePicksProjections();
       res.json({ projections, count: projections.length });
