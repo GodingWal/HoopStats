@@ -10,6 +10,8 @@
  */
 
 import { Express, Request, Response } from 'express';
+import { storage } from '../storage';
+import type { Player, GameLog } from '@shared/schema';
 
 // ─── REFEREE DATABASE ─────────────────────────────────────────────
 const LEAGUE_AVG_FOULS_PG = 37.8;
@@ -175,6 +177,97 @@ function calculateSignal(
   };
 }
 
+// ─── ROSTER-BASED PLAYER FOUL COMPUTATION ────────────────────────
+
+interface RosterFoulPlayer {
+  name: string;
+  team: string;
+  pos: string;
+  pf_pg: number;
+  pf_36: number;
+  foul_tier: string;
+  std_dev: number;
+  games_played: number;
+  source: 'roster' | 'static';
+}
+
+function computeStdDev(values: number[]): number {
+  if (values.length < 2) return 0.8; // default fallback
+  const mean = values.reduce((s, v) => s + v, 0) / values.length;
+  const variance = values.reduce((s, v) => s + (v - mean) ** 2, 0) / (values.length - 1);
+  return Math.round(Math.sqrt(variance) * 100) / 100;
+}
+
+function assignFoulTier(pfPg: number): string {
+  if (pfPg >= 3.5) return "VERY_HIGH";
+  if (pfPg >= 2.8) return "HIGH";
+  if (pfPg >= 2.3) return "MID_HIGH";
+  if (pfPg >= 1.8) return "MID";
+  if (pfPg >= 1.2) return "LOW";
+  return "VERY_LOW";
+}
+
+function buildRosterFoulPlayers(dbPlayers: Player[]): RosterFoulPlayer[] {
+  const rosterPlayers: RosterFoulPlayer[] = [];
+
+  for (const player of dbPlayers) {
+    const recentGames = player.recent_games || [];
+    // Only include players with enough games and PF data
+    const gamesWithPF = recentGames.filter((g: GameLog) => g.PF != null && g.MIN > 0);
+    if (gamesWithPF.length < 3) continue;
+
+    const pfValues = gamesWithPF.map((g: GameLog) => g.PF!);
+    const minValues = gamesWithPF.map((g: GameLog) => g.MIN);
+
+    const totalPF = pfValues.reduce((s, v) => s + v, 0);
+    const totalMIN = minValues.reduce((s, v) => s + v, 0);
+    const pfPg = Math.round((totalPF / gamesWithPF.length) * 100) / 100;
+    const pf36 = totalMIN > 0
+      ? Math.round((totalPF / totalMIN * 36) * 100) / 100
+      : pfPg;
+
+    // Skip players who basically never foul (< 0.5 PF/game)
+    if (pfPg < 0.5) continue;
+
+    const stdDev = computeStdDev(pfValues);
+
+    // Infer position from the database position field or default
+    const pos = (player as any).position || "—";
+
+    rosterPlayers.push({
+      name: player.player_name,
+      team: player.team,
+      pos,
+      pf_pg: pfPg,
+      pf_36: pf36,
+      foul_tier: assignFoulTier(pfPg),
+      std_dev: stdDev || 0.8,
+      games_played: gamesWithPF.length,
+      source: 'roster',
+    });
+  }
+
+  return rosterPlayers;
+}
+
+// Merge roster players with static DB — roster takes priority
+function getMergedPlayerDB(rosterPlayers: RosterFoulPlayer[]): Record<string, Omit<PlayerFoulData, 'name'>> {
+  const merged = { ...PLAYER_FOUL_DB };
+
+  for (const rp of rosterPlayers) {
+    merged[rp.name] = {
+      team: rp.team,
+      pos: rp.pos,
+      pf_pg: rp.pf_pg,
+      pf_36: rp.pf_36,
+      foul_tier: rp.foul_tier,
+      std_dev: rp.std_dev,
+    };
+  }
+
+  return merged;
+}
+
 // ─── ROUTE REGISTRATION ──────────────────────────────────────────
 
 export function registerRefSignalRoutes(app: Express) {
@@ -187,38 +280,169 @@ export function registerRefSignalRoutes(app: Express) {
     res.json(refs);
   });
 
-  // GET all tracked foul-prone players
-  app.get('/api/ref-signal/players', (_req: Request, res: Response) => {
-    const players = Object.entries(PLAYER_FOUL_DB)
-      .map(([name, data]) => ({ name, ...data }))
-      .sort((a, b) => b.pf_pg - a.pf_pg);
-    res.json(players);
+  // GET all tracked foul-prone players (now enriched from roster)
+  app.get('/api/ref-signal/players', async (_req: Request, res: Response) => {
+    try {
+      const dbPlayers = await storage.getPlayers();
+      const rosterPlayers = buildRosterFoulPlayers(dbPlayers);
+      const merged = getMergedPlayerDB(rosterPlayers);
+
+      const players = Object.entries(merged)
+        .map(([name, data]) => {
+          const rp = rosterPlayers.find(r => r.name === name);
+          return {
+            name,
+            ...data,
+            games_played: rp?.games_played,
+            source: rp ? 'roster' : 'static',
+          };
+        })
+        .sort((a, b) => b.pf_pg - a.pf_pg);
+
+      res.json({
+        players,
+        roster_count: rosterPlayers.length,
+        static_count: Object.keys(PLAYER_FOUL_DB).length,
+        total: players.length,
+      });
+    } catch (error) {
+      // Fall back to static data on error
+      console.error('[RefSignal] Error loading roster players, falling back to static:', error);
+      const players = Object.entries(PLAYER_FOUL_DB)
+        .map(([name, data]) => ({ name, ...data, source: 'static' as const }))
+        .sort((a, b) => b.pf_pg - a.pf_pg);
+      res.json({
+        players,
+        roster_count: 0,
+        static_count: players.length,
+        total: players.length,
+      });
+    }
   });
 
-  // POST calculate signal for single player
-  app.post('/api/ref-signal/calculate', (req: Request, res: Response) => {
+  // POST calculate signal for single player (now checks roster too)
+  app.post('/api/ref-signal/calculate', async (req: Request, res: Response) => {
     const { player, refs, line, pace_factor, b2b } = req.body;
     if (!player || !refs?.length) {
       return res.status(400).json({ error: "player and refs[] required" });
     }
-    const result = calculateSignal(player, refs, line, pace_factor, b2b);
+
+    // Try static DB first, then check roster
+    let result = calculateSignal(player, refs, line, pace_factor, b2b);
+    if (!result) {
+      try {
+        const dbPlayers = await storage.getPlayers();
+        const rosterPlayers = buildRosterFoulPlayers(dbPlayers);
+        const rp = rosterPlayers.find(p => p.name === player);
+        if (rp) {
+          const merged = getMergedPlayerDB([rp]);
+          // Temporarily inject into the calculation
+          const crew = getCrewCompositeTier(refs);
+          let projected = rp.pf_pg * (1 + crew.uplift) * (pace_factor || 1.0);
+          if (b2b) projected += 0.2;
+          projected = Math.round(projected * 100) / 100;
+
+          const defaultLines: Record<string, number> = {
+            VERY_HIGH: 3.5, HIGH: 3.5, MID_HIGH: 3.5,
+            MID: 2.5, LOW_MID: 2.5, LOW: 1.5, VERY_LOW: 1.5,
+          };
+          const effectiveLine = line ?? defaultLines[rp.foul_tier] ?? 2.5;
+          const signal = Math.round(((projected - effectiveLine) / rp.std_dev) * 100) / 100;
+
+          let action: string, confidence: string;
+          if (signal >= 1.5) { action = "SMASH_OVER"; confidence = "VERY_HIGH"; }
+          else if (signal >= 1.0) { action = "STRONG_OVER"; confidence = "HIGH"; }
+          else if (signal >= 0.5) { action = "LEAN_OVER"; confidence = "MID"; }
+          else if (signal <= -1.5) { action = "SMASH_UNDER"; confidence = "VERY_HIGH"; }
+          else if (signal <= -1.0) { action = "STRONG_UNDER"; confidence = "HIGH"; }
+          else if (signal <= -0.5) { action = "LEAN_UNDER"; confidence = "MID"; }
+          else { action = "NO_PLAY"; confidence = "NONE"; }
+
+          result = {
+            player,
+            team: rp.team,
+            position: rp.pos,
+            foul_tier: rp.foul_tier,
+            base_pf_pg: rp.pf_pg,
+            ref_crew_tier: crew.tier,
+            ref_uplift_pct: Math.round(crew.uplift * 1000) / 10,
+            pace_factor: pace_factor || 1.0,
+            b2b: b2b || false,
+            projected_pf: projected,
+            prizepicks_line: effectiveLine,
+            signal_strength: signal,
+            action,
+            confidence,
+            ref_details: crew.ref_details,
+          };
+        }
+      } catch (err) {
+        // Roster lookup failed, player truly not found
+      }
+    }
+
     if (!result) return res.status(404).json({ error: "Player not found" });
     res.json(result);
   });
 
-  // POST scan all players for a game
-  app.post('/api/ref-signal/scan-game', (req: Request, res: Response) => {
+  // POST scan all players for a game (now uses roster data)
+  app.post('/api/ref-signal/scan-game', async (req: Request, res: Response) => {
     const { refs, teams, pace_factor = 1.0, b2b_teams = [] } = req.body;
     if (!refs?.length || !teams?.length) {
       return res.status(400).json({ error: "refs[] and teams[] required" });
     }
 
+    // Build merged player DB from roster + static
+    let mergedDB = PLAYER_FOUL_DB;
+    try {
+      const dbPlayers = await storage.getPlayers();
+      const rosterPlayers = buildRosterFoulPlayers(dbPlayers);
+      mergedDB = getMergedPlayerDB(rosterPlayers);
+    } catch (err) {
+      console.error('[RefSignal] Roster load failed for scan-game, using static DB:', err);
+    }
+
+    const crew = getCrewCompositeTier(refs);
     const signals: any[] = [];
-    for (const [name, data] of Object.entries(PLAYER_FOUL_DB)) {
+
+    for (const [name, data] of Object.entries(mergedDB)) {
       if (teams.includes(data.team)) {
-        const result = calculateSignal(name, refs, undefined, pace_factor, b2b_teams.includes(data.team));
-        if (result && result.action !== "NO_PLAY") {
-          signals.push(result);
+        let projected = data.pf_pg * (1 + crew.uplift) * pace_factor;
+        if (b2b_teams.includes(data.team)) projected += 0.2;
+        projected = Math.round(projected * 100) / 100;
+
+        const defaultLines: Record<string, number> = {
+          VERY_HIGH: 3.5, HIGH: 3.5, MID_HIGH: 3.5,
+          MID: 2.5, LOW_MID: 2.5, LOW: 1.5, VERY_LOW: 1.5,
+        };
+        const effectiveLine = defaultLines[data.foul_tier] ?? 2.5;
+        const signal = Math.round(((projected - effectiveLine) / data.std_dev) * 100) / 100;
+
+        let action: string;
+        if (signal >= 1.5) action = "SMASH_OVER";
+        else if (signal >= 1.0) action = "STRONG_OVER";
+        else if (signal >= 0.5) action = "LEAN_OVER";
+        else if (signal <= -1.5) action = "SMASH_UNDER";
+        else if (signal <= -1.0) action = "STRONG_UNDER";
+        else if (signal <= -0.5) action = "LEAN_UNDER";
+        else action = "NO_PLAY";
+
+        if (action !== "NO_PLAY") {
+          signals.push({
+            player: name,
+            team: data.team,
+            position: data.pos,
+            foul_tier: data.foul_tier,
+            base_pf_pg: data.pf_pg,
+            ref_crew_tier: crew.tier,
+            ref_uplift_pct: Math.round(crew.uplift * 1000) / 10,
+            pace_factor,
+            b2b: b2b_teams.includes(data.team),
+            projected_pf: projected,
+            prizepicks_line: effectiveLine,
+            signal_strength: signal,
+            action,
+          });
         }
       }
     }

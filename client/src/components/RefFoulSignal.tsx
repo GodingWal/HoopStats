@@ -1,21 +1,14 @@
 /**
  * CourtSide Edge - Referee Foul Signal Panel
  * ============================================
- * Drop this into your existing App.jsx as a new tab alongside
- * Overview, Hit Rates, Matchups, and Impact.
- *
- * Add to your tab navigation:
- *   { id: 'ref-signal', label: '🎯 Ref Signal' }
- *
- * Then render: {activeTab === 'ref-signal' && <RefFoulSignal />}
+ * Uses synced roster data for up-to-date player foul stats.
+ * Falls back to static data when roster is unavailable.
  */
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 
-// ─── INLINE DATA (mirrors backend - for standalone/offline use) ───
-const LEAGUE_AVG = 37.8;
-
-const REFEREE_DB = {
+// ─── STATIC FALLBACK DATA ─────────────────────────────────────────
+const REFEREE_DB: Record<string, { fouls_pg: number; diff: number; tier: string; over_rate: number }> = {
   "Tony Brothers": { fouls_pg: 42.3, diff: 4.5, tier: "HIGH", over_rate: 0.58 },
   "Scott Foster": { fouls_pg: 41.8, diff: 4.0, tier: "HIGH", over_rate: 0.55 },
   "Kane Fitzgerald": { fouls_pg: 41.2, diff: 3.4, tier: "HIGH", over_rate: 0.54 },
@@ -47,7 +40,7 @@ const REFEREE_DB = {
   "Tyler Ford": { fouls_pg: 35.2, diff: -2.6, tier: "LOW", over_rate: 0.35 },
 };
 
-const PLAYER_DB = {
+const STATIC_PLAYER_DB: Record<string, { team: string; pos: string; pf: number; pf36: number; tier: string; std: number }> = {
   "Jaren Jackson Jr.": { team: "MEM", pos: "PF", pf: 3.8, pf36: 4.3, tier: "VERY_HIGH", std: 1.1 },
   "Chet Holmgren": { team: "OKC", pos: "PF", pf: 3.6, pf36: 4.3, tier: "VERY_HIGH", std: 1.0 },
   "Alperen Sengun": { team: "HOU", pos: "C", pf: 3.5, pf36: 3.9, tier: "VERY_HIGH", std: 1.0 },
@@ -81,9 +74,9 @@ const PLAYER_DB = {
   "Trae Young": { team: "ATL", pos: "PG", pf: 1.5, pf36: 1.5, tier: "VERY_LOW", std: 0.4 },
 };
 
-const TIER_UPLIFT = { "HIGH": 0.11, "MID-HIGH": 0.055, "MID": 0, "MID-LOW": -0.04, "LOW": -0.06 };
+const TIER_UPLIFT: Record<string, number> = { "HIGH": 0.11, "MID-HIGH": 0.055, "MID": 0, "MID-LOW": -0.04, "LOW": -0.06 };
 
-// Game interface for API response
+// ─── TYPES ───────────────────────────────────────────────────────
 interface GameWithRefs {
   gameId: string;
   homeTeam: string;
@@ -93,6 +86,18 @@ interface GameWithRefs {
   referees: string[];
   crewTier?: string;
   avgFouls?: number;
+}
+
+interface PlayerFoulEntry {
+  name: string;
+  team: string;
+  pos: string;
+  pf: number;
+  pf36: number;
+  tier: string;
+  std: number;
+  games_played?: number;
+  source: "roster" | "static";
 }
 
 // ─── STYLES ───────────────────────────────────────────────────────
@@ -116,12 +121,10 @@ const S = {
     borderBottom: "1px solid #1a2332", paddingBottom: 8, marginBottom: 12, marginTop: 24,
     letterSpacing: 0.5,
   },
-  grid: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 },
   card: {
     background: "#0f1520", border: "1px solid #1a2332", borderRadius: 6,
     padding: 16, transition: "border-color 0.2s",
   },
-  cardHover: { borderColor: "#00ffc8" },
   table: { width: "100%", borderCollapse: "collapse" as const },
   th: {
     textAlign: "left" as const, color: "#5a6a7a", fontSize: 10, fontWeight: 600,
@@ -139,11 +142,6 @@ const S = {
     color: "#c8d6e5", padding: "8px 12px", fontSize: 12, width: "100%",
     fontFamily: "inherit", outline: "none", cursor: "pointer",
   },
-  btn: {
-    background: "#00ffc8", color: "#0a0e17", border: "none", borderRadius: 4,
-    padding: "10px 20px", fontSize: 13, fontWeight: 700, cursor: "pointer",
-    fontFamily: "inherit", letterSpacing: 0.5, transition: "opacity 0.2s",
-  },
   btnOutline: {
     background: "transparent", color: "#00ffc8", border: "1px solid #00ffc8",
     borderRadius: 4, padding: "6px 14px", fontSize: 11, fontWeight: 600,
@@ -153,10 +151,6 @@ const S = {
     display: "inline-block", padding: "2px 8px", borderRadius: 3, fontSize: 10,
     fontWeight: 700, letterSpacing: 0.5, background: color + "22", color: color,
     border: `1px solid ${color}44`,
-  }),
-  signalBar: (pct: number, color: string) => ({
-    height: 6, borderRadius: 3, background: "#1a2332", position: "relative" as const, overflow: "hidden" as const,
-    width: 80,
   }),
   gameCard: {
     background: "#0f1520", border: "1px solid #1a2332", borderRadius: 8,
@@ -182,9 +176,9 @@ const tierColor = (tier?: string) => {
 };
 
 const actionEmoji: Record<string, string> = {
-  SMASH_OVER: "🔥", STRONG_OVER: "✅", LEAN_OVER: "👀",
-  SMASH_UNDER: "🔥", STRONG_UNDER: "✅", LEAN_UNDER: "👀",
-  NO_PLAY: "⏸",
+  SMASH_OVER: "\u{1F525}", STRONG_OVER: "\u2705", LEAN_OVER: "\u{1F440}",
+  SMASH_UNDER: "\u{1F525}", STRONG_UNDER: "\u2705", LEAN_UNDER: "\u{1F440}",
+  NO_PLAY: "\u23F8",
 };
 
 const actionColor: Record<string, string> = {
@@ -192,6 +186,17 @@ const actionColor: Record<string, string> = {
   SMASH_UNDER: "#2ed573", STRONG_UNDER: "#7bed9f", LEAN_UNDER: "#a4b0be",
   NO_PLAY: "#57606f",
 };
+
+// Team abbreviation mapping for matching
+const TEAM_MAPPINGS: Record<string, string[]> = {
+  "GS": ["GSW", "GS"], "NO": ["NOP", "NO"], "SA": ["SAS", "SA"],
+  "NY": ["NYK", "NY"], "UTAH": ["UTA", "UTAH"],
+};
+
+function teamsMatch(playerTeam: string, gameTeam: string): boolean {
+  const mapped = TEAM_MAPPINGS[gameTeam] || [gameTeam];
+  return mapped.includes(playerTeam) || playerTeam === gameTeam;
+}
 
 // ─── COMPONENT ────────────────────────────────────────────────────
 
@@ -202,7 +207,7 @@ export default function RefFoulSignal() {
   const [lineOverrides, setLineOverrides] = useState<Record<string, number>>({});
   const [paceFactor, setPaceFactor] = useState(1.0);
   const [b2b, setB2b] = useState(false);
-  const [activeView, setActiveView] = useState("games-today"); // games-today | games-tomorrow | calculator | ref-table | player-table
+  const [activeView, setActiveView] = useState("games-today");
 
   // Games state
   const [todayGames, setTodayGames] = useState<GameWithRefs[]>([]);
@@ -211,7 +216,66 @@ export default function RefFoulSignal() {
   const [gamesError, setGamesError] = useState<string | null>(null);
   const [selectedGame, setSelectedGame] = useState<GameWithRefs | null>(null);
 
-  // Fetch games on mount
+  // Roster player data from API
+  const [rosterPlayers, setRosterPlayers] = useState<PlayerFoulEntry[]>([]);
+  const [rosterMeta, setRosterMeta] = useState<{ roster_count: number; total: number } | null>(null);
+  const [playersLoading, setPlayersLoading] = useState(false);
+
+  // Player search in calculator
+  const [playerSearch, setPlayerSearch] = useState("");
+
+  // Build the active player database — roster data takes priority
+  const playerDB: Record<string, { team: string; pos: string; pf: number; pf36: number; tier: string; std: number; games_played?: number; source: string }> = useMemo(() => {
+    // Start with static data
+    const db: Record<string, any> = {};
+    for (const [name, p] of Object.entries(STATIC_PLAYER_DB)) {
+      db[name] = { ...p, source: "static" };
+    }
+    // Overlay roster data (overrides static entries + adds new players)
+    for (const rp of rosterPlayers) {
+      db[rp.name] = {
+        team: rp.team,
+        pos: rp.pos,
+        pf: rp.pf,
+        pf36: rp.pf36,
+        tier: rp.tier,
+        std: rp.std,
+        games_played: rp.games_played,
+        source: rp.source,
+      };
+    }
+    return db;
+  }, [rosterPlayers]);
+
+  // Fetch roster-based player foul data from API
+  const fetchRosterPlayers = useCallback(async () => {
+    setPlayersLoading(true);
+    try {
+      const res = await fetch("/api/ref-signal/players");
+      if (res.ok) {
+        const data = await res.json();
+        const players: PlayerFoulEntry[] = (data.players || []).map((p: any) => ({
+          name: p.name,
+          team: p.team,
+          pos: p.pos,
+          pf: p.pf_pg,
+          pf36: p.pf_36,
+          tier: p.foul_tier,
+          std: p.std_dev,
+          games_played: p.games_played,
+          source: p.source || "static",
+        }));
+        setRosterPlayers(players);
+        setRosterMeta({ roster_count: data.roster_count, total: data.total });
+      }
+    } catch (err) {
+      console.error("Failed to fetch roster players:", err);
+    } finally {
+      setPlayersLoading(false);
+    }
+  }, []);
+
+  // Fetch games and roster data on mount
   useEffect(() => {
     const fetchGames = async () => {
       setGamesLoading(true);
@@ -240,33 +304,18 @@ export default function RefFoulSignal() {
       }
     };
     fetchGames();
-  }, []);
+    fetchRosterPlayers();
+  }, [fetchRosterPlayers]);
 
-  // Handle game click - open modal with player projections
-  const handleGameClick = (game: GameWithRefs) => {
-    setSelectedGame(game);
-  };
-
-  // Get players for selected game's teams
+  // Get players for selected game's teams — now uses merged playerDB
   const getGamePlayers = (game: GameWithRefs) => {
     if (!game) return [];
 
-    // Map abbreviated team names
     const teamAbbrs = [game.homeTeam, game.awayTeam];
-    const teamMappings: Record<string, string[]> = {
-      "GS": ["GSW", "GS"], "NO": ["NOP", "NO"], "SA": ["SAS", "SA"],
-      "NY": ["NYK", "NY"], "UTAH": ["UTA", "UTAH"],
-    };
 
-    return Object.entries(PLAYER_DB)
-      .filter(([_, p]) => {
-        return teamAbbrs.some(abbr => {
-          const mapped = teamMappings[abbr] || [abbr];
-          return mapped.includes(p.team) || p.team === abbr;
-        });
-      })
+    return Object.entries(playerDB)
+      .filter(([_, p]) => teamAbbrs.some(abbr => teamsMatch(p.team, abbr)))
       .map(([name, p]) => {
-        // Calculate projection based on crew uplift
         const crewUplift = TIER_UPLIFT[game.crewTier as keyof typeof TIER_UPLIFT] ?? 0;
         let proj = p.pf * (1 + crewUplift);
         proj = Math.round(proj * 100) / 100;
@@ -293,7 +342,6 @@ export default function RefFoulSignal() {
     n.toLowerCase().includes(refSearch.toLowerCase()) && !selectedRefs.includes(n)
   );
 
-
   // Calculate crew composite
   const crewData = useMemo(() => {
     if (!selectedRefs.length) return null;
@@ -311,10 +359,10 @@ export default function RefFoulSignal() {
     return { tier, avgFouls: avgFouls.toFixed(1), avgDiff: avgDiff.toFixed(1), uplift };
   }, [selectedRefs]);
 
-  // Calculate signals for all players
+  // Calculate signals for all players — now uses merged playerDB
   const signals = useMemo(() => {
     if (!crewData) return [];
-    return Object.entries(PLAYER_DB)
+    return Object.entries(playerDB)
       .map(([name, p]) => {
         let proj = p.pf * (1 + crewData.uplift) * paceFactor;
         if (b2b) proj += 0.2;
@@ -342,35 +390,69 @@ export default function RefFoulSignal() {
         if (playerFilter === "UNDERS") return s.action.includes("UNDER");
         return true;
       })
+      .filter(s => {
+        if (!playerSearch) return true;
+        return s.name.toLowerCase().includes(playerSearch.toLowerCase()) ||
+               s.team.toLowerCase().includes(playerSearch.toLowerCase());
+      })
       .sort((a, b) => Math.abs(b.signal) - Math.abs(a.signal));
-  }, [crewData, lineOverrides, paceFactor, b2b, playerFilter]);
+  }, [crewData, lineOverrides, paceFactor, b2b, playerFilter, playerDB, playerSearch]);
 
-  const addRef = (name) => {
+  const addRef = (name: string) => {
     if (selectedRefs.length < 3) {
       setSelectedRefs([...selectedRefs, name]);
       setRefSearch("");
     }
   };
 
-  const removeRef = (name) => setSelectedRefs(selectedRefs.filter(r => r !== name));
+  const removeRef = (name: string) => setSelectedRefs(selectedRefs.filter(r => r !== name));
+
+  // Data source badge
+  const DataSourceBadge = () => {
+    if (!rosterMeta) return null;
+    const isRoster = rosterMeta.roster_count > 0;
+    return (
+      <div style={{
+        display: "flex", alignItems: "center", gap: 8,
+        background: "#0f1520", border: "1px solid #1a2332", borderRadius: 6,
+        padding: "6px 12px", fontSize: 11,
+      }}>
+        <span style={{
+          width: 6, height: 6, borderRadius: "50%",
+          background: isRoster ? "#2ed573" : "#ffa502",
+        }} />
+        <span style={{ color: "#5a6a7a" }}>
+          {isRoster
+            ? `${rosterMeta.roster_count} roster players + ${rosterMeta.total - rosterMeta.roster_count} static`
+            : "Static data only"}
+        </span>
+        {isRoster && (
+          <span style={S.badge("#2ed573")}>LIVE</span>
+        )}
+      </div>
+    );
+  };
 
   return (
     <div style={S.panel}>
       {/* Header */}
       <div style={S.header}>
         <div>
-          <div style={S.title}>🎯 REF FOUL SIGNAL</div>
+          <div style={S.title}>REF FOUL SIGNAL</div>
           <div style={S.subtitle}>
-            Referee foul tendencies × player foul proneness → PrizePicks edge
+            Referee foul tendencies x player foul proneness = PrizePicks edge
+          </div>
+          <div style={{ marginTop: 8 }}>
+            <DataSourceBadge />
           </div>
         </div>
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
           {[
-            { id: "games-today", label: "📅 Today" },
-            { id: "games-tomorrow", label: "📆 Tomorrow" },
-            { id: "calculator", label: "⚡ Calculator" },
-            { id: "ref-table", label: "👨‍⚖️ Refs" },
-            { id: "player-table", label: "🏀 Players" },
+            { id: "games-today", label: "Today" },
+            { id: "games-tomorrow", label: "Tomorrow" },
+            { id: "calculator", label: "Calculator" },
+            { id: "ref-table", label: "Refs" },
+            { id: "player-table", label: "Players" },
           ].map(v => (
             <button
               key={v.id}
@@ -406,73 +488,86 @@ export default function RefFoulSignal() {
             </div>
           )}
 
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 16 }}>
-            {(activeView === "games-today" ? todayGames : tomorrowGames).map(game => (
-              <div
-                key={game.gameId}
-                onClick={() => handleGameClick(game)}
-                style={{
-                  ...S.gameCard,
-                  borderColor: game.referees.length > 0 ? tierColor(game.crewTier) + "44" : "#1a2332",
-                }}
-                onMouseEnter={e => (e.currentTarget.style.borderColor = "#00ffc8")}
-                onMouseLeave={e => (e.currentTarget.style.borderColor = game.referees.length > 0 ? tierColor(game.crewTier) + "44" : "#1a2332")}
-              >
-                {/* Matchup */}
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-                  <div style={{ fontSize: 16, fontWeight: 700 } as React.CSSProperties}>
-                    <span style={{ color: "#c8d6e5" }}>{game.awayTeam}</span>
-                    <span style={{ color: "#5a6a7a", margin: "0 8px" }}>@</span>
-                    <span style={{ color: "#00ffc8" }}>{game.homeTeam}</span>
-                  </div>
-                  <div style={{ color: "#5a6a7a", fontSize: 11 }}>{game.gameTime}</div>
-                </div>
-
-                {/* Referees */}
-                {game.referees.length > 0 ? (
-                  <>
-                    <div style={{ fontSize: 10, color: "#5a6a7a", marginBottom: 6, textTransform: "uppercase" }}>Officials</div>
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 8 }}>
-                      {game.referees.map(ref => (
-                        <span key={ref} style={S.badge("#00ffc8")}>{ref}</span>
-                      ))}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 16 }}>
+            {(activeView === "games-today" ? todayGames : tomorrowGames).map(game => {
+              const gamePlayers = getGamePlayers(game);
+              const actionablePlayers = gamePlayers.filter(p => p.action !== "NO_PLAY");
+              return (
+                <div
+                  key={game.gameId}
+                  onClick={() => setSelectedGame(game)}
+                  style={{
+                    ...S.gameCard,
+                    borderColor: game.referees.length > 0 ? tierColor(game.crewTier) + "44" : "#1a2332",
+                  }}
+                  onMouseEnter={e => (e.currentTarget.style.borderColor = "#00ffc8")}
+                  onMouseLeave={e => (e.currentTarget.style.borderColor = game.referees.length > 0 ? tierColor(game.crewTier) + "44" : "#1a2332")}
+                >
+                  {/* Matchup */}
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                    <div style={{ fontSize: 16, fontWeight: 700 } as React.CSSProperties}>
+                      <span style={{ color: "#c8d6e5" }}>{game.awayTeam}</span>
+                      <span style={{ color: "#5a6a7a", margin: "0 8px" }}>@</span>
+                      <span style={{ color: "#00ffc8" }}>{game.homeTeam}</span>
                     </div>
-                    {game.crewTier && (
+                    <div style={{ color: "#5a6a7a", fontSize: 11 }}>{game.gameTime}</div>
+                  </div>
+
+                  {/* Referees */}
+                  {game.referees.length > 0 ? (
+                    <>
+                      <div style={{ fontSize: 10, color: "#5a6a7a", marginBottom: 6, textTransform: "uppercase" }}>Officials</div>
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 8 }}>
+                        {game.referees.map(ref => (
+                          <span key={ref} style={S.badge("#00ffc8")}>{ref}</span>
+                        ))}
+                      </div>
                       <div style={{ display: "flex", gap: 12, marginTop: 8 }}>
-                        <div>
-                          <div style={{ fontSize: 9, color: "#5a6a7a" }}>CREW TIER</div>
-                          <span style={S.badge(tierColor(game.crewTier))}>{game.crewTier}</span>
-                        </div>
+                        {game.crewTier && (
+                          <div>
+                            <div style={{ fontSize: 9, color: "#5a6a7a" }}>CREW TIER</div>
+                            <span style={S.badge(tierColor(game.crewTier))}>{game.crewTier}</span>
+                          </div>
+                        )}
                         {game.avgFouls && (
                           <div>
                             <div style={{ fontSize: 9, color: "#5a6a7a" }}>AVG F/G</div>
                             <div style={{ color: "#fff", fontWeight: 700 }}>{game.avgFouls}</div>
                           </div>
                         )}
+                        <div>
+                          <div style={{ fontSize: 9, color: "#5a6a7a" }}>PLAYERS</div>
+                          <div style={{ color: "#fff", fontWeight: 700 }}>{gamePlayers.length}</div>
+                        </div>
+                        {actionablePlayers.length > 0 && (
+                          <div>
+                            <div style={{ fontSize: 9, color: "#5a6a7a" }}>SIGNALS</div>
+                            <div style={{ color: "#ff4757", fontWeight: 700 }}>{actionablePlayers.length}</div>
+                          </div>
+                        )}
                       </div>
-                    )}
-                    <div style={{ marginTop: 12, fontSize: 10, color: "#00ffc8" }}>
-                      Click to analyze →
+                      <div style={{ marginTop: 12, fontSize: 10, color: "#00ffc8" }}>
+                        Click to analyze
+                      </div>
+                    </>
+                  ) : (
+                    <div style={{
+                      padding: "12px 0",
+                      color: "#ffa502",
+                      fontSize: 11,
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 6
+                    }}>
+                      Refs not yet assigned (check after 9 AM ET)
                     </div>
-                  </>
-                ) : (
-                  <div style={{
-                    padding: "12px 0",
-                    color: "#ffa502",
-                    fontSize: 11,
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 6
-                  }}>
-                    ⏳ Refs not yet assigned (check after 9 AM ET)
-                  </div>
-                )}
-              </div>
-            ))}
+                  )}
+                </div>
+              );
+            })}
           </div>
         </>
       )}
-
 
       {/* ─── CALCULATOR VIEW ─── */}
       {activeView === "calculator" && (
@@ -509,7 +604,7 @@ export default function RefFoulSignal() {
                         ...S.badge(tierColor(REFEREE_DB[name].tier)),
                         fontSize: 9,
                       }}>
-                        {REFEREE_DB[name].tier} · {REFEREE_DB[name].fouls_pg} F/G
+                        {REFEREE_DB[name].tier} | {REFEREE_DB[name].fouls_pg} F/G
                       </span>
                     </div>
                   ))}
@@ -528,7 +623,7 @@ export default function RefFoulSignal() {
                   <span
                     onClick={() => removeRef(name)}
                     style={{ color: "#ff4757", cursor: "pointer", fontSize: 14, fontWeight: 700 }}
-                  >×</span>
+                  >x</span>
                 </div>
               ))}
             </div>
@@ -539,7 +634,7 @@ export default function RefFoulSignal() {
             <div style={{
               ...S.card, display: "flex", gap: 32, alignItems: "center",
               borderColor: tierColor(crewData.tier) + "44",
-              marginBottom: 16,
+              marginBottom: 16, flexWrap: "wrap",
             }}>
               <div>
                 <div style={{ color: "#5a6a7a", fontSize: 10, textTransform: "uppercase" }}>Crew Tier</div>
@@ -574,14 +669,14 @@ export default function RefFoulSignal() {
 
           {/* Modifiers */}
           <div style={S.sectionTitle}>STEP 2: ADJUST MODIFIERS</div>
-          <div style={{ display: "flex", gap: 16, marginBottom: 16, alignItems: "center" }}>
+          <div style={{ display: "flex", gap: 16, marginBottom: 16, alignItems: "center", flexWrap: "wrap" }}>
             <div>
               <label style={{ color: "#5a6a7a", fontSize: 10, display: "block", marginBottom: 4 }}>PACE FACTOR</label>
               <select style={{ ...S.select, width: 160 }} value={paceFactor} onChange={e => setPaceFactor(parseFloat(e.target.value))}>
-                <option value={0.95}>🐢 Slow (0.95)</option>
-                <option value={1.0}>➡️ Average (1.0)</option>
-                <option value={1.03}>⚡ Fast (1.03)</option>
-                <option value={1.06}>🔥 Very Fast (1.06)</option>
+                <option value={0.95}>Slow (0.95)</option>
+                <option value={1.0}>Average (1.0)</option>
+                <option value={1.03}>Fast (1.03)</option>
+                <option value={1.06}>Very Fast (1.06)</option>
               </select>
             </div>
             <div>
@@ -594,17 +689,26 @@ export default function RefFoulSignal() {
                 }}
                 onClick={() => setB2b(!b2b)}
               >
-                {b2b ? "✅ B2B Active (+0.2 PF)" : "B2B Off"}
+                {b2b ? "B2B Active (+0.2 PF)" : "B2B Off"}
               </button>
             </div>
             <div>
               <label style={{ color: "#5a6a7a", fontSize: 10, display: "block", marginBottom: 4 }}>FILTER</label>
               <select style={{ ...S.select, width: 160 }} value={playerFilter} onChange={e => setPlayerFilter(e.target.value)}>
                 <option value="ALL">All Players</option>
-                <option value="ACTIONABLE">🎯 Actionable Only</option>
-                <option value="OVERS">🔴 Overs Only</option>
-                <option value="UNDERS">🟢 Unders Only</option>
+                <option value="ACTIONABLE">Actionable Only</option>
+                <option value="OVERS">Overs Only</option>
+                <option value="UNDERS">Unders Only</option>
               </select>
+            </div>
+            <div>
+              <label style={{ color: "#5a6a7a", fontSize: 10, display: "block", marginBottom: 4 }}>SEARCH PLAYER</label>
+              <input
+                style={{ ...S.input, width: 180, padding: "8px 12px", fontSize: 12 }}
+                placeholder="Name or team..."
+                value={playerSearch}
+                onChange={e => setPlayerSearch(e.target.value)}
+              />
             </div>
           </div>
 
@@ -615,7 +719,7 @@ export default function RefFoulSignal() {
 
           {!crewData ? (
             <div style={{ ...S.card, textAlign: "center", padding: 40, color: "#5a6a7a" }}>
-              ← Select referees above to generate foul signals
+              Select referees above to generate foul signals
             </div>
           ) : signals.length === 0 ? (
             <div style={{ ...S.card, textAlign: "center", padding: 40, color: "#5a6a7a" }}>
@@ -626,7 +730,7 @@ export default function RefFoulSignal() {
               <table style={S.table}>
                 <thead>
                   <tr>
-                    {["Action", "Player", "Team", "Pos", "Base PF", "Projected", "Line", "Signal", "Foul Tier"].map(h => (
+                    {["Action", "Player", "Team", "Pos", "Base PF", "Projected", "Line", "Signal", "Foul Tier", "Source"].map(h => (
                       <th key={h} style={S.th}>{h}</th>
                     ))}
                   </tr>
@@ -681,6 +785,11 @@ export default function RefFoulSignal() {
                           {s.tier?.replace("_", " ")}
                         </span>
                       </td>
+                      <td style={S.td}>
+                        <span style={S.badge(s.source === "roster" ? "#2ed573" : "#5a6a7a")}>
+                          {s.source === "roster" ? "ROSTER" : "STATIC"}
+                        </span>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -693,7 +802,7 @@ export default function RefFoulSignal() {
       {/* ─── REF TABLE VIEW ─── */}
       {activeView === "ref-table" && (
         <>
-          <div style={S.sectionTitle}>ALL REFEREES — FOUL TENDENCIES (2024-25)</div>
+          <div style={S.sectionTitle}>ALL REFEREES - FOUL TENDENCIES</div>
           <table style={S.table}>
             <thead>
               <tr>
@@ -732,17 +841,49 @@ export default function RefFoulSignal() {
       {/* ─── PLAYER TABLE VIEW ─── */}
       {activeView === "player-table" && (
         <>
-          <div style={S.sectionTitle}>ALL TRACKED PLAYERS — FOUL PRONENESS (2024-25)</div>
+          <div style={{
+            ...S.sectionTitle,
+            display: "flex", justifyContent: "space-between", alignItems: "center",
+          }}>
+            <span>ALL TRACKED PLAYERS - FOUL PRONENESS ({Object.keys(playerDB).length} players)</span>
+            <button
+              onClick={fetchRosterPlayers}
+              disabled={playersLoading}
+              style={{
+                ...S.btnOutline,
+                opacity: playersLoading ? 0.5 : 1,
+                fontSize: 10,
+              }}
+            >
+              {playersLoading ? "Refreshing..." : "Refresh from Roster"}
+            </button>
+          </div>
+
+          {/* Player search filter */}
+          <div style={{ marginBottom: 12 }}>
+            <input
+              style={{ ...S.input, maxWidth: 300 }}
+              placeholder="Search player or team..."
+              value={playerSearch}
+              onChange={e => setPlayerSearch(e.target.value)}
+            />
+          </div>
+
           <table style={S.table}>
             <thead>
               <tr>
-                {["Player", "Team", "Pos", "PF/Game", "PF/36", "Std Dev", "Foul Tier"].map(h => (
+                {["Player", "Team", "Pos", "PF/Game", "PF/36", "Std Dev", "GP", "Foul Tier", "Source"].map(h => (
                   <th key={h} style={S.th}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {Object.entries(PLAYER_DB)
+              {Object.entries(playerDB)
+                .filter(([name, p]) => {
+                  if (!playerSearch) return true;
+                  return name.toLowerCase().includes(playerSearch.toLowerCase()) ||
+                         p.team.toLowerCase().includes(playerSearch.toLowerCase());
+                })
                 .sort(([, a], [, b]) => b.pf - a.pf)
                 .map(([name, p]) => (
                   <tr key={name}
@@ -755,9 +896,15 @@ export default function RefFoulSignal() {
                     <td style={{ ...S.td, fontWeight: 700 }}>{p.pf.toFixed(1)}</td>
                     <td style={S.td}>{p.pf36.toFixed(1)}</td>
                     <td style={S.td}>{p.std}</td>
+                    <td style={S.td}>{p.games_played ?? "—"}</td>
                     <td style={S.td}>
                       <span style={S.badge(tierColor(p.tier?.replace("_", "-")))}>
                         {p.tier?.replace("_", " ")}
+                      </span>
+                    </td>
+                    <td style={S.td}>
+                      <span style={S.badge(p.source === "roster" ? "#2ed573" : "#5a6a7a")}>
+                        {p.source === "roster" ? "ROSTER" : "STATIC"}
                       </span>
                     </td>
                   </tr>
@@ -804,7 +951,7 @@ export default function RefFoulSignal() {
                   fontSize: 14, fontWeight: 600
                 }}
               >
-                × Close
+                Close
               </button>
             </div>
 
@@ -818,7 +965,7 @@ export default function RefFoulSignal() {
                   ))}
                 </div>
                 {selectedGame.crewTier && (
-                  <div style={{ display: "flex", gap: 24 }}>
+                  <div style={{ display: "flex", gap: 24, flexWrap: "wrap" }}>
                     <div>
                       <div style={{ fontSize: 10, color: "#5a6a7a" }}>CREW TIER</div>
                       <span style={S.badge(tierColor(selectedGame.crewTier))}>{selectedGame.crewTier}</span>
@@ -839,11 +986,13 @@ export default function RefFoulSignal() {
             )}
 
             {/* Player Projections */}
-            <div style={{ fontSize: 11, color: "#5a6a7a", marginBottom: 8, textTransform: "uppercase" }}>Player Foul Projections</div>
+            <div style={{ fontSize: 11, color: "#5a6a7a", marginBottom: 8, textTransform: "uppercase" }}>
+              Player Foul Projections ({getGamePlayers(selectedGame).length} players)
+            </div>
 
             {getGamePlayers(selectedGame).length === 0 ? (
               <div style={{ ...S.card, textAlign: "center", padding: 30, color: "#5a6a7a" }}>
-                No tracked players for this matchup. Use the Calculator tab to manually analyze.
+                No tracked players for this matchup. Sync roster data or use the Calculator tab.
               </div>
             ) : (
               <table style={S.table}>
@@ -907,7 +1056,7 @@ export default function RefFoulSignal() {
                   flex: 1, padding: "12px 20px", fontSize: 14
                 }}
               >
-                🔬 Open in Calculator
+                Open in Calculator
               </button>
             </div>
           </div>
@@ -919,8 +1068,8 @@ export default function RefFoulSignal() {
         marginTop: 32, padding: "16px 0", borderTop: "1px solid #1a2332",
         color: "#3a4a5a", fontSize: 10, textAlign: "center",
       }}>
-        Sources: Basketball-Reference · RefMetrics · The F5 Substack · NBA.com Stats
-        <br />Ref assignments drop daily at 9:00 AM ET → official.nba.com/referee-assignments/
+        Sources: Basketball-Reference | RefMetrics | The F5 Substack | NBA.com Stats
+        <br />Ref assignments drop daily at 9:00 AM ET | Player data from synced roster
       </div>
     </div>
   );
