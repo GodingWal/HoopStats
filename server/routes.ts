@@ -3067,5 +3067,10 @@ export async function registerRoutes(
     });
   });
 
+  // Register ref foul signal routes
+  const { registerRefSignalRoutes } = await import("./routes/ref-signal");
+  registerRefSignalRoutes(app);
+
   return httpServer;
 }
+

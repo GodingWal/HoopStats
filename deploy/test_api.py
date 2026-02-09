@@ -1,5 +1,4 @@
 import paramiko
-import sys
 
 HOST = "76.13.100.125"
 USERNAME = "root"
@@ -12,14 +11,14 @@ def main():
         client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
         client.connect(HOST, username=USERNAME, password=PASSWORD, timeout=30)
         
-        # Check PM2 logs for errors
-        print("\n=== PM2 Logs (last 50 lines) ===")
-        stdin, stdout, stderr = client.exec_command("pm2 logs hoopstats --lines 50 --nostream 2>&1 | tail -50")
-        print(stdout.read().decode('utf-8', errors='replace'))
+        # Test the API endpoint on the correct port (where PM2 is running)
+        print("\n=== Testing games API on port 3000 ===")
+        stdin, stdout, stderr = client.exec_command("curl -s http://localhost:3000/api/ref-signal/games 2>&1")
+        print(stdout.read().decode('utf-8', errors='replace')[:2000])
         
-        # Test the API endpoint directly
-        print("\n=== Testing games API ===")
-        stdin, stdout, stderr = client.exec_command("curl -s http://localhost:5000/api/ref-signal/games 2>&1 | head -20")
+        # Check what port hoopstats is running on
+        print("\n=== PM2 Status ===")
+        stdin, stdout, stderr = client.exec_command("pm2 show hoopstats 2>&1 | grep -E '(port|status|pid)'")
         print(stdout.read().decode('utf-8', errors='replace'))
         
         client.close()
