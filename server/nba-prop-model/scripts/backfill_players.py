@@ -149,7 +149,14 @@ def main():
                 continue
                 
             # Basic info
-            team = games.iloc[0]['TEAM_ABBREVIATION'] if 'TEAM_ABBREVIATION' in games.columns else 'UNK'
+            team = 'UNK'
+            if 'TEAM_ABBREVIATION' in games.columns:
+                team = games.iloc[0]['TEAM_ABBREVIATION']
+            elif 'MATCHUP' in games.columns and not games.empty:
+                # MATCHUP format: "LAL @ GSW" or "LAL vs. GSW"
+                matchup = games.iloc[0]['MATCHUP']
+                if matchup:
+                    team = matchup.split(' ')[0]
             
             # Calculate averages
             season_avgs = calculate_averages(games)
