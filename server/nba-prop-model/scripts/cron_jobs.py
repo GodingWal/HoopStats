@@ -320,10 +320,28 @@ def populate_actuals(target_date: Optional[str] = None) -> int:
                 # Find the game on the target date
                 # GAME_DATE format from API is datetime, target_date is string
                 target_dt_only = datetime.strptime(target_date, '%Y-%m-%d').date()
-                game_row = game_log[game_log['GAME_DATE'].dt.date == target_dt_only]
+                
+                # Try exact date first
+                mask = game_log['GAME_DATE'].dt.date == target_dt_only
+                game_row = game_log[mask]
+
+                # If not found, try +/- 1 day (timezone/scheduling differences)
+                if game_row.empty:
+                    prev_day = target_dt_only - timedelta(days=1)
+                    mask = game_log['GAME_DATE'].dt.date == prev_day
+                    game_row = game_log[mask]
+                    if not game_row.empty:
+                        logger.debug(f"Found game on {prev_day} for target {target_date}")
+                
+                if game_row.empty:
+                    next_day = target_dt_only + timedelta(days=1)
+                    mask = game_log['GAME_DATE'].dt.date == next_day
+                    game_row = game_log[mask]
+                    if not game_row.empty:
+                        logger.debug(f"Found game on {next_day} for target {target_date}")
 
                 if game_row.empty:
-                    logger.debug(f"No game found for {player_name} on {target_date}")
+                    logger.debug(f"No game found for {player_name} on {target_date} (+/- 1 day)")
                     continue
 
                 # Get the actual stat value

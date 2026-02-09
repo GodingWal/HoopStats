@@ -17,6 +17,7 @@ pymc>=5.10.0
 arviz>=0.17.0
 
 # Database
+psycopg2-binary>=2.9.0
 
 
 # Visualization (optional)

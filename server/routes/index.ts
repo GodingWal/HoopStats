@@ -12,6 +12,7 @@ import { apiLogger } from "../logger";
 // Import remaining route handlers from legacy routes file
 // These will be migrated to separate modules over time
 import { registerLegacyRoutes } from "./legacy-routes";
+import { registerRefSignalRoutes } from "./ref-signal";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -65,6 +66,9 @@ export async function registerRoutes(
 
   // Register legacy routes (will be migrated incrementally)
   await registerLegacyRoutes(httpServer, app);
+
+  // Register ref foul signal routes
+  registerRefSignalRoutes(app);
 
   // Start background services
   lineWatcher.start();
