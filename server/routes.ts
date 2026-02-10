@@ -3069,6 +3069,7 @@ export async function registerRoutes(
   });
 
   // Register ref foul signal routes
+  console.log("DEBUG: About to register Ref Signal Routes in routes.ts");
   registerRefSignalRoutes(app);
 
   return httpServer;
