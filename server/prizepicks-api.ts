@@ -135,6 +135,7 @@ export interface PrizePicksProjection {
     gameTime: string;
     opponent: string;
     imageUrl?: string;
+    oddsType?: string;
 }
 
 interface PrizePicksApiResponse {
@@ -205,16 +206,18 @@ async function fetchViaScraperApi(targetUrl: string, headers: Record<string, str
     return response;
 }
 
+// Stale cache for all projections (includes odds_type)
+let staleAllCacheData: { data: PrizePicksProjection[]; timestamp: number } | null = null;
+
 /**
- * Fetch NBA projections from PrizePicks
+ * Internal: Fetch ALL PrizePicks projections (standard, demon, goblin) with odds_type preserved
  */
-export async function fetchPrizePicksProjections(): Promise<PrizePicksProjection[]> {
-    const cacheKey = "prizepicks-nba-projections";
+async function fetchAllPrizePicksRaw(): Promise<PrizePicksProjection[]> {
+    const cacheKey = "prizepicks-nba-all-projections";
     const cached = apiCache.get<PrizePicksProjection[]>(cacheKey);
     if (cached) {
-        apiLogger.debug("Cache hit for PrizePicks projections");
-        // Also update stale cache
-        staleCacheData = { data: cached, timestamp: Date.now() };
+        apiLogger.debug("Cache hit for all PrizePicks projections");
+        staleAllCacheData = { data: cached, timestamp: Date.now() };
         return cached;
     }
 
@@ -222,10 +225,9 @@ export async function fetchPrizePicksProjections(): Promise<PrizePicksProjection
     const timeSinceBlock = Date.now() - lastBlockTime;
     if (timeSinceBlock < BLOCK_COOLDOWN_MS) {
         apiLogger.info(`In block cooldown, ${Math.ceil((BLOCK_COOLDOWN_MS - timeSinceBlock) / 1000)}s remaining`);
-        // Return stale cache if available during cooldown
-        if (staleCacheData && Date.now() - staleCacheData.timestamp < STALE_CACHE_TTL_MS) {
-            apiLogger.info("Returning stale cache during cooldown");
-            return staleCacheData.data;
+        if (staleAllCacheData && Date.now() - staleAllCacheData.timestamp < STALE_CACHE_TTL_MS) {
+            apiLogger.info("Returning stale all-projections cache during cooldown");
+            return staleAllCacheData.data;
         }
     }
 
@@ -244,7 +246,6 @@ export async function fetchPrizePicksProjections(): Promise<PrizePicksProjection
                     apiLogger.info("Puppeteer fetch successful");
                 } catch (puppeteerError) {
                     apiLogger.warn("Puppeteer failed, trying fallback methods", { error: String(puppeteerError) });
-                    // Continue to fallback methods
                     responseData = null as any;
                 }
             } else {
@@ -264,7 +265,6 @@ export async function fetchPrizePicksProjections(): Promise<PrizePicksProjection
                 if (!response.ok) {
                     const errorText = await response.text();
                     apiLogger.warn(`ScraperAPI returned ${response.status}`, { error: errorText });
-                    // Continue to fallback
                 } else {
                     responseData = await response.json() as PrizePicksApiResponse;
                 }
@@ -284,7 +284,6 @@ export async function fetchPrizePicksProjections(): Promise<PrizePicksProjection
             });
 
             if (!response.ok) {
-                // Track block time for cooldown
                 if (response.status === 429 || response.status === 403) {
                     lastBlockTime = Date.now();
                 }
@@ -300,15 +299,13 @@ export async function fetchPrizePicksProjections(): Promise<PrizePicksProjection
             responseData = response.json<PrizePicksApiResponse>();
         }
 
-        // Final check - if all methods failed, throw error
         if (!responseData) {
             throw new Error("All PrizePicks fetch methods failed - no data returned");
         }
 
-        // Debug: Log sample of raw data to find standard line indicator
+        // Debug logging
         console.log(`[PrizePicks] Received ${responseData.data?.length || 0} projections, ${responseData.included?.length || 0} included items`);
         if (responseData.data && responseData.data.length > 0) {
-            // Log unique odds_type values to find standard vs goblin/demon
             const oddsTypes = new Set(responseData.data.map(p => p.attributes.odds_type));
             console.log(`[PrizePicks] Unique odds_type values:`, Array.from(oddsTypes));
         }
@@ -330,17 +327,11 @@ export async function fetchPrizePicksProjections(): Promise<PrizePicksProjection
             }
         }
 
-        // Transform projections
+        // Transform ALL projections (no odds_type filtering)
         const projections: PrizePicksProjection[] = [];
 
         for (const proj of responseData.data || []) {
-            if (proj.attributes.status !== "pre_game") continue; // Only show upcoming
-
-            // Filter out demon/goblin lines - only show standard lines
-            const oddsType = (proj.attributes.odds_type || "").toLowerCase();
-            if (oddsType !== "standard" && oddsType !== "") {
-                continue; // Skip demon, goblin, and other alternate lines
-            }
+            if (proj.attributes.status !== "pre_game") continue;
 
             const playerId = proj.relationships?.new_player?.data?.id;
             const statTypeId = proj.relationships?.stat_type?.data?.id;
@@ -363,32 +354,77 @@ export async function fetchPrizePicksProjections(): Promise<PrizePicksProjection
                 gameTime: proj.attributes.start_time,
                 opponent: proj.attributes.description || "",
                 imageUrl: player.imageUrl,
+                oddsType: (proj.attributes.odds_type || "standard").toLowerCase(),
             });
         }
 
-        apiLogger.info("Fetched PrizePicks projections", {
+        apiLogger.info("Fetched all PrizePicks projections", {
             count: projections.length,
+            byType: {
+                standard: projections.filter(p => p.oddsType === "standard" || !p.oddsType).length,
+                demon: projections.filter(p => p.oddsType === "demon").length,
+                goblin: projections.filter(p => p.oddsType === "goblin").length,
+            },
         });
 
-        // Cache for 30 minutes and update stale cache backup
         apiCache.set(cacheKey, projections, CACHE_TTL_MS);
-        staleCacheData = { data: projections, timestamp: Date.now() };
+        staleAllCacheData = { data: projections, timestamp: Date.now() };
 
         return projections;
     } catch (error) {
-        apiLogger.error("Failed to fetch PrizePicks projections", error);
+        apiLogger.error("Failed to fetch all PrizePicks projections", error);
 
-        // Return stale cache as fallback if available
-        if (staleCacheData && Date.now() - staleCacheData.timestamp < STALE_CACHE_TTL_MS) {
-            apiLogger.info("Returning stale cache as fallback after fetch failure", {
-                staleCacheAge: Math.round((Date.now() - staleCacheData.timestamp) / 1000 / 60) + " minutes",
-                count: staleCacheData.data.length,
+        if (staleAllCacheData && Date.now() - staleAllCacheData.timestamp < STALE_CACHE_TTL_MS) {
+            apiLogger.info("Returning stale all-projections cache as fallback", {
+                staleCacheAge: Math.round((Date.now() - staleAllCacheData.timestamp) / 1000 / 60) + " minutes",
+                count: staleAllCacheData.data.length,
             });
-            return staleCacheData.data;
+            return staleAllCacheData.data;
         }
 
         throw error;
     }
+}
+
+/**
+ * Fetch NBA projections from PrizePicks (standard lines only)
+ */
+export async function fetchPrizePicksProjections(): Promise<PrizePicksProjection[]> {
+    const cacheKey = "prizepicks-nba-projections";
+    const cached = apiCache.get<PrizePicksProjection[]>(cacheKey);
+    if (cached) {
+        apiLogger.debug("Cache hit for PrizePicks standard projections");
+        staleCacheData = { data: cached, timestamp: Date.now() };
+        return cached;
+    }
+
+    const all = await fetchAllPrizePicksRaw();
+    const standard = all.filter(p => p.oddsType === "standard" || !p.oddsType);
+
+    apiCache.set(cacheKey, standard, CACHE_TTL_MS);
+    staleCacheData = { data: standard, timestamp: Date.now() };
+
+    return standard;
+}
+
+/**
+ * Fetch demon projections from PrizePicks
+ * Demon lines are higher-risk, higher-reward alternate lines
+ */
+export async function fetchDemonProjections(): Promise<PrizePicksProjection[]> {
+    const cacheKey = "prizepicks-demon-projections";
+    const cached = apiCache.get<PrizePicksProjection[]>(cacheKey);
+    if (cached) {
+        apiLogger.debug("Cache hit for PrizePicks demon projections");
+        return cached;
+    }
+
+    const all = await fetchAllPrizePicksRaw();
+    const demons = all.filter(p => p.oddsType === "demon");
+
+    apiCache.set(cacheKey, demons, CACHE_TTL_MS);
+
+    return demons;
 }
 
 // Helper to normalize player names for comparison

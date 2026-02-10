@@ -19,6 +19,7 @@ import TrackRecord from "@/pages/track-record";
 import TeamStatsPage from "@/pages/team-stats";
 import BacktestPage from "@/pages/backtest";
 import RefSignalPage from "@/pages/ref-signal";
+import DemonProjectionsPage from "@/pages/demon-projections";
 import { ThemeToggle } from "@/components/theme-toggle";
 import {
   SidebarProvider,
@@ -35,7 +36,7 @@ import {
   SidebarFooter,
 } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
-import { Users, Target, TrendingUp, RefreshCw, CloudDownload, AlertCircle, Tv, BrainCircuit, History, LayoutDashboard, Award, BarChart3, Wallet, FlaskConical, Crosshair } from "lucide-react";
+import { Users, Target, TrendingUp, RefreshCw, CloudDownload, AlertCircle, Tv, BrainCircuit, History, LayoutDashboard, Award, BarChart3, Wallet, FlaskConical, Crosshair, Flame } from "lucide-react";
 
 function Router() {
   return (
@@ -51,6 +52,7 @@ function Router() {
       <Route path="/team-stats" component={TeamStatsPage} />
       <Route path="/backtest" component={BacktestPage} />
       <Route path="/ref-signal" component={RefSignalPage} />
+      <Route path="/demon-projections" component={DemonProjectionsPage} />
       <Route component={NotFound} />
     </Switch>
   );
@@ -106,6 +108,11 @@ const navItems = [
     title: "Backtest Lab",
     url: "/backtest",
     icon: FlaskConical,
+  },
+  {
+    title: "Demon Projections",
+    url: "/demon-projections",
+    icon: Flame,
   },
   {
     title: "Ref Signal",

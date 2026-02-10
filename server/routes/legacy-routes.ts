@@ -23,7 +23,7 @@ import {
   type PlayerInjuryReport,
 } from "../espn-api";
 import { fetchNbaEvents, fetchEventPlayerProps, isOddsApiConfigured, getOddsApiStatus, extractGameOdds } from "../odds-api";
-import { fetchPrizePicksProjections, fetchPlayerPrizePicksProps } from "../prizepicks-api";
+import { fetchPrizePicksProjections, fetchPlayerPrizePicksProps, fetchDemonProjections } from "../prizepicks-api";
 import {
   injuryWatcher,
   calculateInjuryAdjustedProjection,
@@ -598,6 +598,101 @@ export async function registerLegacyRoutes(
       res.status(500).json({
         error: "Failed to fetch PrizePicks projections",
         message: error instanceof Error ? error.message : "Unknown error"
+      });
+    }
+  });
+
+  app.get("/api/prizepicks/demons", async (req, res) => {
+    try {
+      const demons = await fetchDemonProjections();
+
+      // Enrich with player averages from our database for over/under analysis
+      const enriched = await Promise.all(
+        demons.map(async (demon) => {
+          try {
+            const players = await storage.searchPlayers(demon.playerName);
+            const player = players.length > 0 ? players[0] : null;
+
+            if (!player) return { ...demon, playerAvg: null, overLikelihood: null };
+
+            const seasonAvg = player.season_averages as Record<string, number> | null;
+            const last5Avg = player.last_5_averages as Record<string, number> | null;
+            const last10Avg = player.last_10_averages as Record<string, number> | null;
+            const hitRates = player.hit_rates as Record<string, Record<string, number>> | null;
+
+            // Map PrizePicks stat abbr to our schema fields
+            const statMap: Record<string, string> = {
+              PTS: "PTS",
+              REB: "REB",
+              AST: "AST",
+              FG3M: "FG3M",
+              PRA: "PRA",
+              STL: "STL",
+              BLK: "BLK",
+              TO: "TOV",
+              PR: "PR",
+              PA: "PA",
+              RA: "RA",
+            };
+
+            const statKey = statMap[demon.statTypeAbbr] || demon.statTypeAbbr;
+            const seasonVal = seasonAvg?.[statKey] ?? null;
+            const last5Val = last5Avg?.[statKey] ?? null;
+            const last10Val = last10Avg?.[statKey] ?? null;
+
+            // Calculate over likelihood based on averages vs line
+            let overLikelihood: number | null = null;
+            if (seasonVal !== null) {
+              // Weighted average: last5 (50%), last10 (30%), season (20%)
+              const weightedAvg =
+                (last5Val ?? seasonVal) * 0.5 +
+                (last10Val ?? seasonVal) * 0.3 +
+                seasonVal * 0.2;
+              // Simple edge calculation: how far above/below the line
+              overLikelihood = ((weightedAvg - demon.line) / demon.line) * 100;
+            }
+
+            // Get hit rate for this stat at nearest line if available
+            let hitRate: number | null = null;
+            if (hitRates && hitRates[statKey]) {
+              const lineStr = String(demon.line);
+              hitRate = hitRates[statKey][lineStr] ?? null;
+              // If exact line not found, check nearby half-point lines
+              if (hitRate === null) {
+                const nearestLine = Object.keys(hitRates[statKey])
+                  .map(Number)
+                  .sort((a, b) => Math.abs(a - demon.line) - Math.abs(b - demon.line))[0];
+                if (nearestLine !== undefined && Math.abs(nearestLine - demon.line) <= 1) {
+                  hitRate = hitRates[statKey][String(nearestLine)] ?? null;
+                }
+              }
+            }
+
+            return {
+              ...demon,
+              playerAvg: {
+                season: seasonVal,
+                last5: last5Val,
+                last10: last10Val,
+              },
+              hitRate,
+              overLikelihood,
+            };
+          } catch {
+            return { ...demon, playerAvg: null, overLikelihood: null };
+          }
+        })
+      );
+
+      // Sort by over likelihood descending (most likely overs first)
+      enriched.sort((a, b) => (b.overLikelihood ?? -999) - (a.overLikelihood ?? -999));
+
+      res.json(enriched);
+    } catch (error) {
+      apiLogger.error("Error fetching demon projections", error);
+      res.status(500).json({
+        error: "Failed to fetch demon projections",
+        message: error instanceof Error ? error.message : "Unknown error",
       });
     }
   });
