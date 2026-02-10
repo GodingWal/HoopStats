@@ -100,6 +100,32 @@ interface PlayerFoulEntry {
   source: "roster" | "static";
 }
 
+interface PrizePicksProjection {
+  id: string;
+  playerName: string;
+  team: string;
+  teamAbbr: string;
+  statType: string;
+  statTypeAbbr: string;
+  line: number;
+}
+
+interface PPPlayerInfo {
+  lines: { stat: string; abbr: string; line: number }[];
+  team: string;
+}
+
+// Normalize names for fuzzy matching
+function normalizePPName(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/\./g, "")
+    .replace(/'/g, "")
+    .replace(/\s+(jr|sr|iii|ii|iv)\s*$/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 // ─── STYLES ───────────────────────────────────────────────────────
 const S = {
   panel: {
@@ -224,6 +250,13 @@ export default function RefFoulSignal() {
   // Player search in calculator
   const [playerSearch, setPlayerSearch] = useState("");
 
+  // PrizePicks data
+  const [ppData, setPpData] = useState<PrizePicksProjection[]>([]);
+  const [ppLoading, setPpLoading] = useState(false);
+  const [ppError, setPpError] = useState<string | null>(null);
+  const [ppFilterActive, setPpFilterActive] = useState(false);
+  const [ppModalFilter, setPpModalFilter] = useState(false);
+
   // Build the active player database — roster data takes priority
   const playerDB: Record<string, { team: string; pos: string; pf: number; pf36: number; tier: string; std: number; games_played?: number; source: string }> = useMemo(() => {
     // Start with static data
@@ -305,7 +338,50 @@ export default function RefFoulSignal() {
     };
     fetchGames();
     fetchRosterPlayers();
+
+    // Fetch PrizePicks data
+    const fetchPP = async () => {
+      setPpLoading(true);
+      setPpError(null);
+      try {
+        const res = await fetch("/api/ref-signal/prizepicks");
+        if (res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data)) {
+            setPpData(data);
+          }
+        } else {
+          setPpError("PrizePicks data unavailable");
+        }
+      } catch {
+        setPpError("Failed to fetch PrizePicks");
+      } finally {
+        setPpLoading(false);
+      }
+    };
+    fetchPP();
   }, [fetchRosterPlayers]);
+
+  // Build PrizePicks player lookup map
+  const ppPlayerMap = useMemo<Record<string, PPPlayerInfo>>(() => {
+    const map: Record<string, PPPlayerInfo> = {};
+    for (const proj of ppData) {
+      const key = normalizePPName(proj.playerName);
+      if (!map[key]) {
+        map[key] = { lines: [], team: proj.teamAbbr || proj.team };
+      }
+      // Avoid duplicate stat types
+      if (!map[key].lines.find(l => l.stat === proj.statType)) {
+        map[key].lines.push({ stat: proj.statType, abbr: proj.statTypeAbbr, line: proj.line });
+      }
+    }
+    return map;
+  }, [ppData]);
+
+  // Check if a player has PrizePicks lines
+  const getPlayerPP = (playerName: string): PPPlayerInfo | null => {
+    return ppPlayerMap[normalizePPName(playerName)] || null;
+  };
 
   // Get players for selected game's teams — now uses merged playerDB
   const getGamePlayers = (game: GameWithRefs) => {
@@ -388,12 +464,13 @@ export default function RefFoulSignal() {
         if (playerFilter === "ACTIONABLE") return s.action !== "NO_PLAY";
         if (playerFilter === "OVERS") return s.action.includes("OVER");
         if (playerFilter === "UNDERS") return s.action.includes("UNDER");
+        if (playerFilter === "PRIZEPICKS") return !!getPlayerPP(s.name);
         return true;
       })
       .filter(s => {
         if (!playerSearch) return true;
         return s.name.toLowerCase().includes(playerSearch.toLowerCase()) ||
-               s.team.toLowerCase().includes(playerSearch.toLowerCase());
+          s.team.toLowerCase().includes(playerSearch.toLowerCase());
       })
       .sort((a, b) => Math.abs(b.signal) - Math.abs(a.signal));
   }, [crewData, lineOverrides, paceFactor, b2b, playerFilter, playerDB, playerSearch]);
@@ -699,6 +776,7 @@ export default function RefFoulSignal() {
                 <option value="ACTIONABLE">Actionable Only</option>
                 <option value="OVERS">Overs Only</option>
                 <option value="UNDERS">Unders Only</option>
+                <option value="PRIZEPICKS" disabled={ppData.length === 0}>PrizePicks Only {ppData.length > 0 ? `(${Object.keys(ppPlayerMap).length})` : ""}</option>
               </select>
             </div>
             <div>
@@ -730,7 +808,7 @@ export default function RefFoulSignal() {
               <table style={S.table}>
                 <thead>
                   <tr>
-                    {["Action", "Player", "Team", "Pos", "Base PF", "Projected", "Line", "Signal", "Foul Tier", "Source"].map(h => (
+                    {["Action", "Player", "Team", "Pos", "Base PF", "Projected", "Line", "Signal", "Foul Tier", "PP Lines"].map(h => (
                       <th key={h} style={S.th}>{h}</th>
                     ))}
                   </tr>
@@ -786,9 +864,22 @@ export default function RefFoulSignal() {
                         </span>
                       </td>
                       <td style={S.td}>
-                        <span style={S.badge(s.source === "roster" ? "#2ed573" : "#5a6a7a")}>
-                          {s.source === "roster" ? "ROSTER" : "STATIC"}
-                        </span>
+                        {(() => {
+                          const pp = getPlayerPP(s.name);
+                          if (!pp) return <span style={{ color: "#3a4a5a", fontSize: 10 }}>—</span>;
+                          return (
+                            <div style={{ display: "flex", flexWrap: "wrap", gap: 3 }}>
+                              {pp.lines.slice(0, 3).map(l => (
+                                <span key={l.stat} style={{ ...S.badge("#7c3aed"), fontSize: 9, padding: "2px 5px" }}>
+                                  {l.abbr} {l.line}
+                                </span>
+                              ))}
+                              {pp.lines.length > 3 && (
+                                <span style={{ color: "#7c3aed", fontSize: 9 }}>+{pp.lines.length - 3}</span>
+                              )}
+                            </div>
+                          );
+                        })()}
                       </td>
                     </tr>
                   ))}
@@ -860,13 +951,27 @@ export default function RefFoulSignal() {
           </div>
 
           {/* Player search filter */}
-          <div style={{ marginBottom: 12 }}>
+          <div style={{ marginBottom: 12, display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
             <input
               style={{ ...S.input, maxWidth: 300 }}
               placeholder="Search player or team..."
               value={playerSearch}
               onChange={e => setPlayerSearch(e.target.value)}
             />
+            {ppData.length > 0 && (
+              <button
+                onClick={() => setPpFilterActive(!ppFilterActive)}
+                style={{
+                  ...S.btnOutline,
+                  fontSize: 10,
+                  ...(ppFilterActive ? { background: "#7c3aed", color: "#fff", borderColor: "#7c3aed" } : {}),
+                }}
+              >
+                {ppFilterActive ? `🟢 PrizePicks Only (${Object.keys(ppPlayerMap).length})` : "PrizePicks Filter"}
+              </button>
+            )}
+            {ppLoading && <span style={{ color: "#5a6a7a", fontSize: 10 }}>Loading PP data...</span>}
+            {ppError && <span style={{ color: "#ffa502", fontSize: 10 }}>{ppError}</span>}
           </div>
 
           <table style={S.table}>
@@ -880,9 +985,10 @@ export default function RefFoulSignal() {
             <tbody>
               {Object.entries(playerDB)
                 .filter(([name, p]) => {
+                  if (ppFilterActive && !getPlayerPP(name)) return false;
                   if (!playerSearch) return true;
                   return name.toLowerCase().includes(playerSearch.toLowerCase()) ||
-                         p.team.toLowerCase().includes(playerSearch.toLowerCase());
+                    p.team.toLowerCase().includes(playerSearch.toLowerCase());
                 })
                 .sort(([, a], [, b]) => b.pf - a.pf)
                 .map(([name, p]) => (
@@ -986,8 +1092,23 @@ export default function RefFoulSignal() {
             )}
 
             {/* Player Projections */}
-            <div style={{ fontSize: 11, color: "#5a6a7a", marginBottom: 8, textTransform: "uppercase" }}>
-              Player Foul Projections ({getGamePlayers(selectedGame).length} players)
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+              <div style={{ fontSize: 11, color: "#5a6a7a", textTransform: "uppercase" }}>
+                Player Foul Projections ({(ppModalFilter ? getGamePlayers(selectedGame).filter(p => !!getPlayerPP(p.name)) : getGamePlayers(selectedGame)).length} players)
+              </div>
+              {ppData.length > 0 && (
+                <button
+                  onClick={() => setPpModalFilter(!ppModalFilter)}
+                  style={{
+                    ...S.btnOutline,
+                    fontSize: 10,
+                    padding: "4px 10px",
+                    ...(ppModalFilter ? { background: "#7c3aed", color: "#fff", borderColor: "#7c3aed" } : {}),
+                  }}
+                >
+                  {ppModalFilter ? "🟢 PrizePicks Only" : "PrizePicks Filter"}
+                </button>
+              )}
             </div>
 
             {getGamePlayers(selectedGame).length === 0 ? (
@@ -1006,10 +1127,11 @@ export default function RefFoulSignal() {
                     <th style={S.th}>Line</th>
                     <th style={S.th}>Signal</th>
                     <th style={S.th}>Action</th>
+                    <th style={S.th}>PP Lines</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {getGamePlayers(selectedGame).map(p => (
+                  {(ppModalFilter ? getGamePlayers(selectedGame).filter(p => !!getPlayerPP(p.name)) : getGamePlayers(selectedGame)).map(p => (
                     <tr
                       key={p.name}
                       style={S.tr}
@@ -1034,6 +1156,21 @@ export default function RefFoulSignal() {
                         }}>
                           {p.action.replace("_", " ")}
                         </span>
+                      </td>
+                      <td style={S.td}>
+                        {(() => {
+                          const pp = getPlayerPP(p.name);
+                          if (!pp) return <span style={{ color: "#3a4a5a", fontSize: 10 }}>—</span>;
+                          return (
+                            <div style={{ display: "flex", flexWrap: "wrap", gap: 3 }}>
+                              {pp.lines.slice(0, 3).map(l => (
+                                <span key={l.stat} style={{ ...S.badge("#7c3aed"), fontSize: 9, padding: "2px 5px" }}>
+                                  {l.abbr} {l.line}
+                                </span>
+                              ))}
+                            </div>
+                          );
+                        })()}
                       </td>
                     </tr>
                   ))}
