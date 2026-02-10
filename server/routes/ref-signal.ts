@@ -14,7 +14,7 @@ import { storage } from '../storage';
 import { fetchPrizePicksProjections } from '../prizepicks-api';
 import type { Player, GameLog } from '@shared/schema';
 
-console.log("DEBUG: Ref Signal Module Loaded");
+
 
 // ─── REFEREE DATABASE ─────────────────────────────────────────────
 const LEAGUE_AVG_FOULS_PG = 37.8;
@@ -499,12 +499,17 @@ export function registerRefSignalRoutes(app: Express) {
     }
   });
 
-  // GET PrizePicks projections for filtering
-  app.get('/api/ref-signal/test', (_req, res) => res.json({ ok: true }));
-
-  app.get('/api/ref-signal/prizepicks', async (_req: Request, res: Response) => {
-    console.log("DEBUG: Hit PrizePicks Route");
-    res.json({ message: "Handler reached" });
+  // GET PrizePicks proxy endpoint
+  app.get('/api/ref-signal/prizepicks', async (req: Request, res: Response) => {
+    try {
+      console.log("DEBUG: Fetching PrizePicks projections");
+      const projections = await fetchPrizePicksProjections();
+      console.log(`DEBUG: Fetched ${projections.length} projections`);
+      res.json(projections);
+    } catch (error) {
+      console.error("Error in /prizepicks endpoint:", error);
+      res.status(500).json({ error: "Failed to fetch PrizePicks data" });
+    }
   });
 
   console.log('✅ Ref Foul Signal routes registered');
