@@ -500,8 +500,12 @@ export function registerRefSignalRoutes(app: Express) {
   });
 
   // GET PrizePicks projections for filtering
+  app.get('/api/ref-signal/test', (_req, res) => res.json({ ok: true }));
+
   app.get('/api/ref-signal/prizepicks', async (_req: Request, res: Response) => {
     console.log("DEBUG: Hit PrizePicks Route");
+    res.json({ message: "Handler reached" });
+    /*
     try {
       const projections = await fetchPrizePicksProjections();
       res.json({ projections, count: projections.length });
@@ -509,7 +513,15 @@ export function registerRefSignalRoutes(app: Express) {
       console.error('[RefSignal] PrizePicks fetch error:', error);
       res.status(500).json({ error: "Failed to fetch PrizePicks data" });
     }
+    */
+  });
+  const projections = await fetchPrizePicksProjections();
+  res.json({ projections, count: projections.length });
+} catch (error) {
+  console.error('[RefSignal] PrizePicks fetch error:', error);
+  res.status(500).json({ error: "Failed to fetch PrizePicks data" });
+}
   });
 
-  console.log('✅ Ref Foul Signal routes registered');
+console.log('✅ Ref Foul Signal routes registered');
 }
