@@ -19,6 +19,7 @@ import TrackRecord from "@/pages/track-record";
 import TeamStatsPage from "@/pages/team-stats";
 import BacktestPage from "@/pages/backtest";
 import RefSignalPage from "@/pages/ref-signal";
+import DailyPicksPage from "@/pages/daily-picks";
 import { ThemeToggle } from "@/components/theme-toggle";
 import {
   SidebarProvider,
@@ -51,6 +52,7 @@ function Router() {
       <Route path="/team-stats" component={TeamStatsPage} />
       <Route path="/backtest" component={BacktestPage} />
       <Route path="/ref-signal" component={RefSignalPage} />
+      <Route path="/daily-picks" component={DailyPicksPage} />
       <Route component={NotFound} />
     </Switch>
   );
@@ -111,6 +113,11 @@ const navItems = [
     title: "Ref Signal",
     url: "/ref-signal",
     icon: Crosshair,
+  },
+  {
+    title: "Daily Picks",
+    url: "/daily-picks",
+    icon: TrendingUp,
   },
 ];
 
