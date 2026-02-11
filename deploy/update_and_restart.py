@@ -37,13 +37,36 @@ def main():
             line = stdout.readline()
             if not line:
                 break
-            print(line.strip())
-        print(stderr.read().decode())
+            try:
+                print(line.strip())
+            except UnicodeEncodeError:
+                # Handle cases where terminal doesn't support certain characters
+                try:
+                    print(line.strip().encode('ascii', 'ignore').decode('ascii'))
+                except:
+                    pass
+        
+        err = stderr.read().decode()
+        if err:
+            print("=== Build Errors/Warnings ===")
+            try:
+                print(err)
+            except UnicodeEncodeError:
+                try:
+                    print(err.encode('ascii', 'ignore').decode('ascii'))
+                except:
+                    pass
 
         print("=== Restarting PM2 ===")
         stdin, stdout, stderr = client.exec_command("pm2 restart hoopstats")
-        print(stdout.read().decode())
-        print(stderr.read().decode())
+        try:
+            print(stdout.read().decode())
+        except:
+            pass
+        try:
+            print(stderr.read().decode())
+        except:
+            pass
 
         client.close()
         
