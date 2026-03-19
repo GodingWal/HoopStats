@@ -8,6 +8,20 @@ import { prizePicksLineTracker } from "./prizepicks-line-tracker";
 import { prizePicksStorage } from "./storage/prizepicks-storage";
 import { autoSettlementService } from "./services/auto-settle";
 import { serverLogger } from "./logger";
+
+// Warn about missing optional API keys at startup so developers know what features are disabled
+const OPTIONAL_ENV_VARS: Array<{ key: string; feature: string }> = [
+  { key: "DATABASE_URL", feature: "persistent database storage" },
+  { key: "ODDS_API_KEY", feature: "live sportsbook odds" },
+  { key: "BALLDONTLIE_API_KEY", feature: "BallDontLie player stats" },
+  { key: "OPENAI_API_KEY", feature: "AI bet explanations and vision parsing" },
+];
+
+for (const { key, feature } of OPTIONAL_ENV_VARS) {
+  if (!process.env[key]) {
+    serverLogger.warn(`${key} not set - ${feature} will be unavailable`);
+  }
+}
 import {
   corsMiddleware,
   apiRateLimiter,

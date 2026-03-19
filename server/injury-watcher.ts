@@ -456,6 +456,11 @@ export async function calculateInjuryAdjustedProjection(
     let dataString = "";
     let errorString = "";
 
+    pythonProcess.on("error", (err) => {
+      apiLogger.error("Failed to start Python process for injury projection", err);
+      resolve(null);
+    });
+
     pythonProcess.stdout.on("data", (data) => {
       dataString += data.toString();
     });

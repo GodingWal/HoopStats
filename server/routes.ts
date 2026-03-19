@@ -2,12 +2,12 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { spawn } from "child_process";
 import path from "path";
-import { readFileSync } from "fs";
-import { fileURLToPath } from "url";
 
 import { storage } from "./storage";
 import { pool } from "./db";
 import type { Player } from "@shared/schema";
+import { BETTING_CONFIG } from "./constants";
+import { apiLogger } from "./logger";
 import { fetchAndBuildAllPlayers } from "./nba-api";
 import { analyzeEdges } from "./edge-detection";
 import { loadSignalWeights, calculateSignalScore, hasStrongSignalSupport, getSignalDescription } from "./signal-scoring";
@@ -42,20 +42,7 @@ import {
 import { generateBetExplanation } from "./services/openai";
 import { registerRefSignalRoutes } from "./routes/ref-signal";
 import { lineWatcher } from "./services/line-watcher";
-
-// Load sample players from external JSON file
-// Load sample players from external JSON file
-const getDirname = () => {
-  try {
-    // @ts-ignore
-    return __dirname;
-  } catch {
-    return path.dirname(fileURLToPath(import.meta.url));
-  }
-};
-const currentDir = getDirname();
-const samplePlayersPath = path.join(currentDir, "data", "sample-players.json");
-const SAMPLE_PLAYERS: Player[] = JSON.parse(readFileSync(samplePlayersPath, "utf-8"));
+import { SAMPLE_PLAYERS } from "./data/sample-players-loader";
 
 // Get the Python command - use venv on Linux (production), system python on Windows (dev)
 function getPythonCommand(): string {
@@ -144,16 +131,16 @@ function generatePotentialBets(players: Player[]) {
         let confidence: "HIGH" | "MEDIUM" | "LOW" = "LOW";
         let recommendation: "OVER" | "UNDER" = "OVER";
 
-        if (rate >= 70) {
+        if (rate >= BETTING_CONFIG.CONFIDENCE_THRESHOLDS.HIGH_OVER) {
           confidence = "HIGH";
           recommendation = "OVER";
-        } else if (rate >= 55) {
+        } else if (rate >= BETTING_CONFIG.CONFIDENCE_THRESHOLDS.MEDIUM_OVER) {
           confidence = "MEDIUM";
           recommendation = "OVER";
-        } else if (rate <= 30) {
+        } else if (rate <= BETTING_CONFIG.CONFIDENCE_THRESHOLDS.HIGH_UNDER) {
           confidence = "HIGH";
           recommendation = "UNDER";
-        } else if (rate <= 45) {
+        } else if (rate <= BETTING_CONFIG.CONFIDENCE_THRESHOLDS.MEDIUM_UNDER) {
           confidence = "MEDIUM";
           recommendation = "UNDER";
         }
@@ -231,7 +218,7 @@ async function generateBetsFromPrizePicks(players: Player[]) {
 
     // Fetch current PrizePicks projections
     const projections = await fetchPrizePicksProjections();
-    console.log(`Fetched ${projections.length} PrizePicks projections`);
+    apiLogger.info(`Fetched ${projections.length} PrizePicks projections`);
 
     // Create a player lookup map by name (case-insensitive)
     const playerMap = new Map<string, Player>();
@@ -243,7 +230,7 @@ async function generateBetsFromPrizePicks(players: Player[]) {
     for (const proj of projections) {
       const player = playerMap.get(proj.playerName.toLowerCase());
       if (!player) {
-        console.log(`Player not found in DB: ${proj.playerName}`);
+        apiLogger.info(`Player not found in DB: ${proj.playerName}`);
         continue;
       }
 
@@ -265,7 +252,7 @@ async function generateBetsFromPrizePicks(players: Player[]) {
           Math.abs(curr - line) < Math.abs(prev - line) ? curr : prev
         );
         hitRate = hitRates[closestLine.toString()];
-        console.log(`Using closest line ${closestLine} for ${proj.playerName} ${statType} ${line} (hit rate: ${hitRate}%)`);
+        apiLogger.info(`Using closest line ${closestLine} for ${proj.playerName} ${statType} ${line} (hit rate: ${hitRate}%)`);
       }
 
       if (hitRate === undefined) continue;
@@ -279,16 +266,16 @@ async function generateBetsFromPrizePicks(players: Player[]) {
       let confidence: "HIGH" | "MEDIUM" | "LOW" = "LOW";
       let recommendation: "OVER" | "UNDER" = "OVER";
 
-      if (hitRate >= 70) {
+      if (hitRate >= BETTING_CONFIG.CONFIDENCE_THRESHOLDS.HIGH_OVER) {
         confidence = "HIGH";
         recommendation = "OVER";
-      } else if (hitRate >= 55) {
+      } else if (hitRate >= BETTING_CONFIG.CONFIDENCE_THRESHOLDS.MEDIUM_OVER) {
         confidence = "MEDIUM";
         recommendation = "OVER";
-      } else if (hitRate <= 30) {
+      } else if (hitRate <= BETTING_CONFIG.CONFIDENCE_THRESHOLDS.HIGH_UNDER) {
         confidence = "HIGH";
         recommendation = "UNDER";
-      } else if (hitRate <= 45) {
+      } else if (hitRate <= BETTING_CONFIG.CONFIDENCE_THRESHOLDS.MEDIUM_UNDER) {
         confidence = "MEDIUM";
         recommendation = "UNDER";
       }
@@ -354,9 +341,9 @@ async function generateBetsFromPrizePicks(players: Player[]) {
       return b.hit_rate - a.hit_rate;
     });
   } catch (error) {
-    console.error("Error generating bets from PrizePicks:", error);
+    apiLogger.error("Error generating bets from PrizePicks:", error);
     // Fallback to generating from all hit rates if PrizePicks fetch fails
-    console.log("Falling back to generating bets from all hit rates");
+    apiLogger.info("Falling back to generating bets from all hit rates");
     return generatePotentialBets(players);
   }
 }
@@ -394,7 +381,7 @@ export async function registerRoutes(
 
       res.json(playersWithInjuries);
     } catch (error) {
-      console.error("Error fetching players:", error);
+      apiLogger.error("Error fetching players:", error);
       res.status(500).json({ error: "Failed to fetch players" });
     }
   });
@@ -440,7 +427,7 @@ export async function registerRoutes(
         injury_status: injuryStatus,
       });
     } catch (error) {
-      console.error("Error fetching player:", error);
+      apiLogger.error("Error fetching player:", error);
       res.status(500).json({ error: "Failed to fetch player" });
     }
   });
@@ -476,7 +463,7 @@ export async function registerRoutes(
 
       res.json(playersWithInjuries);
     } catch (error) {
-      console.error("Error searching players:", error);
+      apiLogger.error("Error searching players:", error);
       res.status(500).json({ error: "Failed to search players" });
     }
   });
@@ -484,7 +471,7 @@ export async function registerRoutes(
   // Refresh bets from current PrizePicks projections
   app.post("/api/bets/refresh", async (req, res) => {
     try {
-      console.log("Refreshing bets from PrizePicks...");
+      apiLogger.info("Refreshing bets from PrizePicks...");
 
       let players = await storage.getPlayers();
       if (players.length === 0) {
@@ -499,7 +486,7 @@ export async function registerRoutes(
         await storage.createPotentialBet(bet);
       }
 
-      console.log(`Refreshed ${generatedBets.length} bets from PrizePicks`);
+      apiLogger.info(`Refreshed ${generatedBets.length} bets from PrizePicks`);
 
       res.json({
         success: true,
@@ -507,7 +494,7 @@ export async function registerRoutes(
         message: `Successfully refreshed ${generatedBets.length} betting opportunities from PrizePicks`
       });
     } catch (error) {
-      console.error("Error refreshing bets:", error);
+      apiLogger.error("Error refreshing bets:", error);
       res.status(500).json({
         error: "Failed to refresh bets",
         message: error instanceof Error ? error.message : "Unknown error"
@@ -626,7 +613,7 @@ export async function registerRoutes(
 
       res.json(limitedBets);
     } catch (error) {
-      console.error("Error fetching bets:", error);
+      apiLogger.error("Error fetching bets:", error);
       res.status(500).json({ error: "Failed to fetch bets" });
     }
   });
@@ -655,7 +642,7 @@ export async function registerRoutes(
 
       res.json(topPicks);
     } catch (error) {
-      console.error("Error fetching top picks:", error);
+      apiLogger.error("Error fetching top picks:", error);
       res.status(500).json({ error: "Failed to fetch top picks" });
     }
   });
@@ -683,7 +670,7 @@ export async function registerRoutes(
 
       res.json({ explanation });
     } catch (error) {
-      console.error("Error generating explanation:", error);
+      apiLogger.error("Error generating explanation:", error);
       res.status(500).json({ error: "Failed to generate explanation" });
     }
   });
@@ -719,15 +706,15 @@ export async function registerRoutes(
 
   app.post("/api/admin/sync-rosters", async (req, res) => {
     try {
-      console.log("Starting NBA roster sync via ESPN...");
+      apiLogger.info("Starting NBA roster sync via ESPN...");
 
       const players = await fetchAndBuildAllPlayers((current, total) => {
         if (current % 50 === 0) {
-          console.log(`Progress: ${current}/${total} players processed`);
+          apiLogger.info(`Progress: ${current}/${total} players processed`);
         }
       });
 
-      console.log(`Syncing ${players.length} players to database...`);
+      apiLogger.info(`Syncing ${players.length} players to database...`);
 
       // Clear existing players (sample data has different IDs than ESPN data)
       await storage.clearPlayers();
@@ -748,7 +735,7 @@ export async function registerRoutes(
       const dbPlayers = await storage.getPlayers();
 
       // Generate bets from actual PrizePicks lines
-      console.log("Fetching PrizePicks projections to sync bets...");
+      apiLogger.info("Fetching PrizePicks projections to sync bets...");
       const generatedBets = await generateBetsFromPrizePicks(dbPlayers);
 
       await storage.clearPotentialBets();
@@ -756,7 +743,7 @@ export async function registerRoutes(
         await storage.createPotentialBet(bet);
       }
 
-      console.log("Sync complete!");
+      apiLogger.info("Sync complete!");
 
       res.json({
         success: true,
@@ -765,7 +752,7 @@ export async function registerRoutes(
         message: `Successfully synced ${players.length} NBA players and generated ${generatedBets.length} betting opportunities.`
       });
     } catch (error) {
-      console.error("Error syncing players:", error);
+      apiLogger.error("Error syncing players:", error);
       res.status(500).json({
         error: "Failed to sync players",
         message: error instanceof Error ? error.message : "Unknown error"
@@ -832,14 +819,14 @@ export async function registerRoutes(
             }
           }
         } catch (oddsError) {
-          console.error("Error fetching/merging odds:", oddsError);
+          apiLogger.error("Error fetching/merging odds:", oddsError);
           // Verify we don't fail the whole request if odds fail
         }
       }
 
       res.json(games);
     } catch (error) {
-      console.error("Error fetching live games:", error);
+      apiLogger.error("Error fetching live games:", error);
       res.status(500).json({ error: "Failed to fetch live games" });
     }
   });
@@ -857,7 +844,7 @@ export async function registerRoutes(
       }
       res.json(boxScore);
     } catch (error) {
-      console.error("Error fetching game details:", error);
+      apiLogger.error("Error fetching game details:", error);
       res.status(500).json({ error: "Failed to fetch game details" });
     }
   });
@@ -872,7 +859,7 @@ export async function registerRoutes(
       const roster = await fetchTeamRoster(teamId);
       res.json(roster);
     } catch (error) {
-      console.error("Error fetching team roster:", error);
+      apiLogger.error("Error fetching team roster:", error);
       res.status(500).json({ error: "Failed to fetch team roster" });
     }
   });
@@ -887,7 +874,7 @@ export async function registerRoutes(
       const gamelog = await fetchPlayerGamelog(playerId);
       res.json(gamelog);
     } catch (error) {
-      console.error("Error fetching player gamelog:", error);
+      apiLogger.error("Error fetching player gamelog:", error);
       res.status(500).json({ error: "Failed to fetch player gamelog" });
     }
   });
@@ -925,20 +912,25 @@ export async function registerRoutes(
             args.push("--injured_minutes", JSON.stringify(injuredMinutesMap));
           }
         } catch (injError) {
-          console.warn("Could not fetch injuries for projections:", injError);
+          apiLogger.warn("Could not fetch injuries for projections:", injError);
           // Continue without injury data
         }
       }
 
-      console.log(`Running python script: ${scriptPath} with players: ${players.join(", ")}`);
+      apiLogger.info(`Running python script: ${scriptPath} with players: ${players.join(", ")}`);
       if (injuredPlayers.length > 0) {
-        console.log(`  Injuries factored in: ${injuredPlayers.join(", ")}`);
+        apiLogger.info(`  Injuries factored in: ${injuredPlayers.join(", ")}`);
       }
 
       const pythonProcess = spawn(getPythonCommand(), [scriptPath, ...args]);
 
       let dataString = "";
       let errorString = "";
+
+      pythonProcess.on("error", (err) => {
+        apiLogger.error("Failed to start Python process", err);
+        res.status(500).json({ error: "Failed to start model process", details: err.message });
+      });
 
       pythonProcess.stdout.on("data", (data) => {
         dataString += data.toString();
@@ -950,7 +942,7 @@ export async function registerRoutes(
 
       pythonProcess.on("close", (code) => {
         if (code !== 0) {
-          console.error("Python script failed:", errorString);
+          apiLogger.error("Python script failed:", errorString);
           return res.status(500).json({ error: "Projections failed", details: errorString });
         }
         try {
@@ -965,13 +957,13 @@ export async function registerRoutes(
             }
           });
         } catch (e) {
-          console.error("Failed to parse Python output. Data:", dataString);
-          console.error("Stderr:", errorString);
+          apiLogger.error("Failed to parse Python output. Data:", dataString);
+          apiLogger.error("Stderr:", errorString);
           res.status(500).json({ error: "Invalid response from model", details: errorString });
         }
       });
     } catch (error) {
-      console.error("Error generating projections:", error);
+      apiLogger.error("Error generating projections:", error);
       res.status(500).json({ error: "Internal server error" });
     }
   });
@@ -986,7 +978,7 @@ export async function registerRoutes(
       const filtered = recommendations.filter(r => r.edge >= minEdge);
       res.json(filtered);
     } catch (error) {
-      console.error("Error fetching today's recommendations:", error);
+      apiLogger.error("Error fetching today's recommendations:", error);
       res.status(500).json({ error: "Failed to fetch recommendations" });
     }
   });
@@ -1015,6 +1007,11 @@ export async function registerRoutes(
       let dataString = "";
       let errorString = "";
 
+      pythonProcess.on("error", (err) => {
+        apiLogger.error("Failed to start Python process", err);
+        res.status(500).json({ error: "Failed to start model process", details: err.message });
+      });
+
       pythonProcess.stdout.on("data", (data) => {
         dataString += data.toString();
       });
@@ -1025,7 +1022,7 @@ export async function registerRoutes(
 
       pythonProcess.on("close", (code) => {
         if (code !== 0) {
-          console.error("Python script failed:", errorString);
+          apiLogger.error("Python script failed:", errorString);
           return res.status(500).json({ error: "Projection failed", details: errorString });
         }
         try {
@@ -1045,7 +1042,7 @@ export async function registerRoutes(
           const probUnder = normalCDF(line, mean, std);
 
           // Calculate edge (assuming -110 odds, break-even = 52.4%)
-          const breakEven = 0.524;
+          const breakEven = BETTING_CONFIG.BREAK_EVEN_PROB;
           const edgeOver = probOver - breakEven;
           const edgeUnder = probUnder - breakEven;
 
@@ -1067,12 +1064,12 @@ export async function registerRoutes(
             confidence,
           });
         } catch (e) {
-          console.error("Failed to parse Python output:", dataString);
+          apiLogger.error("Failed to parse Python output:", dataString);
           res.status(500).json({ error: "Invalid response from model" });
         }
       });
     } catch (error) {
-      console.error("Error generating projection:", error);
+      apiLogger.error("Error generating projection:", error);
       res.status(500).json({ error: "Internal server error" });
     }
   });
@@ -1101,6 +1098,10 @@ export async function registerRoutes(
 
         const projection = await new Promise<number>((resolve, reject) => {
           let dataString = "";
+
+          pythonProcess.on("error", (err) => {
+            reject(new Error(`Failed to start Python process: ${err.message}`));
+          });
 
           pythonProcess.stdout.on("data", (data) => {
             dataString += data.toString();
@@ -1145,7 +1146,7 @@ export async function registerRoutes(
         individualProbs: probabilities,
       });
     } catch (error) {
-      console.error("Error evaluating parlay:", error);
+      apiLogger.error("Error evaluating parlay:", error);
       res.status(500).json({ error: "Failed to evaluate parlay" });
     }
   });
@@ -1157,7 +1158,7 @@ export async function registerRoutes(
       const record = await storage.getTrackRecord(days);
       res.json(record);
     } catch (error) {
-      console.error("Error fetching track record:", error);
+      apiLogger.error("Error fetching track record:", error);
       res.status(500).json({ error: "Failed to fetch track record" });
     }
   });
@@ -1170,7 +1171,7 @@ export async function registerRoutes(
       const books = await storage.getSportsbooks();
       res.json(books);
     } catch (error) {
-      console.error("Error fetching sportsbooks:", error);
+      apiLogger.error("Error fetching sportsbooks:", error);
       res.status(500).json({ error: "Failed to fetch sportsbooks" });
     }
   });
@@ -1189,7 +1190,7 @@ export async function registerRoutes(
       const lines = await storage.getPlayerPropLines(playerId, stat, gameDate);
       res.json(lines);
     } catch (error) {
-      console.error("Error fetching player lines:", error);
+      apiLogger.error("Error fetching player lines:", error);
       res.status(500).json({ error: "Failed to fetch player lines" });
     }
   });
@@ -1207,7 +1208,7 @@ export async function registerRoutes(
       const lines = await storage.getLatestLines(playerId, stat);
       res.json(lines);
     } catch (error) {
-      console.error("Error fetching latest lines:", error);
+      apiLogger.error("Error fetching latest lines:", error);
       res.status(500).json({ error: "Failed to fetch latest lines" });
     }
   });
@@ -1226,7 +1227,7 @@ export async function registerRoutes(
       const comparison = await storage.compareLines(playerId, stat, gameDate);
       res.json(comparison);
     } catch (error) {
-      console.error("Error comparing lines:", error);
+      apiLogger.error("Error comparing lines:", error);
       res.status(500).json({ error: "Failed to compare lines" });
     }
   });
@@ -1245,7 +1246,7 @@ export async function registerRoutes(
       const movements = await storage.getLineMovements(playerId, stat, gameDate);
       res.json(movements);
     } catch (error) {
-      console.error("Error fetching line movements:", error);
+      apiLogger.error("Error fetching line movements:", error);
       res.status(500).json({ error: "Failed to fetch line movements" });
     }
   });
@@ -1257,7 +1258,7 @@ export async function registerRoutes(
       const movements = await storage.getRecentLineMovements(hours);
       res.json(movements);
     } catch (error) {
-      console.error("Error fetching recent movements:", error);
+      apiLogger.error("Error fetching recent movements:", error);
       res.status(500).json({ error: "Failed to fetch recent movements" });
     }
   });
@@ -1275,7 +1276,7 @@ export async function registerRoutes(
       const bestLines = await storage.getBestLines(playerId, stat);
       res.json(bestLines);
     } catch (error) {
-      console.error("Error fetching best lines:", error);
+      apiLogger.error("Error fetching best lines:", error);
       res.status(500).json({ error: "Failed to fetch best lines" });
     }
   });
@@ -1287,7 +1288,7 @@ export async function registerRoutes(
       const bestLines = await storage.getBestLinesForDate(gameDate);
       res.json(bestLines);
     } catch (error) {
-      console.error("Error fetching best lines for date:", error);
+      apiLogger.error("Error fetching best lines for date:", error);
       res.status(500).json({ error: "Failed to fetch best lines" });
     }
   });
@@ -1299,7 +1300,7 @@ export async function registerRoutes(
       const savedBet = await storage.saveUserBet(bet);
       res.json(savedBet);
     } catch (error) {
-      console.error("Error saving user bet:", error);
+      apiLogger.error("Error saving user bet:", error);
       res.status(500).json({ error: "Failed to save bet" });
     }
   });
@@ -1313,7 +1314,7 @@ export async function registerRoutes(
       const bets = await storage.getUserBets({ pending, gameDate });
       res.json(bets);
     } catch (error) {
-      console.error("Error fetching user bets:", error);
+      apiLogger.error("Error fetching user bets:", error);
       res.status(500).json({ error: "Failed to fetch user bets" });
     }
   });
@@ -1331,7 +1332,7 @@ export async function registerRoutes(
       await storage.updateUserBetResult(betId, result, actualValue, profit);
       res.json({ success: true });
     } catch (error) {
-      console.error("Error updating bet result:", error);
+      apiLogger.error("Error updating bet result:", error);
       res.status(500).json({ error: "Failed to update bet result" });
     }
   });
@@ -1351,7 +1352,7 @@ export async function registerRoutes(
       }, picks);
       res.json(savedParlay);
     } catch (error) {
-      console.error("Error saving parlay:", error);
+      apiLogger.error("Error saving parlay:", error);
       res.status(500).json({ error: "Failed to save parlay" });
     }
   });
@@ -1363,7 +1364,7 @@ export async function registerRoutes(
       const parlays = await storage.getParlays({ pending });
       res.json(parlays);
     } catch (error) {
-      console.error("Error fetching parlays:", error);
+      apiLogger.error("Error fetching parlays:", error);
       res.status(500).json({ error: "Failed to fetch parlays" });
     }
   });
@@ -1376,7 +1377,7 @@ export async function registerRoutes(
       const updatedParlay = await storage.updateParlayResult(parlayId, result, profit);
       res.json(updatedParlay);
     } catch (error) {
-      console.error("Error updating parlay result:", error);
+      apiLogger.error("Error updating parlay result:", error);
       res.status(500).json({ error: "Failed to update parlay result" });
     }
   });
@@ -1389,7 +1390,7 @@ export async function registerRoutes(
       const updatedPick = await storage.updateParlayPickResult(pickId, result, actualValue);
       res.json(updatedPick);
     } catch (error) {
-      console.error("Error updating pick result:", error);
+      apiLogger.error("Error updating pick result:", error);
       res.status(500).json({ error: "Failed to update pick result" });
     }
   });
@@ -1408,7 +1409,7 @@ export async function registerRoutes(
         message: `Settled ${result.settledPicks} picks across ${result.settledParlays} parlays`,
       });
     } catch (error) {
-      console.error("Error running settlement:", error);
+      apiLogger.error("Error running settlement:", error);
       res.status(500).json({ error: "Failed to run settlement" });
     }
   });
@@ -1421,7 +1422,7 @@ export async function registerRoutes(
       const status = await getOddsApiStatus();
       res.json(status);
     } catch (error) {
-      console.error("Error checking odds API status:", error);
+      apiLogger.error("Error checking odds API status:", error);
       res.status(500).json({ error: "Failed to check odds API status" });
     }
   });
@@ -1439,7 +1440,7 @@ export async function registerRoutes(
       const events = await fetchNbaEvents();
       res.json(events);
     } catch (error) {
-      console.error("Error fetching odds events:", error);
+      apiLogger.error("Error fetching odds events:", error);
       res.status(500).json({ error: "Failed to fetch odds events" });
     }
   });
@@ -1467,7 +1468,7 @@ export async function registerRoutes(
 
       res.json(props);
     } catch (error) {
-      console.error("Error fetching event props:", error);
+      apiLogger.error("Error fetching event props:", error);
       res.status(500).json({ error: "Failed to fetch event props" });
     }
   });
@@ -1484,7 +1485,7 @@ export async function registerRoutes(
         return res.json(advancedStatsCache.data);
       }
 
-      console.log("Fetching advanced stats from Python...");
+      apiLogger.info("Fetching advanced stats from Python...");
       const pythonProcess = spawn(getPythonCommand(), [
         "server/nba-prop-model/api.py",
         "--advanced-stats"
@@ -1492,6 +1493,11 @@ export async function registerRoutes(
 
       let dataString = "";
       let errorString = "";
+
+      pythonProcess.on("error", (err) => {
+        apiLogger.error("Failed to start Python process", err);
+        res.status(500).json({ error: "Failed to start model process", details: err.message });
+      });
 
       pythonProcess.stdout.on("data", (data) => {
         dataString += data.toString();
@@ -1503,7 +1509,7 @@ export async function registerRoutes(
 
       pythonProcess.on("close", (code) => {
         if (code !== 0) {
-          console.error("Python script error:", errorString);
+          apiLogger.error("Python script error:", errorString);
           return res.status(500).json({
             error: "Failed to fetch advanced stats",
             details: errorString || "Process exited with non-zero code",
@@ -1516,7 +1522,7 @@ export async function registerRoutes(
           advancedStatsCache = { data: jsonData, timestamp: Date.now() };
           res.json(jsonData);
         } catch (e) {
-          console.error("Failed to parse Python output:", e);
+          apiLogger.error("Failed to parse Python output:", e);
           res.status(500).json({
             error: "Invalid data format from analytics engine",
             details: (e as Error).message,
@@ -1525,7 +1531,7 @@ export async function registerRoutes(
         }
       });
     } catch (error) {
-      console.error("Error in /api/stats/advanced:", error);
+      apiLogger.error("Error in /api/stats/advanced:", error);
       res.status(500).json({ error: "Internal server error" });
     }
   });
@@ -1538,7 +1544,7 @@ export async function registerRoutes(
       const status = getScraperStatus();
       res.json(status);
     } catch (error) {
-      console.error("Error fetching scraper status:", error);
+      apiLogger.error("Error fetching scraper status:", error);
       res.status(500).json({ error: "Failed to fetch scraper status" });
     }
   });
@@ -1553,7 +1559,7 @@ export async function registerRoutes(
         newSession,
       });
     } catch (error) {
-      console.error("Error rotating scraper session:", error);
+      apiLogger.error("Error rotating scraper session:", error);
       res.status(500).json({ error: "Failed to rotate scraper session" });
     }
   });
@@ -1572,7 +1578,7 @@ export async function registerRoutes(
         status: getScraperStatus(),
       });
     } catch (error) {
-      console.error("Error adding proxies:", error);
+      apiLogger.error("Error adding proxies:", error);
       res.status(500).json({ error: "Failed to add proxies" });
     }
   });
@@ -1587,7 +1593,7 @@ export async function registerRoutes(
         status: getScraperStatus(),
       });
     } catch (error) {
-      console.error("Error resetting proxies:", error);
+      apiLogger.error("Error resetting proxies:", error);
       res.status(500).json({ error: "Failed to reset proxies" });
     }
   });
@@ -1602,7 +1608,7 @@ export async function registerRoutes(
         status: getScraperStatus(),
       });
     } catch (error) {
-      console.error("Error resetting stats:", error);
+      apiLogger.error("Error resetting stats:", error);
       res.status(500).json({ error: "Failed to reset stats" });
     }
   });
@@ -1613,7 +1619,7 @@ export async function registerRoutes(
       const projections = await fetchPrizePicksProjections();
       res.json(projections);
     } catch (error) {
-      console.error("Error fetching PrizePicks projections:", error);
+      apiLogger.error("Error fetching PrizePicks projections:", error);
       res.status(500).json({
         error: "Failed to fetch PrizePicks projections",
         message: error instanceof Error ? error.message : "Unknown error"
@@ -1632,7 +1638,7 @@ export async function registerRoutes(
       const props = await fetchPlayerPrizePicksProps(decodeURIComponent(playerName));
       res.json(props);
     } catch (error) {
-      console.error("Error fetching player PrizePicks props:", error);
+      apiLogger.error("Error fetching player PrizePicks props:", error);
       res.status(500).json({ error: "Failed to fetch player props" });
     }
   });
@@ -1645,7 +1651,7 @@ export async function registerRoutes(
       const stats = prizePicksLineTracker.getStats();
       res.json(stats);
     } catch (error) {
-      console.error("Error fetching PrizePicks tracker status:", error);
+      apiLogger.error("Error fetching PrizePicks tracker status:", error);
       res.status(500).json({ error: "Failed to fetch tracker status" });
     }
   });
@@ -1662,7 +1668,7 @@ export async function registerRoutes(
         stats: prizePicksLineTracker.getStats(),
       });
     } catch (error) {
-      console.error("Error starting PrizePicks tracker:", error);
+      apiLogger.error("Error starting PrizePicks tracker:", error);
       res.status(500).json({ error: "Failed to start tracker" });
     }
   });
@@ -1677,7 +1683,7 @@ export async function registerRoutes(
         stats: prizePicksLineTracker.getStats(),
       });
     } catch (error) {
-      console.error("Error stopping PrizePicks tracker:", error);
+      apiLogger.error("Error stopping PrizePicks tracker:", error);
       res.status(500).json({ error: "Failed to stop tracker" });
     }
   });
@@ -1694,7 +1700,7 @@ export async function registerRoutes(
         stats: prizePicksLineTracker.getStats(),
       });
     } catch (error) {
-      console.error("Error polling PrizePicks lines:", error);
+      apiLogger.error("Error polling PrizePicks lines:", error);
       res.status(500).json({ error: "Failed to poll lines" });
     }
   });
@@ -1705,7 +1711,7 @@ export async function registerRoutes(
       const lines = prizePicksLineTracker.getCurrentLines();
       res.json(lines);
     } catch (error) {
-      console.error("Error fetching current lines:", error);
+      apiLogger.error("Error fetching current lines:", error);
       res.status(500).json({ error: "Failed to fetch current lines" });
     }
   });
@@ -1723,7 +1729,7 @@ export async function registerRoutes(
       );
       res.json(lines);
     } catch (error) {
-      console.error("Error fetching player line history:", error);
+      apiLogger.error("Error fetching player line history:", error);
       res.status(500).json({ error: "Failed to fetch player line history" });
     }
   });
@@ -1747,7 +1753,7 @@ export async function registerRoutes(
 
       res.json(history);
     } catch (error) {
-      console.error("Error fetching line history:", error);
+      apiLogger.error("Error fetching line history:", error);
       res.status(500).json({ error: "Failed to fetch line history" });
     }
   });
@@ -1759,7 +1765,7 @@ export async function registerRoutes(
       const movements = await prizePicksStorage.getRecentPrizePicksMovements(limit);
       res.json(movements);
     } catch (error) {
-      console.error("Error fetching line movements:", error);
+      apiLogger.error("Error fetching line movements:", error);
       res.status(500).json({ error: "Failed to fetch line movements" });
     }
   });
@@ -1771,7 +1777,7 @@ export async function registerRoutes(
       const movements = await prizePicksStorage.getSignificantMovements(hours);
       res.json(movements);
     } catch (error) {
-      console.error("Error fetching significant movements:", error);
+      apiLogger.error("Error fetching significant movements:", error);
       res.status(500).json({ error: "Failed to fetch significant movements" });
     }
   });
@@ -1785,7 +1791,7 @@ export async function registerRoutes(
       const dailyLines = await prizePicksStorage.getPrizePicksDailyLines(date);
       res.json(dailyLines);
     } catch (error) {
-      console.error("Error fetching daily lines:", error);
+      apiLogger.error("Error fetching daily lines:", error);
       res.status(500).json({ error: "Failed to fetch daily lines" });
     }
   });
@@ -1808,7 +1814,7 @@ export async function registerRoutes(
 
       res.json(trend);
     } catch (error) {
-      console.error("Error fetching player line trend:", error);
+      apiLogger.error("Error fetching player line trend:", error);
       res.status(500).json({ error: "Failed to fetch line trend" });
     }
   });
@@ -1819,7 +1825,7 @@ export async function registerRoutes(
       const lines = await prizePicksStorage.getCurrentPrizePicksLines();
       res.json(lines);
     } catch (error) {
-      console.error("Error fetching all current lines:", error);
+      apiLogger.error("Error fetching all current lines:", error);
       res.status(500).json({ error: "Failed to fetch all current lines" });
     }
   });
@@ -1835,7 +1841,7 @@ export async function registerRoutes(
         knownInjuries: injuryWatcher.getKnownInjuries().length,
       });
     } catch (error) {
-      console.error("Error fetching injury status:", error);
+      apiLogger.error("Error fetching injury status:", error);
       res.status(500).json({ error: "Failed to fetch injury status" });
     }
   });
@@ -1851,7 +1857,7 @@ export async function registerRoutes(
         isActive: injuryWatcher.isActive(),
       });
     } catch (error) {
-      console.error("Error starting injury watcher:", error);
+      apiLogger.error("Error starting injury watcher:", error);
       res.status(500).json({ error: "Failed to start injury watcher" });
     }
   });
@@ -1866,7 +1872,7 @@ export async function registerRoutes(
         isActive: injuryWatcher.isActive(),
       });
     } catch (error) {
-      console.error("Error stopping injury watcher:", error);
+      apiLogger.error("Error stopping injury watcher:", error);
       res.status(500).json({ error: "Failed to stop injury watcher" });
     }
   });
@@ -1882,7 +1888,7 @@ export async function registerRoutes(
         lastCheck: injuryWatcher.getLastCheckTime(),
       });
     } catch (error) {
-      console.error("Error checking injuries:", error);
+      apiLogger.error("Error checking injuries:", error);
       res.status(500).json({ error: "Failed to check injuries" });
     }
   });
@@ -1897,7 +1903,7 @@ export async function registerRoutes(
         fetchedAt: new Date().toISOString(),
       });
     } catch (error) {
-      console.error("Error fetching today's injuries:", error);
+      apiLogger.error("Error fetching today's injuries:", error);
       res.status(500).json({ error: "Failed to fetch today's injuries" });
     }
   });
@@ -1912,7 +1918,7 @@ export async function registerRoutes(
         fetchedAt: new Date().toISOString(),
       });
     } catch (error) {
-      console.error("Error fetching all injuries:", error);
+      apiLogger.error("Error fetching all injuries:", error);
       res.status(500).json({ error: "Failed to fetch all injuries" });
     }
   });
@@ -1951,7 +1957,7 @@ export async function registerRoutes(
         outPlayers: injuries.filter(i => i.status === 'out').map(i => i.playerName),
       });
     } catch (error) {
-      console.error("Error fetching team injuries:", error);
+      apiLogger.error("Error fetching team injuries:", error);
       res.status(500).json({ error: "Failed to fetch team injuries" });
     }
   });
@@ -1971,7 +1977,7 @@ export async function registerRoutes(
         count: outPlayers.length,
       });
     } catch (error) {
-      console.error("Error fetching out players:", error);
+      apiLogger.error("Error fetching out players:", error);
       res.status(500).json({ error: "Failed to fetch out players" });
     }
   });
@@ -2015,7 +2021,7 @@ export async function registerRoutes(
         context: adjusted?.context || baseline?.context,
       });
     } catch (error) {
-      console.error("Error fetching injury-adjusted projection:", error);
+      apiLogger.error("Error fetching injury-adjusted projection:", error);
       res.status(500).json({ error: "Failed to fetch projection" });
     }
   });
@@ -2059,7 +2065,7 @@ export async function registerRoutes(
           : "No significant edge change from injuries",
       });
     } catch (error) {
-      console.error("Error calculating injury edge:", error);
+      apiLogger.error("Error calculating injury edge:", error);
       res.status(500).json({ error: "Failed to calculate injury edge" });
     }
   });
@@ -2098,7 +2104,7 @@ export async function registerRoutes(
         fetchedAt: new Date().toISOString(),
       });
     } catch (error) {
-      console.error("Error fetching injury opportunities:", error);
+      apiLogger.error("Error fetching injury opportunities:", error);
       res.status(500).json({ error: "Failed to fetch injury opportunities" });
     }
   });
@@ -2146,7 +2152,7 @@ export async function registerRoutes(
         fetchedAt: new Date().toISOString(),
       });
     } catch (error) {
-      console.error("Error fetching injury alerts:", error);
+      apiLogger.error("Error fetching injury alerts:", error);
       res.status(500).json({ error: "Failed to fetch injury alerts" });
     }
   });
@@ -2168,12 +2174,17 @@ export async function registerRoutes(
         args.push("--injuries", ...injuries);
       }
 
-      console.log(`Running python script with injuries: ${args.join(' ')}`);
+      apiLogger.info(`Running python script with injuries: ${args.join(' ')}`);
 
       const pythonProcess = spawn(getPythonCommand(), [scriptPath, ...args]);
 
       let dataString = "";
       let errorString = "";
+
+      pythonProcess.on("error", (err) => {
+        apiLogger.error("Failed to start Python process", err);
+        res.status(500).json({ error: "Failed to start model process", details: err.message });
+      });
 
       pythonProcess.stdout.on("data", (data) => {
         dataString += data.toString();
@@ -2185,7 +2196,7 @@ export async function registerRoutes(
 
       pythonProcess.on("close", (code) => {
         if (code !== 0) {
-          console.error("Python script failed:", errorString);
+          apiLogger.error("Python script failed:", errorString);
           return res.status(500).json({ error: "Projections failed", details: errorString });
         }
         try {
@@ -2198,12 +2209,12 @@ export async function registerRoutes(
             }
           });
         } catch (e) {
-          console.error("Failed to parse Python output. Data:", dataString);
+          apiLogger.error("Failed to parse Python output. Data:", dataString);
           res.status(500).json({ error: "Invalid response from model", details: errorString });
         }
       });
     } catch (error) {
-      console.error("Error generating injury-adjusted projections:", error);
+      apiLogger.error("Error generating injury-adjusted projections:", error);
       res.status(500).json({ error: "Internal server error" });
     }
   });
@@ -2234,7 +2245,7 @@ export async function registerRoutes(
         if (playerName && team) {
           // Try Python calculator first
           try {
-            console.log(`No splits found for ${playerName}. Auto-calculating via Python...`);
+            apiLogger.info(`No splits found for ${playerName}. Auto-calculating via Python...`);
             await onOffService.calculateSplitsForPlayer(
               parseInt(playerId),
               playerName,
@@ -2245,24 +2256,24 @@ export async function registerRoutes(
               season as string | undefined
             );
           } catch (calcError) {
-            console.warn("Python auto-calculation failed, trying game-log fallback:", calcError);
+            apiLogger.warn("Python auto-calculation failed, trying game-log fallback:", calcError);
           }
 
           // Fallback: compute from game log data already in DB
           if (splits.length === 0) {
             try {
-              console.log(`Computing fallback splits from game logs for ${playerName}...`);
+              apiLogger.info(`Computing fallback splits from game logs for ${playerName}...`);
               splits = await onOffService.computeSplitsFromGameLogs(
                 parseInt(playerId),
                 playerName,
                 team
               );
             } catch (fallbackError) {
-              console.error("Game-log fallback calculation also failed:", fallbackError);
+              apiLogger.error("Game-log fallback calculation also failed:", fallbackError);
             }
           }
         } else {
-          console.log(`Cannot auto-calculate splits: Player ${playerId} not in DB and no playerName/team provided in query`);
+          apiLogger.info(`Cannot auto-calculate splits: Player ${playerId} not in DB and no playerName/team provided in query`);
         }
       }
 
@@ -2282,7 +2293,7 @@ export async function registerRoutes(
         count: sortedSplits.length,
       });
     } catch (error) {
-      console.error("Error fetching on/off splits:", error);
+      apiLogger.error("Error fetching on/off splits:", error);
       res.status(500).json({ error: "Failed to fetch on/off splits" });
     }
   });
@@ -2314,7 +2325,7 @@ export async function registerRoutes(
         count: beneficiaries.length,
       });
     } catch (error) {
-      console.error("Error fetching top beneficiaries:", error);
+      apiLogger.error("Error fetching top beneficiaries:", error);
       res.status(500).json({ error: "Failed to fetch top beneficiaries" });
     }
   });
@@ -2338,7 +2349,7 @@ export async function registerRoutes(
         team,
         seasons
       ).catch(error => {
-        console.error("Background calculation failed:", error);
+        apiLogger.error("Background calculation failed:", error);
       });
 
       res.json({
@@ -2348,7 +2359,7 @@ export async function registerRoutes(
         status: "processing",
       });
     } catch (error) {
-      console.error("Error triggering calculation:", error);
+      apiLogger.error("Error triggering calculation:", error);
       res.status(500).json({ error: "Failed to start calculation" });
     }
   });
@@ -2393,7 +2404,7 @@ export async function registerRoutes(
         totalSplits: splits.length,
       });
     } catch (error) {
-      console.error("Error fetching team splits:", error);
+      apiLogger.error("Error fetching team splits:", error);
       res.status(500).json({ error: "Failed to fetch team splits" });
     }
   });
@@ -2406,7 +2417,7 @@ export async function registerRoutes(
       const teams = getAllTeamsInfo();
       res.json(teams);
     } catch (error) {
-      console.error("Error fetching teams:", error);
+      apiLogger.error("Error fetching teams:", error);
       res.status(500).json({ error: "Failed to fetch teams" });
     }
   });
@@ -2426,7 +2437,7 @@ export async function registerRoutes(
 
       res.json(stats);
     } catch (error) {
-      console.error("Error fetching team stats:", error);
+      apiLogger.error("Error fetching team stats:", error);
       res.status(500).json({ error: "Failed to fetch team stats" });
     }
   });
@@ -2448,7 +2459,7 @@ export async function registerRoutes(
         count: games.length,
       });
     } catch (error) {
-      console.error("Error fetching team games:", error);
+      apiLogger.error("Error fetching team games:", error);
       res.status(500).json({ error: "Failed to fetch team games" });
     }
   });
@@ -2480,7 +2491,7 @@ export async function registerRoutes(
         },
       });
     } catch (error) {
-      console.error("Error fetching team rotation:", error);
+      apiLogger.error("Error fetching team rotation:", error);
       res.status(500).json({ error: "Failed to fetch team rotation" });
     }
   });
@@ -2500,7 +2511,7 @@ export async function registerRoutes(
 
       res.json(comparison);
     } catch (error) {
-      console.error("Error comparing teams:", error);
+      apiLogger.error("Error comparing teams:", error);
       res.status(500).json({ error: "Failed to compare teams" });
     }
   });
@@ -2566,7 +2577,7 @@ export async function registerRoutes(
         })),
       });
     } catch (error) {
-      console.error("Error fetching team scoring:", error);
+      apiLogger.error("Error fetching team scoring:", error);
       res.status(500).json({ error: "Failed to fetch team scoring" });
     }
   });
@@ -2631,7 +2642,7 @@ export async function registerRoutes(
       if (error.code === '42P01') {
         return res.json({ signals: [], statType: req.query.statType || "Points", days: 30, message: "Tables not yet created. Run migration 007." });
       }
-      console.error("Error fetching signal performance:", error);
+      apiLogger.error("Error fetching signal performance:", error);
       res.status(500).json({ error: "Failed to fetch signal performance" });
     }
   });
@@ -2694,7 +2705,7 @@ export async function registerRoutes(
       if (error.code === '42P01') {
         return res.json({ weights: null, statType: req.query.statType || "Points", message: "Tables not yet created." });
       }
-      console.error("Error fetching weights:", error);
+      apiLogger.error("Error fetching weights:", error);
       res.status(500).json({ error: "Failed to fetch weights" });
     }
   });
@@ -2764,7 +2775,7 @@ export async function registerRoutes(
       if (error.code === '42P01') {
         return res.json({ projections: [], message: "Tables not yet created." });
       }
-      console.error("Error fetching projections:", error);
+      apiLogger.error("Error fetching projections:", error);
       res.status(500).json({ error: "Failed to fetch projections" });
     }
   });
@@ -2811,7 +2822,7 @@ export async function registerRoutes(
       if (error.code === '42P01') {
         return res.json({ runs: [], message: "Tables not yet created." });
       }
-      console.error("Error fetching backtest runs:", error);
+      apiLogger.error("Error fetching backtest runs:", error);
       res.status(500).json({ error: "Failed to fetch backtest runs" });
     }
   });
@@ -2945,7 +2956,7 @@ export async function registerRoutes(
           message: "Tables not yet created. Run migration 007.",
         });
       }
-      console.error("Error fetching backtest overview:", error);
+      apiLogger.error("Error fetching backtest overview:", error);
       res.status(500).json({ error: "Failed to fetch backtest overview" });
     }
   });
@@ -2980,7 +2991,7 @@ export async function registerRoutes(
 
     isRefreshing = true;
     const startTime = Date.now();
-    console.log("[Backtest Refresh] Starting auto-refresh...");
+    apiLogger.info("[Backtest Refresh] Starting auto-refresh...");
 
     try {
       const scriptPath = path.join(process.cwd(), "server", "nba-prop-model", "scripts", "cron_jobs.py");
@@ -3019,11 +3030,11 @@ export async function registerRoutes(
       };
 
       // Step 1: Populate actuals for yesterday's games
-      console.log("[Backtest Refresh] Running actuals population...");
+      apiLogger.info("[Backtest Refresh] Running actuals population...");
       const actualsResult = await runPythonScript("actuals");
 
       // Step 2: Run validation
-      console.log("[Backtest Refresh] Running validation...");
+      apiLogger.info("[Backtest Refresh] Running validation...");
       const validationResult = await runPythonScript("validate");
 
       const duration = Date.now() - startTime;
@@ -3040,7 +3051,7 @@ export async function registerRoutes(
         duration: `${(duration / 1000).toFixed(1)}s`,
       };
 
-      console.log(`[Backtest Refresh] Completed in ${lastRefreshResult.duration}`);
+      apiLogger.info(`[Backtest Refresh] Completed in ${lastRefreshResult.duration}`);
 
       res.json({
         status: "completed",
@@ -3048,7 +3059,7 @@ export async function registerRoutes(
         result: lastRefreshResult,
       });
     } catch (error: any) {
-      console.error("[Backtest Refresh] Error:", error);
+      apiLogger.error("[Backtest Refresh] Error:", error);
       lastRefreshResult = { error: error.message };
       res.status(500).json({
         status: "error",
@@ -3069,7 +3080,7 @@ export async function registerRoutes(
   });
 
   // Register ref foul signal routes
-  console.log("DEBUG: About to register Ref Signal Routes in routes.ts");
+  apiLogger.info("DEBUG: About to register Ref Signal Routes in routes.ts");
   registerRefSignalRoutes(app);
 
   return httpServer;
