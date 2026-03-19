@@ -387,6 +387,35 @@ export async function registerRoutes(
     }
   });
 
+  // BallDontLie routes must be before /api/players/:id to avoid param matching
+  app.get("/api/players/bdl-stats", async (req, res) => {
+    try {
+      const name = req.query.name as string;
+      if (!name || name.trim().length < 2) {
+        return res.status(400).json({ error: "Provide at least 2 characters in 'name' query param" });
+      }
+      const stats = await getPlayerStatsByName(name.trim());
+      if (!stats) {
+        return res.status(404).json({ error: "Player not found or no stats available" });
+      }
+      res.json(stats);
+    } catch (error) {
+      apiLogger.error("Error fetching BallDontLie player stats", error);
+      res.status(500).json({ error: "Failed to fetch player stats" });
+    }
+  });
+
+  app.get("/api/players/bdl-active", async (req, res) => {
+    try {
+      const cursor = req.query.cursor ? Number(req.query.cursor) : undefined;
+      const result = await getActivePlayersWithStats(cursor);
+      res.json(result);
+    } catch (error) {
+      apiLogger.error("Error fetching active players from BallDontLie", error);
+      res.status(500).json({ error: "Failed to fetch active players" });
+    }
+  });
+
   app.get("/api/players/:id", async (req, res) => {
     try {
       const id = parseInt(req.params.id, 10);
@@ -430,36 +459,6 @@ export async function registerRoutes(
     } catch (error) {
       apiLogger.error("Error fetching player:", error);
       res.status(500).json({ error: "Failed to fetch player" });
-    }
-  });
-
-  // BallDontLie player stats by name
-  app.get("/api/players/bdl-stats", async (req, res) => {
-    try {
-      const name = req.query.name as string;
-      if (!name || name.trim().length < 2) {
-        return res.status(400).json({ error: "Provide at least 2 characters in 'name' query param" });
-      }
-      const stats = await getPlayerStatsByName(name.trim());
-      if (!stats) {
-        return res.status(404).json({ error: "Player not found or no stats available" });
-      }
-      res.json(stats);
-    } catch (error) {
-      apiLogger.error("Error fetching BallDontLie player stats", error);
-      res.status(500).json({ error: "Failed to fetch player stats" });
-    }
-  });
-
-  // BallDontLie active players list (paginated)
-  app.get("/api/players/bdl-active", async (req, res) => {
-    try {
-      const cursor = req.query.cursor ? Number(req.query.cursor) : undefined;
-      const result = await getActivePlayersWithStats(cursor);
-      res.json(result);
-    } catch (error) {
-      apiLogger.error("Error fetching active players from BallDontLie", error);
-      res.status(500).json({ error: "Failed to fetch active players" });
     }
   });
 
