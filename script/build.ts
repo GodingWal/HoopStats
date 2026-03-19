@@ -21,7 +21,7 @@ const allowlist = [
   "multer",
   "nanoid",
   "nodemailer",
-  "openai",
+  "@anthropic-ai/sdk",
   "passport",
   "passport-local",
   "pg",
@@ -64,6 +64,8 @@ async function buildAll() {
   console.log("copying data files...");
   await mkdir("dist/data", { recursive: true });
   await cp("server/data", "dist/data", { recursive: true });
+  // Also copy to dist/ root so __dirname resolves correctly in the CJS bundle
+  await cp("server/data/sample-players.json", "dist/sample-players.json");
 }
 
 buildAll().catch((err) => {
