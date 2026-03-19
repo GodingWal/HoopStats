@@ -39,7 +39,7 @@ import {
   getAllTeamsInfo,
   getTeamInfo,
 } from "./team-stats-api";
-import { generateBetExplanation } from "./services/openai";
+import { generateBetExplanation, parseBetScreenshot } from "./services/openai";
 import { registerRefSignalRoutes } from "./routes/ref-signal";
 import { lineWatcher } from "./services/line-watcher";
 import { SAMPLE_PLAYERS } from "./data/sample-players-loader";
@@ -499,6 +499,26 @@ export async function registerRoutes(
         error: "Failed to refresh bets",
         message: error instanceof Error ? error.message : "Unknown error"
       });
+    }
+  });
+
+  // Parse a screenshot of a betting slip using Claude vision
+  app.post("/api/bets/upload-screenshot", async (req, res) => {
+    try {
+      const { image } = req.body;
+      if (!image) {
+        return res.status(400).json({ error: "Missing image data" });
+      }
+
+      const mediaTypeMatch = image.match(/^data:(image\/\w+);base64,/);
+      const mediaType = (mediaTypeMatch?.[1] || "image/jpeg") as "image/jpeg" | "image/png" | "image/gif" | "image/webp";
+      const base64Image = image.replace(/^data:image\/\w+;base64,/, "");
+
+      const bets = await parseBetScreenshot(base64Image, mediaType);
+      res.json(bets);
+    } catch (error) {
+      apiLogger.error("Error parsing screenshot", error);
+      res.status(500).json({ error: "Failed to parse screenshot" });
     }
   });
 
