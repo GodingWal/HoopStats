@@ -107,13 +107,15 @@ export default function LineHistory() {
 
   // Fetch recent movements
   const { data: movements, isLoading: movementsLoading } = useQuery<LineMovement[]>({
-    queryKey: ["/api/prizepicks/movements", { limit: 100 }],
+    queryKey: ["/api/prizepicks/movements/100"],
+    queryFn: () => fetch("/api/prizepicks/movements?limit=100").then(r => r.json()),
     refetchInterval: 60000,
   });
 
   // Fetch significant movements
   const { data: significantMovements } = useQuery<LineMovement[]>({
-    queryKey: ["/api/prizepicks/movements/significant", { hours: 24 }],
+    queryKey: ["/api/prizepicks/movements/significant/24h"],
+    queryFn: () => fetch("/api/prizepicks/movements/significant?hours=24").then(r => r.json()),
     refetchInterval: 60000,
   });
 

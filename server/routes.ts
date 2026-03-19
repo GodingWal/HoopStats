@@ -40,6 +40,7 @@ import {
   getTeamInfo,
 } from "./team-stats-api";
 import { generateBetExplanation, parseBetScreenshot } from "./services/openai";
+import { getPlayerStatsByName, getActivePlayersWithStats } from "./services/balldontlie";
 import { registerRefSignalRoutes } from "./routes/ref-signal";
 import { lineWatcher } from "./services/line-watcher";
 import { SAMPLE_PLAYERS } from "./data/sample-players-loader";
@@ -429,6 +430,36 @@ export async function registerRoutes(
     } catch (error) {
       apiLogger.error("Error fetching player:", error);
       res.status(500).json({ error: "Failed to fetch player" });
+    }
+  });
+
+  // BallDontLie player stats by name
+  app.get("/api/players/bdl-stats", async (req, res) => {
+    try {
+      const name = req.query.name as string;
+      if (!name || name.trim().length < 2) {
+        return res.status(400).json({ error: "Provide at least 2 characters in 'name' query param" });
+      }
+      const stats = await getPlayerStatsByName(name.trim());
+      if (!stats) {
+        return res.status(404).json({ error: "Player not found or no stats available" });
+      }
+      res.json(stats);
+    } catch (error) {
+      apiLogger.error("Error fetching BallDontLie player stats", error);
+      res.status(500).json({ error: "Failed to fetch player stats" });
+    }
+  });
+
+  // BallDontLie active players list (paginated)
+  app.get("/api/players/bdl-active", async (req, res) => {
+    try {
+      const cursor = req.query.cursor ? Number(req.query.cursor) : undefined;
+      const result = await getActivePlayersWithStats(cursor);
+      res.json(result);
+    } catch (error) {
+      apiLogger.error("Error fetching active players from BallDontLie", error);
+      res.status(500).json({ error: "Failed to fetch active players" });
     }
   });
 
