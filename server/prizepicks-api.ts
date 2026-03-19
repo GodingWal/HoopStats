@@ -358,7 +358,7 @@ export async function fetchPrizePicksProjections(): Promise<PrizePicksProjection
                 teamAbbr: getTeamAbbr(player.team),
                 position: player.position,
                 statType: statType,
-                statTypeAbbr: STAT_TYPE_MAP[statType] || statType,
+                statTypeAbbr: (STAT_TYPE_MAP[statType] || statType).substring(0, 20),
                 line: proj.attributes.flash_sale_line_score || proj.attributes.line_score,
                 gameTime: proj.attributes.start_time,
                 opponent: proj.attributes.description || "",

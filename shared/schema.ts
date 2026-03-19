@@ -1035,7 +1035,7 @@ export const prizePicksLines = pgTable("prizepicks_lines", {
 
   // Line details
   statType: varchar("stat_type", { length: 50 }).notNull(), // 'Points', 'Rebounds', etc.
-  statTypeAbbr: varchar("stat_type_abbr", { length: 10 }), // 'PTS', 'REB', etc.
+  statTypeAbbr: varchar("stat_type_abbr", { length: 20 }), // 'PTS', 'REB', etc.
   line: real("line").notNull(),
 
   // Player image (for UI)
@@ -1058,7 +1058,7 @@ export const prizePicksLineMovements = pgTable("prizepicks_line_movements", {
   prizePicksPlayerId: varchar("prizepicks_player_id", { length: 50 }).notNull(),
   playerName: text("player_name").notNull(),
   statType: varchar("stat_type", { length: 50 }).notNull(),
-  statTypeAbbr: varchar("stat_type_abbr", { length: 10 }),
+  statTypeAbbr: varchar("stat_type_abbr", { length: 20 }),
 
   // Game context
   gameTime: timestamp("game_time").notNull(),
@@ -1091,7 +1091,7 @@ export const prizePicksDailyLines = pgTable("prizepicks_daily_lines", {
   playerName: text("player_name").notNull(),
   team: text("team").notNull(),
   statType: varchar("stat_type", { length: 50 }).notNull(),
-  statTypeAbbr: varchar("stat_type_abbr", { length: 10 }),
+  statTypeAbbr: varchar("stat_type_abbr", { length: 20 }),
 
   // Date and game info
   gameDate: date("game_date").notNull(),

@@ -385,10 +385,12 @@ router.post("/upload-screenshot", async (req, res) => {
       return res.status(400).json({ error: "Missing image data" });
     }
 
-    // Remove data URL prefix if present
+    // Extract media type and strip data URL prefix
+    const mediaTypeMatch = image.match(/^data:(image\/\w+);base64,/);
+    const mediaType = (mediaTypeMatch?.[1] || "image/jpeg") as "image/jpeg" | "image/png" | "image/gif" | "image/webp";
     const base64Image = image.replace(/^data:image\/\w+;base64,/, "");
 
-    const bets = await parseBetScreenshot(base64Image);
+    const bets = await parseBetScreenshot(base64Image, mediaType);
     res.json(bets);
   } catch (error) {
     apiLogger.error("Error parsing screenshot", error);

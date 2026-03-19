@@ -55,7 +55,10 @@ export async function generateBetExplanation(
     }
 }
 
-export async function parseBetScreenshot(base64Image: string): Promise<any[]> {
+export async function parseBetScreenshot(
+    base64Image: string,
+    mediaType: "image/jpeg" | "image/png" | "image/gif" | "image/webp" = "image/jpeg"
+): Promise<any[]> {
     try {
         const client = getClient();
         const response = await client.messages.create({
@@ -70,7 +73,7 @@ export async function parseBetScreenshot(base64Image: string): Promise<any[]> {
                             type: "image",
                             source: {
                                 type: "base64",
-                                media_type: "image/jpeg",
+                                media_type: mediaType,
                                 data: base64Image,
                             },
                         },
@@ -86,7 +89,9 @@ export async function parseBetScreenshot(base64Image: string): Promise<any[]> {
         const text = (response.content[0] as Anthropic.TextBlock).text;
         if (!text) return [];
 
-        const result = JSON.parse(text);
+        // Strip markdown code blocks if present
+        const cleaned = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
+        const result = JSON.parse(cleaned);
         return result.bets || result.picks || result;
     } catch (error) {
         console.error("Anthropic Vision Error:", error);
