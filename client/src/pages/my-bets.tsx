@@ -1,9 +1,9 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Label } from "@/components/ui/label";
 import {
   Dialog,
@@ -13,7 +13,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { TrendingUp, TrendingDown, DollarSign, Target, Trophy, Loader2, CheckCircle, XCircle, MinusCircle, ChevronDown, ChevronUp, Plus, AlertCircle, RefreshCw } from "lucide-react";
+import { TrendingUp, TrendingDown, DollarSign, Target, Trophy, Loader2, CheckCircle, XCircle, MinusCircle, ChevronDown, ChevronUp, Plus, AlertCircle, RefreshCw, Upload, Image as ImageIcon, FileText } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 
 interface ParlayPick {
@@ -114,9 +114,20 @@ function ImportBetsDialog({
   onOpenChange: (open: boolean) => void;
   onImport: (picks: Array<{ playerName: string; line: number; stat: string; statAbbr: string; side: "over" | "under" }>) => void;
 }) {
+  const [activeTab, setActiveTab] = useState<"text" | "image">("text");
   const [logText, setLogText] = useState("");
   const [parsedPicks, setParsedPicks] = useState<ReturnType<typeof parsePrizePicksLog>>([]);
   const [error, setError] = useState<string | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const doImport = (picks: ReturnType<typeof parsePrizePicksLog>) => {
+    onImport(picks);
+    setLogText("");
+    setParsedPicks([]);
+    setActiveTab("text");
+    onOpenChange(false);
+  };
 
   const handleParse = () => {
     try {
@@ -132,11 +143,49 @@ function ImportBetsDialog({
     }
   };
 
-  const handleImport = () => {
-    onImport(parsedPicks);
-    setLogText("");
-    setParsedPicks([]);
-    onOpenChange(false);
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      setError("Please upload an image file.");
+      return;
+    }
+
+    setIsUploading(true);
+    setError(null);
+
+    const reader = new FileReader();
+    reader.onloadend = async () => {
+      try {
+        const base64String = reader.result as string;
+        const res = await apiRequest("POST", "/api/bets/upload-screenshot", { image: base64String });
+        const data = await res.json();
+
+        if (Array.isArray(data)) {
+          const picks = data.map((bet: any) => ({
+            playerName: bet.playerName,
+            line: bet.line,
+            stat: bet.stat,
+            statAbbr: bet.stat.toUpperCase(),
+            side: (bet.side || "over").toLowerCase() as "over" | "under",
+          }));
+
+          if (picks.length === 0) {
+            setError("No bets could be identified in the image.");
+          } else {
+            doImport(picks);
+            return;
+          }
+        } else {
+          setError("Unexpected response format from server.");
+        }
+      } catch (err) {
+        setError("Failed to process image. Please try again.");
+      } finally {
+        setIsUploading(false);
+      }
+    };
+    reader.readAsDataURL(file);
   };
 
   return (
@@ -145,64 +194,110 @@ function ImportBetsDialog({
         <DialogHeader>
           <DialogTitle>Import PrizePicks Bets</DialogTitle>
           <DialogDescription>
-            Paste your PrizePicks transaction log to create a parlay
+            Paste a transaction log or upload a screenshot to create a parlay
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4">
-          <div>
-            <Label htmlFor="log-text">Transaction Log</Label>
-            <textarea
-              id="log-text"
-              className="w-full h-40 p-3 mt-1 rounded-lg border bg-background text-sm font-mono resize-none"
-              placeholder={`Peyton Watson\nMore than 23.5 Points\nAl Horford\nMore than 10.5 Rebs+Asts\n...`}
-              value={logText}
-              onChange={(e) => {
-                setLogText(e.target.value);
-                setParsedPicks([]);
-                setError(null);
-              }}
-            />
-          </div>
+        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "text" | "image")} className="w-full">
+          <TabsList className="grid w-full grid-cols-2 mb-4">
+            <TabsTrigger value="text" className="flex items-center gap-2">
+              <FileText className="w-4 h-4" />
+              Text Log
+            </TabsTrigger>
+            <TabsTrigger value="image" className="flex items-center gap-2">
+              <ImageIcon className="w-4 h-4" />
+              Screenshot
+            </TabsTrigger>
+          </TabsList>
 
-          {error && (
-            <div className="text-sm text-destructive flex items-center gap-2">
-              <AlertCircle className="w-4 h-4" />
-              {error}
+          <TabsContent value="text" className="space-y-4">
+            <div>
+              <Label htmlFor="log-text">Transaction Log</Label>
+              <textarea
+                id="log-text"
+                className="w-full h-40 p-3 mt-1 rounded-lg border bg-background text-sm font-mono resize-none"
+                placeholder={`Peyton Watson\nMore than 23.5 Points\nAl Horford\nMore than 10.5 Rebs+Asts\n...`}
+                value={logText}
+                onChange={(e) => {
+                  setLogText(e.target.value);
+                  setParsedPicks([]);
+                  setError(null);
+                }}
+              />
             </div>
-          )}
+            <div className="flex justify-end">
+              <Button variant="secondary" onClick={handleParse} disabled={!logText.trim()}>
+                Parse Text
+              </Button>
+            </div>
+          </TabsContent>
 
-          {parsedPicks.length > 0 && (
-            <div className="space-y-2">
-              <div className="text-sm font-medium text-muted-foreground">
-                Found {parsedPicks.length} bets:
-              </div>
-              <div className="max-h-40 overflow-y-auto space-y-1">
-                {parsedPicks.map((pick, i) => (
-                  <div key={i} className="flex items-center justify-between text-sm p-2 rounded bg-muted/50">
-                    <span className="font-medium">{pick.playerName}</span>
-                    <span className={pick.side === "over" ? "text-emerald-500" : "text-rose-500"}>
-                      {pick.side === "over" ? "O" : "U"} {pick.line} {pick.statAbbr}
-                    </span>
+          <TabsContent value="image" className="space-y-4">
+            <div
+              className="border-2 border-dashed border-border rounded-xl p-8 flex flex-col items-center justify-center text-center cursor-pointer hover:border-primary/50 hover:bg-muted/50 transition-all"
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <input
+                type="file"
+                ref={fileInputRef}
+                className="hidden"
+                accept="image/*"
+                onChange={handleFileUpload}
+              />
+              {isUploading ? (
+                <div className="py-4">
+                  <Loader2 className="w-10 h-10 text-primary animate-spin mb-3 mx-auto" />
+                  <div className="font-medium">Analyzing screenshot...</div>
+                  <div className="text-xs text-muted-foreground mt-1">This may take a few seconds</div>
+                </div>
+              ) : (
+                <>
+                  <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center mb-3">
+                    <Upload className="w-6 h-6 text-primary" />
                   </div>
-                ))}
-              </div>
+                  <div className="font-medium text-lg mb-1">Upload Screenshot</div>
+                  <div className="text-sm text-muted-foreground max-w-xs">
+                    Upload a screenshot of your PrizePicks slip to auto-import picks
+                  </div>
+                </>
+              )}
             </div>
-          )}
-        </div>
+          </TabsContent>
+        </Tabs>
+
+        {error && (
+          <div className="text-sm text-destructive flex items-center gap-2 p-2 rounded-lg bg-destructive/10 border border-destructive/20">
+            <AlertCircle className="w-4 h-4" />
+            {error}
+          </div>
+        )}
+
+        {parsedPicks.length > 0 && (
+          <div className="space-y-2">
+            <div className="text-sm font-medium text-muted-foreground">
+              Found {parsedPicks.length} bets:
+            </div>
+            <div className="max-h-40 overflow-y-auto space-y-1">
+              {parsedPicks.map((pick, i) => (
+                <div key={i} className="flex items-center justify-between text-sm p-2 rounded bg-muted/50">
+                  <span className="font-medium">{pick.playerName}</span>
+                  <span className={pick.side === "over" ? "text-emerald-500" : "text-rose-500"}>
+                    {pick.side === "over" ? "O" : "U"} {pick.line} {pick.statAbbr}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         <DialogFooter className="gap-2">
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          {parsedPicks.length > 0 ? (
-            <Button onClick={handleImport}>
+          {parsedPicks.length > 0 && (
+            <Button onClick={() => doImport(parsedPicks)}>
               <Plus className="w-4 h-4 mr-2" />
               Create Parlay ({parsedPicks.length} picks)
-            </Button>
-          ) : (
-            <Button onClick={handleParse} disabled={!logText.trim()}>
-              Parse Bets
             </Button>
           )}
         </DialogFooter>
@@ -525,8 +620,8 @@ export default function MyBets() {
               onClick={() => setShowImportDialog(true)}
               className="hover:border-primary/50"
             >
-              <Plus className="w-4 h-4 mr-2" />
-              Import Bets
+              <Upload className="w-4 h-4 mr-2" />
+              Import / Screenshot
             </Button>
           </div>
         </div>
