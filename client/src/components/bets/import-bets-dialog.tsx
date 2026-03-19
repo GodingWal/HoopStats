@@ -75,14 +75,16 @@ export function ImportBetsDialog({ open, onOpenChange }: ImportBetsDialogProps) 
               playerName: bet.playerName,
               line: bet.line,
               stat: bet.stat,
-              statAbbr: bet.stat.toUpperCase(), // Simplistic mapping, user can verify
+              statAbbr: bet.stat.toUpperCase(),
               side: (bet.side || "over").toLowerCase() as "over" | "under",
             }));
 
             if (picks.length === 0) {
               setError("No bets could be identified in the image.");
             } else {
-              setParsedPicks(picks);
+              // Auto-import: add directly to parlay cart without manual review
+              importPicks(picks);
+              return; // dialog closed inside importPicks
             }
           } else {
             setError("Unexpected response format from server.");
@@ -101,9 +103,9 @@ export function ImportBetsDialog({ open, onOpenChange }: ImportBetsDialogProps) 
     }
   };
 
-  const handleImport = () => {
+  const importPicks = (picks: typeof parsedPicks) => {
     const today = new Date().toISOString().split('T')[0];
-    const cartPicks = parsedPicks.map(pick => ({
+    const cartPicks = picks.map(pick => ({
       playerId: pick.playerName.toLowerCase().replace(/\s+/g, '-'),
       playerName: pick.playerName,
       team: "",
@@ -111,7 +113,7 @@ export function ImportBetsDialog({ open, onOpenChange }: ImportBetsDialogProps) 
       statTypeAbbr: pick.statAbbr,
       line: pick.line,
       gameDate: today,
-      imageUrl: undefined // Add this if we have it
+      imageUrl: undefined,
     }));
 
     addMultiplePicks(cartPicks);
@@ -122,6 +124,8 @@ export function ImportBetsDialog({ open, onOpenChange }: ImportBetsDialogProps) 
     setActiveTab("text");
     onOpenChange(false);
   };
+
+  const handleImport = () => importPicks(parsedPicks);
 
   const triggerFileInput = () => {
     fileInputRef.current?.click();

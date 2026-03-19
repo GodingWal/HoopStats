@@ -8,6 +8,7 @@ import { injuryWatcher } from "../injury-watcher";
 import { apiLogger } from "../logger";
 import { validatePositiveInt } from "../validation";
 import type { Player } from "@shared/schema";
+import { getPlayerStatsByName, getActivePlayersWithStats } from "../services/balldontlie";
 
 const router = Router();
 
@@ -118,6 +119,43 @@ router.get("/:id/gamelog", async (req, res) => {
   } catch (error) {
     apiLogger.error("Error fetching player gamelog", error);
     res.status(500).json({ error: "Failed to fetch player gamelog" });
+  }
+});
+
+/**
+ * GET /api/players/bdl-stats
+ * Get BallDontLie season averages for a player by name
+ */
+router.get("/bdl-stats", async (req, res) => {
+  try {
+    const name = req.query.name as string;
+    if (!name || name.trim().length < 2) {
+      return res.status(400).json({ error: "Provide at least 2 characters in 'name' query param" });
+    }
+    const stats = await getPlayerStatsByName(name.trim());
+    if (!stats) {
+      return res.status(404).json({ error: "Player not found or no stats available" });
+    }
+    res.json(stats);
+  } catch (error) {
+    apiLogger.error("Error fetching BallDontLie player stats", error);
+    res.status(500).json({ error: "Failed to fetch player stats" });
+  }
+});
+
+/**
+ * GET /api/players/bdl-active
+ * Get active NBA players with current season averages (paginated)
+ * Query params: cursor (optional)
+ */
+router.get("/bdl-active", async (req, res) => {
+  try {
+    const cursor = req.query.cursor ? Number(req.query.cursor) : undefined;
+    const result = await getActivePlayersWithStats(cursor);
+    res.json(result);
+  } catch (error) {
+    apiLogger.error("Error fetching active players from BallDontLie", error);
+    res.status(500).json({ error: "Failed to fetch active players" });
   }
 });
 

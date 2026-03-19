@@ -17,6 +17,7 @@ import {
   ChevronDown,
   ChevronUp,
   History,
+  BarChart2,
 } from "lucide-react";
 import { format, formatDistanceToNow } from "date-fns";
 
@@ -70,9 +71,33 @@ interface TrackerStats {
   movementsDetected: number;
 }
 
+interface BdlPlayerStats {
+  playerId: number;
+  playerName: string;
+  team: string;
+  position: string;
+  gamesPlayed: number;
+  pts: number;
+  reb: number;
+  ast: number;
+  stl: number;
+  blk: number;
+  fg3m: number;
+  fg_pct: number;
+  min: string;
+  season: number;
+}
+
+interface BdlActiveResponse {
+  players: BdlPlayerStats[];
+  nextCursor?: number;
+}
+
 export default function LineHistory() {
   const [searchQuery, setSearchQuery] = useState("");
   const [expandedPlayer, setExpandedPlayer] = useState<string | null>(null);
+  const [bdlSearch, setBdlSearch] = useState("");
+  const [bdlCursor, setBdlCursor] = useState<number | undefined>(undefined);
 
   // Fetch tracker status
   const { data: trackerStats, refetch: refetchStats } = useQuery<TrackerStats>({
@@ -102,6 +127,24 @@ export default function LineHistory() {
   const { data: dailyLines } = useQuery<DailyLine[]>({
     queryKey: ["/api/prizepicks/daily"],
     refetchInterval: 300000,
+  });
+
+  // BallDontLie active players
+  const { data: bdlData, isLoading: bdlLoading } = useQuery<BdlActiveResponse>({
+    queryKey: ["/api/players/bdl-active", bdlCursor],
+    queryFn: () =>
+      fetch(`/api/players/bdl-active${bdlCursor ? `?cursor=${bdlCursor}` : ""}`)
+        .then((r) => r.json()),
+    staleTime: 5 * 60 * 1000,
+  });
+
+  // BallDontLie search result
+  const { data: bdlSearchResult, isLoading: bdlSearchLoading } = useQuery<BdlPlayerStats>({
+    queryKey: ["/api/players/bdl-stats", bdlSearch],
+    queryFn: () =>
+      fetch(`/api/players/bdl-stats?name=${encodeURIComponent(bdlSearch)}`).then((r) => r.json()),
+    enabled: bdlSearch.trim().length >= 3,
+    staleTime: 5 * 60 * 1000,
   });
 
   // Group current lines by player
@@ -214,12 +257,135 @@ export default function LineHistory() {
         </Card>
       </div>
 
-      <Tabs defaultValue="movements" className="space-y-4">
-        <TabsList className="grid w-full grid-cols-3">
+      <Tabs defaultValue="player-stats" className="space-y-4">
+        <TabsList className="grid w-full grid-cols-4">
+          <TabsTrigger value="player-stats">Player Stats</TabsTrigger>
           <TabsTrigger value="movements">Recent Movements</TabsTrigger>
           <TabsTrigger value="alerts">Significant Alerts</TabsTrigger>
           <TabsTrigger value="all-lines">All Lines</TabsTrigger>
         </TabsList>
+
+        {/* Player Stats Tab (BallDontLie) */}
+        <TabsContent value="player-stats" className="space-y-4">
+          <div className="flex gap-2">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <Input
+                placeholder="Search player by name..."
+                value={bdlSearch}
+                onChange={(e) => setBdlSearch(e.target.value)}
+                className="pl-10"
+              />
+            </div>
+          </div>
+
+          {/* Single player search result */}
+          {bdlSearch.trim().length >= 3 && (
+            <div>
+              {bdlSearchLoading ? (
+                <Skeleton className="h-24 w-full" />
+              ) : bdlSearchResult && !("error" in bdlSearchResult) ? (
+                <Card className="premium-card border-primary/20">
+                  <CardContent className="p-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <div>
+                        <div className="font-bold text-lg">{bdlSearchResult.playerName}</div>
+                        <div className="text-sm text-muted-foreground">{bdlSearchResult.team} · {bdlSearchResult.position} · {bdlSearchResult.gamesPlayed} GP · {bdlSearchResult.season}-{String(bdlSearchResult.season + 1).slice(-2)} Season</div>
+                      </div>
+                      <Badge variant="outline" className="bg-primary/10 text-primary border-primary/30">BallDontLie</Badge>
+                    </div>
+                    <div className="grid grid-cols-4 md:grid-cols-7 gap-3">
+                      {[
+                        { label: "PTS", val: bdlSearchResult.pts.toFixed(1) },
+                        { label: "REB", val: bdlSearchResult.reb.toFixed(1) },
+                        { label: "AST", val: bdlSearchResult.ast.toFixed(1) },
+                        { label: "STL", val: bdlSearchResult.stl.toFixed(1) },
+                        { label: "BLK", val: bdlSearchResult.blk.toFixed(1) },
+                        { label: "3PM", val: bdlSearchResult.fg3m.toFixed(1) },
+                        { label: "FG%", val: (bdlSearchResult.fg_pct * 100).toFixed(1) + "%" },
+                      ].map(({ label, val }) => (
+                        <div key={label} className="text-center p-2 rounded-lg bg-muted/40">
+                          <div className="text-lg font-bold text-primary">{val}</div>
+                          <div className="text-xs text-muted-foreground">{label}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              ) : (
+                <div className="text-sm text-muted-foreground p-3">No player found for "{bdlSearch}"</div>
+              )}
+            </div>
+          )}
+
+          {/* Active players list */}
+          {!bdlSearch.trim() && (
+            <>
+              {bdlLoading ? (
+                <div className="space-y-2">
+                  {[1, 2, 3, 4, 5].map((i) => <Skeleton key={i} className="h-20 w-full" />)}
+                </div>
+              ) : !bdlData || bdlData.players.length === 0 ? (
+                <Card>
+                  <CardContent className="py-12 text-center">
+                    <BarChart2 className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
+                    <h3 className="text-lg font-semibold">No Stats Available</h3>
+                    <p className="text-muted-foreground mt-2 text-sm">
+                      Make sure BALLDONTLIE_API_KEY is set in your environment
+                    </p>
+                  </CardContent>
+                </Card>
+              ) : (
+                <>
+                  <div className="space-y-2">
+                    {bdlData.players.map((player) => (
+                      <Card key={player.playerId} className="premium-card">
+                        <CardContent className="p-4">
+                          <div className="flex items-center justify-between mb-2">
+                            <div>
+                              <div className="font-medium">{player.playerName}</div>
+                              <div className="text-xs text-muted-foreground">{player.team} · {player.position} · {player.gamesPlayed} GP</div>
+                            </div>
+                            <div className="flex gap-2">
+                              <Badge variant="outline" className="text-xs">{player.pts.toFixed(1)} PTS</Badge>
+                              <Badge variant="outline" className="text-xs">{player.reb.toFixed(1)} REB</Badge>
+                              <Badge variant="outline" className="text-xs">{player.ast.toFixed(1)} AST</Badge>
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-4 gap-2 mt-2">
+                            {[
+                              { label: "STL", val: player.stl.toFixed(1) },
+                              { label: "BLK", val: player.blk.toFixed(1) },
+                              { label: "3PM", val: player.fg3m.toFixed(1) },
+                              { label: "FG%", val: (player.fg_pct * 100).toFixed(1) + "%" },
+                            ].map(({ label, val }) => (
+                              <div key={label} className="text-center p-1.5 rounded bg-muted/30">
+                                <div className="font-bold text-sm">{val}</div>
+                                <div className="text-xs text-muted-foreground">{label}</div>
+                              </div>
+                            ))}
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                  <div className="flex justify-center gap-2 pt-2">
+                    {bdlCursor && (
+                      <Button variant="outline" size="sm" onClick={() => setBdlCursor(undefined)}>
+                        First Page
+                      </Button>
+                    )}
+                    {bdlData.nextCursor && (
+                      <Button variant="outline" size="sm" onClick={() => setBdlCursor(bdlData.nextCursor)}>
+                        Next Page
+                      </Button>
+                    )}
+                  </div>
+                </>
+              )}
+            </>
+          )}
+        </TabsContent>
 
         {/* Recent Movements Tab */}
         <TabsContent value="movements" className="space-y-4">

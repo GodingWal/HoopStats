@@ -13,7 +13,6 @@ import Bets from "@/pages/bets";
 import MyBets from "@/pages/my-bets";
 import LiveGames from "@/pages/live-games";
 import LineHistory from "@/pages/line-history";
-import ProjectionsPage from "@/pages/projections";
 import Dashboard from "@/pages/dashboard";
 import TrackRecord from "@/pages/track-record";
 import TeamStatsPage from "@/pages/team-stats";
@@ -40,7 +39,7 @@ import {
   SidebarFooter,
 } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
-import { Users, Target, TrendingUp, RefreshCw, CloudDownload, AlertCircle, Tv, BrainCircuit, History, LayoutDashboard, Award, BarChart3, Wallet, FlaskConical, Crosshair, Zap, Activity, LineChart, GitMerge } from "lucide-react";
+import { Users, Target, TrendingUp, RefreshCw, CloudDownload, AlertCircle, Tv, History, LayoutDashboard, Award, BarChart3, Wallet, FlaskConical, Crosshair, Zap, Activity, LineChart, GitMerge } from "lucide-react";
 
 function Router() {
   return (
@@ -52,7 +51,6 @@ function Router() {
       <Route path="/track-record" component={TrackRecord} />
       <Route path="/live" component={LiveGames} />
       <Route path="/line-history" component={LineHistory} />
-      <Route path="/projections" component={ProjectionsPage} />
       <Route path="/team-stats" component={TeamStatsPage} />
       <Route path="/backtest" component={BacktestPage} />
       <Route path="/ref-signal" component={RefSignalPage} />
@@ -106,11 +104,6 @@ const navItems = [
     title: "Line History",
     url: "/line-history",
     icon: History,
-  },
-  {
-    title: "AI Projections",
-    url: "/projections",
-    icon: BrainCircuit,
   },
   {
     title: "Backtest Lab",

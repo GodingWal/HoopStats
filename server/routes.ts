@@ -2112,42 +2112,56 @@ export async function registerRoutes(
   // Get injury alerts with betting impact for dashboard widget
   app.get("/api/injuries/alerts", async (_req, res) => {
     try {
-      const { injuryImpactService } = await import("./injury-impact-service");
-
       // Get all current injuries from injury watcher
       const allInjuries = injuryWatcher.getKnownInjuries();
-      const outInjuries = allInjuries.filter(inj => inj.status === 'out');
-
-      // Get unique teams with injured players
-      const affectedTeams = [...new Set(outInjuries.map(inj => inj.team))];
-
-      // Get injury impact data for each team
-      const alerts = await Promise.all(
-        affectedTeams.map(async (team) => {
-          const impact = await injuryImpactService.getTeamInjuryImpact(team);
-          return {
-            team,
-            injuries: impact.injuries,
-            beneficiaries: impact.beneficiaries.slice(0, 3), // Top 3 beneficiaries
-            impactLevel: impact.injuries.length >= 2 ? 'high' : impact.injuries.length === 1 ? 'medium' : 'low',
-          };
-        })
+      const significantInjuries = allInjuries.filter(
+        inj => inj.status === 'out' || inj.status === 'doubtful'
       );
 
-      // Sort by impact level and number of beneficiaries
-      const sortedAlerts = alerts
-        .filter(a => a.beneficiaries.length > 0)
-        .sort((a, b) => {
-          const impactOrder = { high: 3, medium: 2, low: 1 };
-          const aScore = impactOrder[a.impactLevel as keyof typeof impactOrder] * 100 + a.beneficiaries.length;
-          const bScore = impactOrder[b.impactLevel as keyof typeof impactOrder] * 100 + b.beneficiaries.length;
-          return bScore - aScore;
-        });
+      // Group by team
+      const byTeam: Record<string, typeof significantInjuries> = {};
+      for (const inj of significantInjuries) {
+        if (!byTeam[inj.team]) byTeam[inj.team] = [];
+        byTeam[inj.team].push(inj);
+      }
+
+      const getOutCount = (injuries: typeof significantInjuries) =>
+        injuries.filter(i => i.status === 'out').length;
+
+      const getImpactLevel = (injuries: typeof significantInjuries): 'high' | 'medium' | 'low' => {
+        const outs = getOutCount(injuries);
+        if (outs >= 2) return 'high';
+        if (outs === 1) return 'medium';
+        return 'low';
+      };
+
+      const alerts = Object.entries(byTeam).map(([team, injuries]) => ({
+        team,
+        injuries: injuries.map(inj => ({
+          playerName: inj.playerName,
+          status: inj.status,
+          description: inj.description || inj.injuryType || 'Injury',
+        })),
+        beneficiaries: [] as Array<{ playerName: string; stat: string; impact: number; recommendation: string }>,
+        impactLevel: getImpactLevel(injuries),
+      }));
+
+      // Sort: high impact first, then by number of out injuries
+      const sortedAlerts = alerts.sort((a, b) => {
+        const impactOrder = { high: 3, medium: 2, low: 1 };
+        const diff =
+          impactOrder[b.impactLevel as keyof typeof impactOrder] -
+          impactOrder[a.impactLevel as keyof typeof impactOrder];
+        if (diff !== 0) return diff;
+        return getOutCount(byTeam[b.team]) - getOutCount(byTeam[a.team]);
+      });
+
+      const outInjuries = allInjuries.filter(inj => inj.status === 'out');
 
       res.json({
         alerts: sortedAlerts,
         totalInjuries: outInjuries.length,
-        teamsAffected: affectedTeams.length,
+        teamsAffected: Object.keys(byTeam).length,
         highImpactAlerts: sortedAlerts.filter(a => a.impactLevel === 'high').length,
         fetchedAt: new Date().toISOString(),
       });
