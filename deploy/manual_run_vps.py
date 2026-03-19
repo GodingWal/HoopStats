@@ -23,7 +23,7 @@ def main():
         print("=== Running node dist/index.cjs manually ===")
         # We run it with a timeout because it SHOULD block if it works.
         # We want to see the startup logs.
-        cmd = "cd /var/www/hoopstats && node dist/index.cjs"
+        cmd = "cd /var/www/courtsideedge && node dist/index.cjs"
         
         # execution...
         stdin, stdout, stderr = client.exec_command(cmd)

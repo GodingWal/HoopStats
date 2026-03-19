@@ -35,7 +35,7 @@ def main():
     
     # Pull latest code
     print("\n[1] Pulling latest code...")
-    run_command(client, "cd /var/www/hoopstats && git pull")
+    run_command(client, "cd /var/www/courtsideedge && git pull")
     
     # Install Chromium dependencies for Puppeteer
     print("\n[2] Installing Chromium dependencies...")
@@ -64,23 +64,23 @@ def main():
     
     # Install npm dependencies including puppeteer
     print("\n[3] Installing npm dependencies (including Puppeteer)...")
-    run_command(client, "cd /var/www/hoopstats && npm install puppeteer")
-    run_command(client, "cd /var/www/hoopstats && npm install")
+    run_command(client, "cd /var/www/courtsideedge && npm install puppeteer")
+    run_command(client, "cd /var/www/courtsideedge && npm install")
     
     # Build
     print("\n[4] Building application...")
-    run_command(client, "cd /var/www/hoopstats && npm run build")
+    run_command(client, "cd /var/www/courtsideedge && npm run build")
     
     # Update ecosystem config with USE_PUPPETEER=true
     ecosystem_config = f'''module.exports = {{
   apps: [{{
-    name: 'hoopstats',
+    name: 'courtsideedge',
     script: 'dist/index.cjs',
-    cwd: '/var/www/hoopstats',
+    cwd: '/var/www/courtsideedge',
     env: {{
       NODE_ENV: 'production',
       PORT: 5000,
-      DATABASE_URL: 'postgres://hoopstats_user:HoopStats2026Secure!@localhost:5432/hoopstats',
+      DATABASE_URL: 'postgres://courtsideedge_user:CourtSideEdge2026Secure!@localhost:5432/courtsideedge',
       THE_ODDS_API_KEY: 'c5873a5a6e8bc29b33e7b9a69b974da5',
       SCRAPER_API_KEY: '{SCRAPER_API_KEY}',
       USE_PUPPETEER: 'true'
@@ -93,14 +93,14 @@ def main():
 }};'''
     
     print("\n[5] Updating ecosystem config with USE_PUPPETEER=true...")
-    run_command(client, f"""cat > /var/www/hoopstats/ecosystem.config.cjs << 'EOFCONFIG'
+    run_command(client, f"""cat > /var/www/courtsideedge/ecosystem.config.cjs << 'EOFCONFIG'
 {ecosystem_config}
 EOFCONFIG""")
     
     # Delete old PM2 and restart
     print("\n[6] Restarting PM2...")
     run_command(client, "pm2 delete all")
-    run_command(client, "cd /var/www/hoopstats && pm2 start ecosystem.config.cjs")
+    run_command(client, "cd /var/www/courtsideedge && pm2 start ecosystem.config.cjs")
     run_command(client, "pm2 save")
     
     # Wait for app to start and Puppeteer to initialize
@@ -112,7 +112,7 @@ EOFCONFIG""")
     run_command(client, "pm2 status")
     
     print("\n[9] Checking logs...")
-    run_command(client, "pm2 logs hoopstats --lines 30 --nostream")
+    run_command(client, "pm2 logs courtsideedge --lines 30 --nostream")
     
     # Test endpoint
     print("\n[10] Testing PrizePicks endpoint...")

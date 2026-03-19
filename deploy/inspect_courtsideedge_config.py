@@ -35,8 +35,8 @@ def run_command(client, command):
 def main():
     client = create_ssh_client()
     try:
-        print("Content of hoopstats config:")
-        run_command(client, "cat /etc/nginx/sites-enabled/hoopstats")
+        print("Content of courtsideedge config:")
+        run_command(client, "cat /etc/nginx/sites-enabled/courtsideedge")
     finally:
         client.close()
 

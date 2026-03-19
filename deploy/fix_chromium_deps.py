@@ -69,7 +69,7 @@ def main():
     
     # Test Puppeteer browser launch
     print("\n[2] Testing Puppeteer browser launch...")
-    run_command(client, """cd /var/www/hoopstats && node -e "
+    run_command(client, """cd /var/www/courtsideedge && node -e "
         const puppeteer = require('puppeteer');
         (async () => {
             console.log('Launching browser...');
@@ -90,7 +90,7 @@ def main():
     
     # Restart PM2 to clear any cached errors
     print("\n[3] Restarting PM2...")
-    run_command(client, "pm2 restart hoopstats")
+    run_command(client, "pm2 restart courtsideedge")
     
     time.sleep(15)
     
@@ -100,7 +100,7 @@ def main():
     
     # Check logs
     print("\n[5] Checking logs for Puppeteer messages...")
-    run_command(client, "pm2 logs hoopstats --lines 30 --nostream | grep -i puppeteer")
+    run_command(client, "pm2 logs courtsideedge --lines 30 --nostream | grep -i puppeteer")
     
     client.close()
     print("\n" + "="*60)

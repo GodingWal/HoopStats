@@ -65,13 +65,13 @@ def main():
         # run_command(client, "ss -tuln | grep -E ':(80|5000)'")
         
         print("\nChecking App Status:")
-        run_command(client, "pm2 stop hoopstats")
+        run_command(client, "pm2 stop courtsideedge")
         print("\nRunning App Manually (to catch error):")
         # Run with timeout or expect failure
-        run_command(client, f"cd /var/www/hoopstats && timeout 10s node dist/index.cjs")
+        run_command(client, f"cd /var/www/courtsideedge && timeout 10s node dist/index.cjs")
         
         print("\nRestoring App Status:")
-        run_command(client, f"cd /var/www/hoopstats && pm2 start dist/index.cjs --name hoopstats")
+        run_command(client, f"cd /var/www/courtsideedge && pm2 start dist/index.cjs --name courtsideedge")
         
         print("\nChecking Nginx Config Syntax:")
         run_command(client, "nginx -t")

@@ -14,12 +14,12 @@ def main():
         
         print("=== Checking Recent Error Logs ===")
         # Use tail -f style? No, just tail -n 100
-        cmd = "tail -n 100 /root/.pm2/logs/hoopstats-error.log"
+        cmd = "tail -n 100 /root/.pm2/logs/courtsideedge-error.log"
         stdin, stdout, stderr = client.exec_command(cmd)
         print(stdout.read().decode())
 
         print("=== Checking Recent Out Logs ===")
-        cmd = "tail -n 50 /root/.pm2/logs/hoopstats-out.log"
+        cmd = "tail -n 50 /root/.pm2/logs/courtsideedge-out.log"
         stdin, stdout, stderr = client.exec_command(cmd)
         print(stdout.read().decode())
 

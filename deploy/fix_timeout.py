@@ -35,7 +35,7 @@ def main():
     
     # 1. Update nginx config with longer timeout
     print("\n[1] Updating nginx timeout settings...")
-    nginx_config = '''upstream hoopstats_backend {
+    nginx_config = '''upstream courtsideedge_backend {
     server 127.0.0.1:5000;
 }
 
@@ -50,7 +50,7 @@ server {
     proxy_read_timeout 120s;
 
     location / {
-        proxy_pass http://hoopstats_backend;
+        proxy_pass http://courtsideedge_backend;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection 'upgrade';
@@ -66,7 +66,7 @@ server {
         proxy_busy_buffers_size 256k;
     }
 }'''
-    run_command(client, f"""cat > /etc/nginx/sites-available/hoopstats << 'EOF'
+    run_command(client, f"""cat > /etc/nginx/sites-available/courtsideedge << 'EOF'
 {nginx_config}
 EOF""")
     run_command(client, "nginx -t && systemctl reload nginx")
@@ -75,13 +75,13 @@ EOF""")
     print("\n[2] Disabling Puppeteer (too slow, causes timeouts)...")
     ecosystem_config = f'''module.exports = {{
   apps: [{{
-    name: 'hoopstats',
+    name: 'courtsideedge',
     script: 'dist/index.cjs',
-    cwd: '/var/www/hoopstats',
+    cwd: '/var/www/courtsideedge',
     env: {{
       NODE_ENV: 'production',
       PORT: 5000,
-      DATABASE_URL: 'postgres://hoopstats_user:HoopStats2026Secure!@localhost:5432/hoopstats',
+      DATABASE_URL: 'postgres://courtsideedge_user:CourtSideEdge2026Secure!@localhost:5432/courtsideedge',
       THE_ODDS_API_KEY: 'c5873a5a6e8bc29b33e7b9a69b974da5',
       SCRAPER_API_KEY: '{SCRAPER_API_KEY}',
       USE_PUPPETEER: 'false'
@@ -93,14 +93,14 @@ EOF""")
   }}]
 }};'''
     
-    run_command(client, f"""cat > /var/www/hoopstats/ecosystem.config.cjs << 'EOFCONFIG'
+    run_command(client, f"""cat > /var/www/courtsideedge/ecosystem.config.cjs << 'EOFCONFIG'
 {ecosystem_config}
 EOFCONFIG""")
     
     # 3. Restart PM2
     print("\n[3] Restarting PM2...")
     run_command(client, "pm2 delete all")
-    run_command(client, "cd /var/www/hoopstats && pm2 start ecosystem.config.cjs")
+    run_command(client, "cd /var/www/courtsideedge && pm2 start ecosystem.config.cjs")
     run_command(client, "pm2 save")
     
     time.sleep(5)

@@ -415,7 +415,7 @@ def example_6_parlay_evaluation():
 if __name__ == '__main__':
     print("\n" + "="*60)
     print("COMPREHENSIVE PROJECTION EXAMPLES")
-    print("HoopStats - Advanced NBA Projection System")
+    print("CourtSideEdge - Advanced NBA Projection System")
     print("="*60)
 
     # Run all examples

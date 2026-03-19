@@ -31,7 +31,7 @@ def main():
     run_command(client, "ls -la /etc/nginx/sites-enabled/")
     
     # Check the config content
-    run_command(client, "cat /etc/nginx/sites-available/hoopstats")
+    run_command(client, "cat /etc/nginx/sites-available/courtsideedge")
     
     # Reload nginx
     run_command(client, "systemctl reload nginx")

@@ -4,7 +4,7 @@ import sys
 HOST = "76.13.100.125"
 USERNAME = "root"
 PASSWORD = "Wittymango520@"
-REMOTE_DIR = "/var/www/hoopstats"
+REMOTE_DIR = "/var/www/courtsideedge"
 VENV_PYTHON = f"{REMOTE_DIR}/server/nba-prop-model/venv/bin/python"
 
 def main():

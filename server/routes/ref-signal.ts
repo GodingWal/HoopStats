@@ -1,7 +1,7 @@
 /**
  * CourtSide Edge - Referee Foul Signal API Routes
  * ================================================
- * Add these routes to your existing Express server in HoopStats.
+ * Add these routes to your existing Express server in CourtSideEdge.
  * 
  * Integration:
  *   // In your main server/routes.ts or server/index.ts

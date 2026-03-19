@@ -13,7 +13,7 @@ def main():
         client.connect(HOST, username=USERNAME, password=PASSWORD, timeout=30)
         
         print("=== Checking ref-signal.js Content ===")
-        cmd = "cat /var/www/hoopstats/dist/server/routes/ref-signal.js"
+        cmd = "cat /var/www/courtsideedge/dist/server/routes/ref-signal.js"
         # Since file is large? It shouldn't be too large.
         stdin, stdout, stderr = client.exec_command(cmd)
         output = stdout.read().decode()

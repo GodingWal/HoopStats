@@ -9,7 +9,7 @@ if sys.platform == 'win32':
 HOST = "76.13.100.125"
 USERNAME = "root"
 PASSWORD = "Wittymango520@"
-REMOTE_DIR = "/var/www/hoopstats"
+REMOTE_DIR = "/var/www/courtsideedge"
 
 def create_ssh_client():
     client = paramiko.SSHClient()
@@ -53,7 +53,7 @@ def main():
         
         print("\n" + "=" * 50)
         print("4. Checking PM2 logs for errors...")
-        run_command(client, "pm2 logs hoopstats --lines 30 --nostream")
+        run_command(client, "pm2 logs courtsideedge --lines 30 --nostream")
         
         print("\n" + "=" * 50)
         print("5. Testing Python script directly (may take a while)...")

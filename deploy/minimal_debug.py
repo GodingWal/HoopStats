@@ -10,7 +10,7 @@ if sys.platform == 'win32':
 HOST = "76.13.100.125"
 USERNAME = "root"
 PASSWORD = "Wittymango520@"
-REMOTE_DIR = "/var/www/hoopstats"
+REMOTE_DIR = "/var/www/courtsideedge"
 
 def create_ssh_client():
     client = paramiko.SSHClient()
@@ -38,13 +38,13 @@ def run_command(client, command):
 def main():
     client = create_ssh_client()
     try:
-        # run_command(client, "pm2 stop hoopstats")
+        # run_command(client, "pm2 stop courtsideedge")
         print("-" * 20)
         run_command(client, f"ls -la {REMOTE_DIR}/dist/data")
         print("-" * 20)
         run_command(client, f"cd {REMOTE_DIR} && timeout 10s node dist/index.cjs")
         print("-" * 20)
-        run_command(client, f"cd {REMOTE_DIR} && pm2 start dist/index.cjs --name hoopstats")
+        run_command(client, f"cd {REMOTE_DIR} && pm2 start dist/index.cjs --name courtsideedge")
     finally:
         client.close()
 

@@ -12,11 +12,11 @@ client = paramiko.SSHClient()
 client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 client.connect(HOST, username=USERNAME, password=PASSWORD, timeout=30)
 
-cmd_env = "cat /var/www/hoopstats/.env"
+cmd_env = "cat /var/www/courtsideedge/.env"
 client.exec_command(cmd_env)
 # ... assume same connection logic ...
 
-psql_cmd = "psql $(grep DATABASE_URL /var/www/hoopstats/.env | cut -d= -f2 | tr -d '\"')"
+psql_cmd = "psql $(grep DATABASE_URL /var/www/courtsideedge/.env | cut -d= -f2 | tr -d '\"')"
 
 cmd_check = f"""{psql_cmd} -c "\d game_referees; \d referees;" """
 

@@ -35,26 +35,26 @@ def main():
     
     # Pull latest changes
     print("\n[1] Pulling latest code from GitHub...")
-    run_command(client, "cd /var/www/hoopstats && git pull")
+    run_command(client, "cd /var/www/courtsideedge && git pull")
     
     # Install dependencies
     print("\n[2] Installing dependencies...")
-    run_command(client, "cd /var/www/hoopstats && npm install")
+    run_command(client, "cd /var/www/courtsideedge && npm install")
     
     # Build
     print("\n[3] Building application...")
-    run_command(client, "cd /var/www/hoopstats && npm run build")
+    run_command(client, "cd /var/www/courtsideedge && npm run build")
     
     # Update ecosystem config with ScraperAPI key (use SCRAPER_API_KEY as primary)
     ecosystem_config = f'''module.exports = {{
   apps: [{{
-    name: 'hoopstats',
+    name: 'courtsideedge',
     script: 'dist/index.cjs',
-    cwd: '/var/www/hoopstats',
+    cwd: '/var/www/courtsideedge',
     env: {{
       NODE_ENV: 'production',
       PORT: 5000,
-      DATABASE_URL: 'postgres://hoopstats_user:HoopStats2026Secure!@localhost:5432/hoopstats',
+      DATABASE_URL: 'postgres://courtsideedge_user:CourtSideEdge2026Secure!@localhost:5432/courtsideedge',
       THE_ODDS_API_KEY: 'c5873a5a6e8bc29b33e7b9a69b974da5',
       SCRAPER_API_KEY: '{SCRAPER_API_KEY}'
     }},
@@ -66,14 +66,14 @@ def main():
 }};'''
     
     print("\n[4] Updating ecosystem config with ScraperAPI key...")
-    run_command(client, f"""cat > /var/www/hoopstats/ecosystem.config.cjs << 'EOFCONFIG'
+    run_command(client, f"""cat > /var/www/courtsideedge/ecosystem.config.cjs << 'EOFCONFIG'
 {ecosystem_config}
 EOFCONFIG""")
     
     # Restart PM2
     print("\n[5] Restarting PM2...")
     run_command(client, "pm2 delete all")
-    run_command(client, "cd /var/www/hoopstats && pm2 start ecosystem.config.cjs")
+    run_command(client, "cd /var/www/courtsideedge && pm2 start ecosystem.config.cjs")
     run_command(client, "pm2 save")
     
     # Wait for startup
@@ -85,7 +85,7 @@ EOFCONFIG""")
     
     # Check logs for ScraperAPI messages
     print("\n[7] Checking logs for ScraperAPI usage...")
-    run_command(client, "pm2 logs hoopstats --lines 30 --nostream")
+    run_command(client, "pm2 logs courtsideedge --lines 30 --nostream")
     
     # Test the PrizePicks endpoint
     print("\n[8] Testing PrizePicks endpoint...")

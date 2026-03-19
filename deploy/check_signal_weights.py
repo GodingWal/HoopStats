@@ -8,7 +8,7 @@ client.connect('76.13.100.125', username='root', password='Wittymango520@', time
 
 # Check signal_weights table structure and data
 print('=== Signal weights table structure ===')
-cmd = '''cd /var/www/hoopstats && source server/nba-prop-model/venv/bin/activate && set -a && source .env && set +a && python3 << 'PYEOF'
+cmd = '''cd /var/www/courtsideedge && source server/nba-prop-model/venv/bin/activate && set -a && source .env && set +a && python3 << 'PYEOF'
 import os
 import psycopg2
 

@@ -13,7 +13,7 @@ def main():
         client.connect(HOST, username=USERNAME, password=PASSWORD, timeout=30)
         
         print("=== Stopping PM2 Process ===")
-        client.exec_command("pm2 stop hoopstats")
+        client.exec_command("pm2 stop courtsideedge")
         time.sleep(3)
         
         print("=== Checking Port 5000 ===")
@@ -31,7 +31,7 @@ def main():
         print(stderr.read().decode())
         
         print("=== Restarting PM2 Process (cleanup) ===")
-        client.exec_command("pm2 restart hoopstats")
+        client.exec_command("pm2 restart courtsideedge")
 
         client.close()
         

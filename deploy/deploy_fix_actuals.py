@@ -9,7 +9,7 @@ if sys.platform == 'win32':
 HOST = "76.13.100.125"
 USERNAME = "root"
 PASSWORD = "Wittymango520@"
-REMOTE_DIR = "/var/www/hoopstats"
+REMOTE_DIR = "/var/www/courtsideedge"
 VENV_PYTHON = f"{REMOTE_DIR}/server/nba-prop-model/venv/bin/python"
 VENV_PIP = f"{REMOTE_DIR}/server/nba-prop-model/venv/bin/pip"
 
@@ -153,7 +153,7 @@ rm get_pending_dates.py"""
         
         # Step 4: Restart PM2 (to be safe, in case app needs fresh env or code)
         print("\n[4/4] Restarting PM2...")
-        run_command(client, f"cd {REMOTE_DIR} && pm2 restart hoopstats", timeout=60)
+        run_command(client, f"cd {REMOTE_DIR} && pm2 restart courtsideedge", timeout=60)
         
         print("\n" + "="*60)
         print("DEPLOYMENT COMPLETE!")

@@ -9,10 +9,10 @@ if sys.platform == 'win32':
 HOST = "76.13.100.125"
 USERNAME = "root"
 PASSWORD = "Wittymango520@"
-REPO_URL = "https://github.com/GodingWal/HoopStats.git"
-APP_DIR = "/var/www/hoopstats"
-NEW_DIR = "/var/www/hoopstats_new"
-BACKUP_DIR = "/var/www/hoopstats_backup"
+REPO_URL = "https://github.com/GodingWal/CourtSideEdge.git"
+APP_DIR = "/var/www/courtsideedge"
+NEW_DIR = "/var/www/courtsideedge_new"
+BACKUP_DIR = "/var/www/courtsideedge_backup"
 
 def create_ssh_client():
     client = paramiko.SSHClient()
@@ -67,7 +67,7 @@ def main():
 
         # 4. Stop current app
         print("\n4. Stopping application...")
-        run_command(client, "pm2 stop hoopstats", ignore_error=True)
+        run_command(client, "pm2 stop courtsideedge", ignore_error=True)
 
         # 5. Swap directories
         print("\n5. Swapping directories...")
@@ -89,7 +89,7 @@ def main():
 
         # 8. Start app
         print("\n8. Restarting application...")
-        run_command(client, f"cd {APP_DIR} && pm2 restart hoopstats")
+        run_command(client, f"cd {APP_DIR} && pm2 restart courtsideedge")
         
         print("\nREPAIR COMPLETE successfully.")
         

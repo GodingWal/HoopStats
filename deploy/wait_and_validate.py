@@ -8,7 +8,7 @@ if sys.platform == 'win32':
 HOST = "76.13.100.125"
 USERNAME = "root"
 PASSWORD = "Wittymango520@"
-MODEL_DIR = "/var/www/hoopstats/server/nba-prop-model"
+MODEL_DIR = "/var/www/courtsideedge/server/nba-prop-model"
 VENV_PYTHON = f"{MODEL_DIR}/venv/bin/python"
 
 client = paramiko.SSHClient()
@@ -42,9 +42,9 @@ export $(cat ../../.env | xargs 2>/dev/null) &&
 stdin, stdout, stderr = client.exec_command(cmd)
 print("Validation output:")
 # Read streaming output if possible? 
-# Validation logs to stdout if configured, but cron_jobs.py logs to file /tmp/hoopstats_cron.log?
+# Validation logs to stdout if configured, but cron_jobs.py logs to file /tmp/courtsideedge_cron.log?
 # My cron_jobs.py setup:
-# handlers=[logging.StreamHandler(), logging.FileHandler('/tmp/hoopstats_cron.log')]
+# handlers=[logging.StreamHandler(), logging.FileHandler('/tmp/courtsideedge_cron.log')]
 # So it prints to stdout too.
 print(stdout.read().decode().strip())
 print(stderr.read().decode().strip())

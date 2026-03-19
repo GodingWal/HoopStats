@@ -7,7 +7,7 @@ if sys.platform == 'win32':
 HOST = "76.13.100.125"
 USERNAME = "root"
 PASSWORD = "Wittymango520@"
-ROOT_DIR = "/var/www/hoopstats"
+ROOT_DIR = "/var/www/courtsideedge"
 MODEL_DIR = f"{ROOT_DIR}/server/nba-prop-model"
 VENV_PYTHON = f"{MODEL_DIR}/venv/bin/python"
 

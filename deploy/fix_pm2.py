@@ -8,7 +8,7 @@ if sys.platform == 'win32':
 HOST = "76.13.100.125"
 USERNAME = "root"
 PASSWORD = "Wittymango520@"
-REMOTE_DIR = "/var/www/hoopstats"
+REMOTE_DIR = "/var/www/courtsideedge"
 
 def create_ssh_client():
     client = paramiko.SSHClient()
@@ -41,20 +41,20 @@ def main():
         print("1. Creating start.sh script...")
         
         # Create start.sh using heredoc
-        create_script_cmd = """cat > /var/www/hoopstats/start.sh << 'EOF'
+        create_script_cmd = """cat > /var/www/courtsideedge/start.sh << 'EOF'
 #!/bin/bash
-cd /var/www/hoopstats
+cd /var/www/courtsideedge
 export NODE_ENV=production
 node dist/index.cjs
 EOF"""
         run_command(client, create_script_cmd)
-        run_command(client, "chmod +x /var/www/hoopstats/start.sh")
-        run_command(client, "cat /var/www/hoopstats/start.sh")
+        run_command(client, "chmod +x /var/www/courtsideedge/start.sh")
+        run_command(client, "cat /var/www/courtsideedge/start.sh")
         
         print("\n" + "=" * 50)
         print("2. Reconfiguring PM2...")
-        run_command(client, "pm2 delete hoopstats", timeout=30)
-        run_command(client, f"cd {REMOTE_DIR} && pm2 start start.sh --name hoopstats")
+        run_command(client, "pm2 delete courtsideedge", timeout=30)
+        run_command(client, f"cd {REMOTE_DIR} && pm2 start start.sh --name courtsideedge")
         run_command(client, "pm2 save")
         
         print("\n" + "=" * 50)

@@ -9,7 +9,7 @@ if sys.platform == 'win32':
 HOST = "76.13.100.125"
 USERNAME = "root"
 PASSWORD = "Wittymango520@"
-BASE_DIR = r"c:\Users\Goding Wal\Desktop\Hoop-Stats"
+BASE_DIR = r"c:\Users\Goding Wal\Desktop\CourtSideEdge"
 
 def upload_file(sftp, local_path, remote_path):
     print(f"Uploading {local_path} -> {remote_path}")
@@ -42,7 +42,7 @@ def main():
     
     # Upload puppeteer-scraper.ts
     local_path = os.path.join(BASE_DIR, "server", "puppeteer-scraper.ts")
-    remote_path = "/var/www/hoopstats/server/puppeteer-scraper.ts"
+    remote_path = "/var/www/courtsideedge/server/puppeteer-scraper.ts"
     upload_file(sftp, local_path, remote_path)
     
     sftp.close()
@@ -54,21 +54,21 @@ def main():
     # So I MUST rebuild.
     
     print("\n[1] Rebuilding application...")
-    run_command(client, "cd /var/www/hoopstats && npm run build")
+    run_command(client, "cd /var/www/courtsideedge && npm run build")
     
     # Restart
     print("\n[2] Restarting PM2...")
-    run_command(client, "pm2 restart hoopstats")
+    run_command(client, "pm2 restart courtsideedge")
     
     # Check logs
     print("\n[3] Watching logs for Puppeteer success/fail...")
     time.sleep(10)
     # Check out log for "Using Puppeteer" and subsequent result
-    cmd = "grep -A 5 'Using Puppeteer' /root/.pm2/logs/hoopstats-out-0.log | tail -n 10"
+    cmd = "grep -A 5 'Using Puppeteer' /root/.pm2/logs/courtsideedge-out-0.log | tail -n 10"
     run_command(client, cmd)
     
     # Check error log
-    cmd_err = "tail -n 10 /root/.pm2/logs/hoopstats-error-0.log"
+    cmd_err = "tail -n 10 /root/.pm2/logs/courtsideedge-error-0.log"
     run_command(client, cmd_err)
     
     client.close()

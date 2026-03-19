@@ -7,7 +7,7 @@ if sys.platform == 'win32':
 HOST = "76.13.100.125"
 USERNAME = "root"
 PASSWORD = "Wittymango520@"
-MODEL_DIR = "/var/www/hoopstats/server/nba-prop-model"
+MODEL_DIR = "/var/www/courtsideedge/server/nba-prop-model"
 VENV_PYTHON = f"{MODEL_DIR}/venv/bin/python"
 
 # Python script to run on VPS
@@ -17,7 +17,7 @@ import sys
 import psycopg2
 from datetime import datetime, timedelta
 
-sys.path.insert(0, "/var/www/hoopstats/server/nba-prop-model")
+sys.path.insert(0, "/var/www/courtsideedge/server/nba-prop-model")
 from src.data.nba_api_client import NBADataClient
 
 db_url = os.environ.get("DATABASE_URL")
@@ -149,7 +149,7 @@ print(stderr.read().decode().strip())
 # Check results
 print("\nChecking results...")
 stdin, stdout, stderr = client.exec_command("""
-export $(cat /var/www/hoopstats/.env | xargs 2>/dev/null)
+export $(cat /var/www/courtsideedge/.env | xargs 2>/dev/null)
 PGPASSWORD=$(echo $DATABASE_URL | sed -n 's/.*:\\/\\/[^:]*:\\([^@]*\\)@.*/\\1/p') psql -h $(echo $DATABASE_URL | sed -n 's/.*@\\([^:]*\\):.*/\\1/p') -U $(echo $DATABASE_URL | sed -n 's/.*:\\/\\/\\([^:]*\\):.*/\\1/p') -d $(echo $DATABASE_URL | sed -n 's/.*\\/\\([^?]*\\).*/\\1/p') -c "
 SELECT stat_type, COUNT(*) as total, COUNT(actual_value) as with_actuals 
 FROM prizepicks_daily_lines 

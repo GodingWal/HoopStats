@@ -34,7 +34,7 @@ def main():
     
     # Restart PM2
     print("\n[1] Restarting PM2...")
-    run_command(client, "pm2 restart hoopstats")
+    run_command(client, "pm2 restart courtsideedge")
     
     # Wait for startup
     print("\n[2] Waiting 25 seconds for Puppeteer to fetch data...")
@@ -46,7 +46,7 @@ def main():
     
     # Check logs
     print("\n[4] Checking logs for Puppeteer activity...")
-    run_command(client, "pm2 logs hoopstats --lines 40 --nostream")
+    run_command(client, "pm2 logs courtsideedge --lines 40 --nostream")
     
     client.close()
     print("\n" + "="*60)

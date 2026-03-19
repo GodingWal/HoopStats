@@ -8,14 +8,14 @@ client.connect('76.13.100.125', username='root', password='Wittymango520@', time
 
 # Run the weight optimizer to update weights based on backtest performance
 print('=== Running weight optimizer from backtest data ===')
-cmd = '''cd /var/www/hoopstats && source server/nba-prop-model/venv/bin/activate && set -a && source .env && set +a && python server/nba-prop-model/scripts/cron_jobs.py weights 2>&1'''
+cmd = '''cd /var/www/courtsideedge && source server/nba-prop-model/venv/bin/activate && set -a && source .env && set +a && python server/nba-prop-model/scripts/cron_jobs.py weights 2>&1'''
 stdin, stdout, stderr = client.exec_command(cmd, timeout=180)
 print(stdout.read().decode('utf-8', errors='replace'))
 print(stderr.read().decode('utf-8', errors='replace'))
 
 # Verify weights were saved
 print('\n\n=== Verifying signal_weights were populated ===')
-cmd = '''cd /var/www/hoopstats && source server/nba-prop-model/venv/bin/activate && set -a && source .env && set +a && python3 << 'PYEOF'
+cmd = '''cd /var/www/courtsideedge && source server/nba-prop-model/venv/bin/activate && set -a && source .env && set +a && python3 << 'PYEOF'
 import os
 import psycopg2
 

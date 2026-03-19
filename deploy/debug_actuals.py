@@ -7,7 +7,7 @@ if sys.platform == 'win32':
 HOST = "76.13.100.125"
 USERNAME = "root"
 PASSWORD = "Wittymango520@"
-MODEL_DIR = "/var/www/hoopstats/server/nba-prop-model"
+MODEL_DIR = "/var/www/courtsideedge/server/nba-prop-model"
 VENV_PYTHON = f"{MODEL_DIR}/venv/bin/python"
 
 print(f"Connecting to {HOST}...")
@@ -24,7 +24,7 @@ print("\nRunning actuals population for all dates...")
 script = '''
 import os
 import sys
-sys.path.insert(0, '/var/www/hoopstats/server/nba-prop-model')
+sys.path.insert(0, '/var/www/courtsideedge/server/nba-prop-model')
 
 import psycopg2
 from datetime import datetime, timedelta

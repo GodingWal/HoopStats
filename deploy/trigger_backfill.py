@@ -13,7 +13,7 @@ def main():
         client.connect(HOST, username=USERNAME, password=PASSWORD, timeout=30)
         
         print("=== Pulling latest code ===")
-        stdin, stdout, stderr = client.exec_command("cd /var/www/hoopstats && git pull")
+        stdin, stdout, stderr = client.exec_command("cd /var/www/courtsideedge && git pull")
         print(stdout.read().decode())
         print(stderr.read().decode())
 
@@ -22,7 +22,7 @@ def main():
 
         print("=== Running Backfill (Limit 50 first to test) ===")
         # Run with limit first to verify it works without crashing
-        cmd = "cd /var/www/hoopstats && /usr/bin/python3 server/nba-prop-model/scripts/backfill_players.py --season 2025-26"
+        cmd = "cd /var/www/courtsideedge && /usr/bin/python3 server/nba-prop-model/scripts/backfill_players.py --season 2025-26"
         
         print(f"Executing: {cmd}")
         stdin, stdout, stderr = client.exec_command(cmd)

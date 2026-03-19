@@ -37,12 +37,12 @@ for i, df in enumerate(summary):
 """
 
 sftp = client.open_sftp()
-with sftp.file("/var/www/hoopstats/server/nba-prop-model/scripts/check_ref_api.py", "w") as f:
+with sftp.file("/var/www/courtsideedge/server/nba-prop-model/scripts/check_ref_api.py", "w") as f:
     f.write(script_content)
 sftp.close()
 
 print("Running check...")
-cmd_run = "python3 /var/www/hoopstats/server/nba-prop-model/scripts/check_ref_api.py"
+cmd_run = "python3 /var/www/courtsideedge/server/nba-prop-model/scripts/check_ref_api.py"
 stdin, stdout, stderr = client.exec_command(cmd_run)
 print(stdout.read().decode())
 print(stderr.read().decode())

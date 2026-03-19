@@ -35,7 +35,7 @@ def main():
     
     # Check current nginx site config
     print("\n[1] Current Nginx site configuration:")
-    run_command(client, "cat /etc/nginx/sites-enabled/hoopstats")
+    run_command(client, "cat /etc/nginx/sites-enabled/courtsideedge")
     
     # Check the main nginx.conf to see if it's including sites-enabled
     print("\n[2] Nginx main config (sites-enabled include):")
@@ -43,7 +43,7 @@ def main():
     
     # Check PM2 logs for any errors
     print("\n[3] Recent PM2 error logs:")
-    run_command(client, "pm2 logs hoopstats --err --lines 20 --nostream")
+    run_command(client, "pm2 logs courtsideedge --err --lines 20 --nostream")
     
     # Full test from inside the server
     print("\n[4] Testing full page load via nginx (first 100 chars):")
@@ -72,7 +72,7 @@ def main():
     }
 }'''
     
-    run_command(client, f"""cat > /etc/nginx/sites-available/hoopstats << 'EOF'
+    run_command(client, f"""cat > /etc/nginx/sites-available/courtsideedge << 'EOF'
 {nginx_config}
 EOF""")
     

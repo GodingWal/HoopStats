@@ -33,11 +33,11 @@ def main():
     
     # 1. Check ecosystem config
     print("\n[1] Checking ecosystem.config.cjs variable...")
-    run_command(client, "grep USE_PUPPETEER /var/www/hoopstats/ecosystem.config.cjs")
+    run_command(client, "grep USE_PUPPETEER /var/www/courtsideedge/ecosystem.config.cjs")
     
     # 2. Check installed packages
     print("\n[2] Checking puppeteer version...")
-    run_command(client, "cd /var/www/hoopstats && npm list puppeteer")
+    run_command(client, "cd /var/www/courtsideedge && npm list puppeteer")
     
     # 3. Create and run a simple puppeteer test script
     test_script = """
@@ -63,7 +63,7 @@ const puppeteer = require('puppeteer');
 """
     print("\n[3] Running Puppeteer launch test...")
     run_command(client, f"cat > /tmp/test_puppeteer.js << 'EOF'\n{test_script}\nEOF")
-    run_command(client, "cd /var/www/hoopstats && node /tmp/test_puppeteer.js")
+    run_command(client, "cd /var/www/courtsideedge && node /tmp/test_puppeteer.js")
     
     client.close()
     print("\n" + "="*60)

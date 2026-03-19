@@ -37,21 +37,21 @@ def main():
     
     # Remove failed venv and recreate
     print("\n[2] Creating Python virtual environment...")
-    run_command(client, "rm -rf /var/www/hoopstats/venv")
-    run_command(client, "cd /var/www/hoopstats && python3 -m venv venv")
+    run_command(client, "rm -rf /var/www/courtsideedge/venv")
+    run_command(client, "cd /var/www/courtsideedge && python3 -m venv venv")
     
     # Install dependencies
     print("\n[3] Installing Python dependencies...")
-    run_command(client, "cd /var/www/hoopstats && source venv/bin/activate && pip install --upgrade pip")
-    run_command(client, "cd /var/www/hoopstats && source venv/bin/activate && pip install psycopg2-binary requests python-dotenv pandas numpy")
+    run_command(client, "cd /var/www/courtsideedge && source venv/bin/activate && pip install --upgrade pip")
+    run_command(client, "cd /var/www/courtsideedge && source venv/bin/activate && pip install psycopg2-binary requests python-dotenv pandas numpy")
     
     # Check if cron_jobs.py needs additional dependencies
     print("\n[4] Checking cron_jobs.py imports...")
-    run_command(client, "head -30 /var/www/hoopstats/server/nba-prop-model/scripts/cron_jobs.py")
+    run_command(client, "head -30 /var/www/courtsideedge/server/nba-prop-model/scripts/cron_jobs.py")
     
     # Run capture
     print("\n[5] Running CAPTURE...")
-    run_command(client, "cd /var/www/hoopstats && source venv/bin/activate && python server/nba-prop-model/scripts/cron_jobs.py capture 2>&1")
+    run_command(client, "cd /var/www/courtsideedge && source venv/bin/activate && python server/nba-prop-model/scripts/cron_jobs.py capture 2>&1")
     
     client.close()
     print("\n" + "="*60)

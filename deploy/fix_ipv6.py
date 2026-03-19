@@ -33,7 +33,7 @@ def main():
     
     # Create nginx config that explicitly uses IPv4
     nginx_config = '''# Upstream to force IPv4
-upstream hoopstats_backend {
+upstream courtsideedge_backend {
     server 127.0.0.1:5000;
 }
 
@@ -43,7 +43,7 @@ server {
     server_name courtside-edge.com www.courtside-edge.com _;
 
     location / {
-        proxy_pass http://hoopstats_backend;
+        proxy_pass http://courtsideedge_backend;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection 'upgrade';
@@ -59,7 +59,7 @@ server {
 }'''
     
     print("\n[1] Writing new nginx config with explicit IPv4 upstream...")
-    run_command(client, f"""cat > /etc/nginx/sites-available/hoopstats << 'EOF'
+    run_command(client, f"""cat > /etc/nginx/sites-available/courtsideedge << 'EOF'
 {nginx_config}
 EOF""")
     

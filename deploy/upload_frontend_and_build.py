@@ -15,8 +15,8 @@ client.connect(HOST, username=USERNAME, password=PASSWORD, timeout=120)
 
 # 1. Upload the file
 sftp = client.open_sftp()
-local_path = r"c:\Users\Goding Wal\Desktop\Hoop-Stats\client\src\pages\backtest.tsx"
-remote_path = "/var/www/hoopstats/client/src/pages/backtest.tsx"
+local_path = r"c:\Users\Goding Wal\Desktop\CourtSideEdge\client\src\pages\backtest.tsx"
+remote_path = "/var/www/courtsideedge/client/src/pages/backtest.tsx"
 
 print(f"Uploading {local_path} -> {remote_path}...")
 sftp.put(local_path, remote_path)
@@ -25,7 +25,7 @@ sftp.close()
 # 2. Run Build
 print("Running build (this may take a minute)...")
 commands = [
-    "cd /var/www/hoopstats && npm run build",
+    "cd /var/www/courtsideedge && npm run build",
     "pm2 restart all"
 ]
 

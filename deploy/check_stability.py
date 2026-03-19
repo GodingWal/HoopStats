@@ -24,7 +24,7 @@ def main():
         time.sleep(10)
         
         print("=== PM2 Status (after 10s wait) ===")
-        out = run_command(client, "pm2 status hoopstats")
+        out = run_command(client, "pm2 status courtsideedge")
         # PM2 status has unicode characters, just print safely
         for line in out.split('\n'):
             try:
@@ -33,11 +33,11 @@ def main():
                 print("[Unable to print line]")
                 
         print("\n=== Latest error logs (if any crashes) ===")
-        out = run_command(client, "tail -10 /root/.pm2/logs/hoopstats-error.log 2>/dev/null | head -5")
+        out = run_command(client, "tail -10 /root/.pm2/logs/courtsideedge-error.log 2>/dev/null | head -5")
         print(out or "No errors")
         
         print("\n=== Latest out logs ===")
-        out = run_command(client, "tail -5 /root/.pm2/logs/hoopstats-out.log 2>/dev/null")
+        out = run_command(client, "tail -5 /root/.pm2/logs/courtsideedge-out.log 2>/dev/null")
         print(out[:500] if out else "No logs")
         
     finally:

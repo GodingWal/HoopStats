@@ -7,7 +7,7 @@ if sys.platform == 'win32':
 HOST = "76.13.100.125"
 USERNAME = "root"
 PASSWORD = "Wittymango520@"
-ROOT_DIR = "/var/www/hoopstats"
+ROOT_DIR = "/var/www/courtsideedge"
 MODEL_DIR = f"{ROOT_DIR}/server/nba-prop-model"
 VENV_PYTHON = f"{MODEL_DIR}/venv/bin/python"
 
@@ -38,7 +38,7 @@ print(stderr.read().decode().strip())
 # Check actuals status
 print("\n[3/3] Checking actuals status...")
 stdin, stdout, stderr = client.exec_command("""
-export $(cat /var/www/hoopstats/.env | xargs 2>/dev/null)
+export $(cat /var/www/courtsideedge/.env | xargs 2>/dev/null)
 PGPASSWORD=$(echo $DATABASE_URL | sed -n 's/.*:\\/\\/[^:]*:\\([^@]*\\)@.*/\\1/p') psql -h $(echo $DATABASE_URL | sed -n 's/.*@\\([^:]*\\):.*/\\1/p') -U $(echo $DATABASE_URL | sed -n 's/.*:\\/\\/\\([^:]*\\):.*/\\1/p') -d $(echo $DATABASE_URL | sed -n 's/.*\\/\\([^?]*\\).*/\\1/p') -c "SELECT game_date, COUNT(*) as total, COUNT(actual_value) as with_actuals FROM prizepicks_daily_lines GROUP BY game_date ORDER BY game_date;" 2>&1
 """, timeout=30)
 print(stdout.read().decode().strip())

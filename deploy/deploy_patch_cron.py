@@ -4,7 +4,7 @@ import os
 HOST = "76.13.100.125"
 USERNAME = "root"
 PASSWORD = "Wittymango520@"
-REMOTE_DIR = "/var/www/hoopstats"
+REMOTE_DIR = "/var/www/courtsideedge"
 LOCAL_FILE = "server/nba-prop-model/scripts/cron_jobs.py"
 REMOTE_FILE = f"{REMOTE_DIR}/server/nba-prop-model/scripts/cron_jobs.py"
 VENV_PYTHON = f"{REMOTE_DIR}/server/nba-prop-model/venv/bin/python"

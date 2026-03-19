@@ -14,8 +14,8 @@ client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 client.connect(HOST, username=USERNAME, password=PASSWORD, timeout=30)
 sftp = client.open_sftp()
 
-local_base = r"c:\Users\Goding Wal\Desktop\Hoop-Stats\server\nba-prop-model\src"
-remote_base = "/var/www/hoopstats/server/nba-prop-model/src"
+local_base = r"c:\Users\Goding Wal\Desktop\CourtSideEdge\server\nba-prop-model\src"
+remote_base = "/var/www/courtsideedge/server/nba-prop-model/src"
 
 files_to_sync = [
     ("evaluation/backtest_engine.py", "evaluation/backtest_engine.py"),

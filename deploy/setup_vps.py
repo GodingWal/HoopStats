@@ -9,7 +9,7 @@ if sys.platform == 'win32':
 HOST = "76.13.100.125"
 USERNAME = "root"
 PASSWORD = "Wittymango520@"
-REMOTE_DIR = "/var/www/hoopstats"
+REMOTE_DIR = "/var/www/courtsideedge"
 
 def create_ssh_client():
     client = paramiko.SSHClient()
@@ -81,10 +81,10 @@ def main():
         run_command(client, "systemctl start postgresql")
         
         # Create database and user
-        db_password = "HoopStats2026Secure!"
-        run_command(client, f"""sudo -u postgres psql -c "CREATE USER hoopstats_user WITH PASSWORD '{db_password}';" """)
-        run_command(client, """sudo -u postgres psql -c "CREATE DATABASE hoopstats OWNER hoopstats_user;" """)
-        run_command(client, """sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE hoopstats TO hoopstats_user;" """)
+        db_password = "CourtSideEdge2026Secure!"
+        run_command(client, f"""sudo -u postgres psql -c "CREATE USER courtsideedge_user WITH PASSWORD '{db_password}';" """)
+        run_command(client, """sudo -u postgres psql -c "CREATE DATABASE courtsideedge OWNER courtsideedge_user;" """)
+        run_command(client, """sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE courtsideedge TO courtsideedge_user;" """)
         
         print("\n" + "="*60)
         print("PHASE 4: Python 3.11 Installation")
@@ -131,11 +131,11 @@ def main():
 }'''
         
         # Write nginx config
-        run_command(client, f"""cat > /etc/nginx/sites-available/hoopstats << 'EOF'
+        run_command(client, f"""cat > /etc/nginx/sites-available/courtsideedge << 'EOF'
 {nginx_config}
 EOF""")
         
-        run_command(client, "ln -sf /etc/nginx/sites-available/hoopstats /etc/nginx/sites-enabled/")
+        run_command(client, "ln -sf /etc/nginx/sites-available/courtsideedge /etc/nginx/sites-enabled/")
         run_command(client, "rm -f /etc/nginx/sites-enabled/default")
         run_command(client, "nginx -t")
         run_command(client, "systemctl restart nginx")
@@ -148,12 +148,12 @@ EOF""")
         run_command(client, f"mkdir -p {REMOTE_DIR}")
         
         # Clone repository
-        run_command(client, f"git clone https://github.com/GodingWal/HoopStats.git {REMOTE_DIR}", timeout=120)
+        run_command(client, f"git clone https://github.com/GodingWal/CourtSideEdge.git {REMOTE_DIR}", timeout=120)
         
         # Create .env file
         env_content = f'''NODE_ENV=production
 PORT=5000
-DATABASE_URL=postgres://hoopstats_user:{db_password}@localhost:5432/hoopstats
+DATABASE_URL=postgres://courtsideedge_user:{db_password}@localhost:5432/courtsideedge
 THE_ODDS_API_KEY=c5873a5a6e8bc29b33e7b9a69b974da5
 SCRAPER_API_KEY=abe0ac49c9e68691cd38a1972b254f35
 '''
@@ -172,7 +172,7 @@ EOF""")
         run_command(client, f"cd {REMOTE_DIR} && npm run build", timeout=300)
         
         # Start with PM2
-        run_command(client, f"cd {REMOTE_DIR} && pm2 start dist/index.cjs --name hoopstats")
+        run_command(client, f"cd {REMOTE_DIR} && pm2 start dist/index.cjs --name courtsideedge")
         run_command(client, "pm2 save")
         
         print("\n" + "="*60)
@@ -205,7 +205,7 @@ EOF""")
         print("\nServices running:")
         print("  - PostgreSQL 15")
         print("  - Nginx (port 80 -> 5000)")
-        print("  - PM2 (hoopstats)")
+        print("  - PM2 (courtsideedge)")
         
     finally:
         client.close()

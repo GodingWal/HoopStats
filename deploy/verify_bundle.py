@@ -14,7 +14,7 @@ def main():
         
         print("=== Grepping Bundle ===")
         # Look for the debug log string I added
-        cmd = "grep 'Hit PrizePicks Route' /var/www/hoopstats/dist/index.cjs"
+        cmd = "grep 'Hit PrizePicks Route' /var/www/courtsideedge/dist/index.cjs"
         stdin, stdout, stderr = client.exec_command(cmd)
         output = stdout.read().decode()
         
@@ -24,7 +24,7 @@ def main():
             print("NOT FOUND 'Hit PrizePicks Route'.")
             
         # Also look for the route definition string
-        cmd = "grep '/api/ref-signal/prizepicks' /var/www/hoopstats/dist/index.cjs"
+        cmd = "grep '/api/ref-signal/prizepicks' /var/www/courtsideedge/dist/index.cjs"
         stdin, stdout, stderr = client.exec_command(cmd)
         output = stdout.read().decode()
         

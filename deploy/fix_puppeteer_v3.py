@@ -54,31 +54,31 @@ const puppeteer = require('puppeteer');
 })();
 """
     print("\n[1] Running Puppeteer launch test (test.cjs)...")
-    run_command(client, f"cat > /var/www/hoopstats/test.cjs << 'EOF'\n{test_script}\nEOF")
+    run_command(client, f"cat > /var/www/courtsideedge/test.cjs << 'EOF'\n{test_script}\nEOF")
     
     # Run with node
-    success = run_command(client, "cd /var/www/hoopstats && node test.cjs")
+    success = run_command(client, "cd /var/www/courtsideedge && node test.cjs")
     
     if success:
         print("\nPuppeteer verified! Enabling in ecosystem config...")
         
         # 2. Update ecosystem.config.cjs
         # We replace "USE_PUPPETEER: 'false'" with "USE_PUPPETEER: 'true'"
-        run_command(client, "sed -i \"s/USE_PUPPETEER: 'false'/USE_PUPPETEER: 'true'/g\" /var/www/hoopstats/ecosystem.config.cjs")
+        run_command(client, "sed -i \"s/USE_PUPPETEER: 'false'/USE_PUPPETEER: 'true'/g\" /var/www/courtsideedge/ecosystem.config.cjs")
         
         # Verify change
-        run_command(client, "grep USE_PUPPETEER /var/www/hoopstats/ecosystem.config.cjs")
+        run_command(client, "grep USE_PUPPETEER /var/www/courtsideedge/ecosystem.config.cjs")
         
         # 3. Restart PM2
         print("\n[3] Restarting application...")
-        run_command(client, "pm2 restart hoopstats")
+        run_command(client, "pm2 restart courtsideedge")
         
         # 4. Verify logs after restart to check if it's using Puppeteer
         print("\n[4] Checking start logs...")
         # Wait a few seconds for logs to appear
         import time
         time.sleep(5)
-        run_command(client, "tail -n 20 /root/.pm2/logs/hoopstats-out.log")
+        run_command(client, "tail -n 20 /root/.pm2/logs/courtsideedge-out.log")
         
     else:
         print("\n[ERROR] Puppeteer failed to launch. Not enabling.")

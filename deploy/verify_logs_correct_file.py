@@ -33,11 +33,11 @@ def main():
     
     # Check out log for Puppeteer
     print("\n[1] Checking OUT log for Puppeteer...")
-    run_command(client, "grep 'Using Puppeteer' /root/.pm2/logs/hoopstats-out-0.log | tail -n 5")
+    run_command(client, "grep 'Using Puppeteer' /root/.pm2/logs/courtsideedge-out-0.log | tail -n 5")
     
     # Check error log for recent 429s
     print("\n[2] Checking ERROR log for recent issues...")
-    run_command(client, "tail -n 20 /root/.pm2/logs/hoopstats-error-0.log")
+    run_command(client, "tail -n 20 /root/.pm2/logs/courtsideedge-error-0.log")
     
     client.close()
     print("\n" + "="*60)

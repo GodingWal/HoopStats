@@ -35,13 +35,13 @@ def main():
     print("\n[2] Creating PM2 ecosystem config...")
     ecosystem_config = '''module.exports = {
   apps: [{
-    name: 'hoopstats',
+    name: 'courtsideedge',
     script: 'dist/index.cjs',
-    cwd: '/var/www/hoopstats',
+    cwd: '/var/www/courtsideedge',
     env: {
       NODE_ENV: 'production',
       PORT: 5000,
-      DATABASE_URL: 'postgres://hoopstats_user:HoopStats2026Secure!@localhost:5432/hoopstats',
+      DATABASE_URL: 'postgres://courtsideedge_user:CourtSideEdge2026Secure!@localhost:5432/courtsideedge',
       THE_ODDS_API_KEY: 'c5873a5a6e8bc29b33e7b9a69b974da5',
       SCRAPER_API_KEY: 'abe0ac49c9e68691cd38a1972b254f35'
     },
@@ -52,13 +52,13 @@ def main():
   }]
 };'''
     
-    run_command(client, f"""cat > /var/www/hoopstats/ecosystem.config.cjs << 'EOF'
+    run_command(client, f"""cat > /var/www/courtsideedge/ecosystem.config.cjs << 'EOF'
 {ecosystem_config}
 EOF""")
     
     # Start PM2 with ecosystem config
     print("\n[3] Starting PM2 with ecosystem config...")
-    run_command(client, "cd /var/www/hoopstats && pm2 start ecosystem.config.cjs")
+    run_command(client, "cd /var/www/courtsideedge && pm2 start ecosystem.config.cjs")
     
     # Save PM2 config
     print("\n[4] Saving PM2 config...")
@@ -78,7 +78,7 @@ EOF""")
     
     # Check for any startup errors
     print("\n[7] Checking PM2 logs for errors...")
-    run_command(client, "pm2 logs hoopstats --err --lines 10 --nostream")
+    run_command(client, "pm2 logs courtsideedge --err --lines 10 --nostream")
     
     client.close()
     print("\n" + "="*60)

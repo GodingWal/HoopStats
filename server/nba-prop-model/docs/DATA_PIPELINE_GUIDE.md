@@ -1,6 +1,6 @@
 # Real-Time Data Pipeline Guide
 
-This guide outlines how to build a production-grade real-time data pipeline for the HoopStats projection system.
+This guide outlines how to build a production-grade real-time data pipeline for the CourtSideEdge projection system.
 
 ## Overview
 
@@ -577,7 +577,7 @@ services:
   postgres:
     image: postgres:14
     environment:
-      - POSTGRES_DB=hoopstats
+      - POSTGRES_DB=courtsideedge
       - POSTGRES_USER=admin
       - POSTGRES_PASSWORD=${DB_PASSWORD}
 

@@ -33,24 +33,24 @@ def main():
     
     # Check Python environment
     print("\n[1] Checking Python environment...")
-    run_command(client, "cd /var/www/hoopstats && source venv/bin/activate && which python && python --version")
+    run_command(client, "cd /var/www/courtsideedge && source venv/bin/activate && which python && python --version")
     
     # Run capture
     print("\n[2] Running CAPTURE (today's projections)...")
-    run_command(client, "cd /var/www/hoopstats && source venv/bin/activate && python server/nba-prop-model/scripts/cron_jobs.py capture")
+    run_command(client, "cd /var/www/courtsideedge && source venv/bin/activate && python server/nba-prop-model/scripts/cron_jobs.py capture")
     
     # Run actuals
     print("\n[3] Running ACTUALS (populate actual results)...")
-    run_command(client, "cd /var/www/hoopstats && source venv/bin/activate && python server/nba-prop-model/scripts/cron_jobs.py actuals")
+    run_command(client, "cd /var/www/courtsideedge && source venv/bin/activate && python server/nba-prop-model/scripts/cron_jobs.py actuals")
     
     # Run validate
     print("\n[4] Running VALIDATE (signal validation)...")
-    run_command(client, "cd /var/www/hoopstats && source venv/bin/activate && python server/nba-prop-model/scripts/cron_jobs.py validate")
+    run_command(client, "cd /var/www/courtsideedge && source venv/bin/activate && python server/nba-prop-model/scripts/cron_jobs.py validate")
     
     # Check database for backtest data
     print("\n[5] Checking backtest data in database...")
-    run_command(client, """sudo -u postgres psql -d hoopstats -c "SELECT COUNT(*) as signal_count FROM prop_signals;" 2>/dev/null || echo 'Table may not exist'""")
-    run_command(client, """sudo -u postgres psql -d hoopstats -c "SELECT * FROM prop_signals ORDER BY created_at DESC LIMIT 5;" 2>/dev/null || echo 'No data'""")
+    run_command(client, """sudo -u postgres psql -d courtsideedge -c "SELECT COUNT(*) as signal_count FROM prop_signals;" 2>/dev/null || echo 'Table may not exist'""")
+    run_command(client, """sudo -u postgres psql -d courtsideedge -c "SELECT * FROM prop_signals ORDER BY created_at DESC LIMIT 5;" 2>/dev/null || echo 'No data'""")
     
     client.close()
     print("\n" + "="*60)

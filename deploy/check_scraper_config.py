@@ -9,13 +9,13 @@ client.connect('76.13.100.125', username='root', password='Wittymango520@', time
 
 # Check environment for ScraperAPI key
 print('=== Checking for ScraperAPI Key ===')
-cmd = 'cd /var/www/hoopstats && cat ecosystem.config.cjs | grep -E "SCRAPER|PROXY" || echo "Not found in ecosystem.config.cjs"'
+cmd = 'cd /var/www/courtsideedge && cat ecosystem.config.cjs | grep -E "SCRAPER|PROXY" || echo "Not found in ecosystem.config.cjs"'
 stdin, stdout, stderr = client.exec_command(cmd, timeout=15)
 print(stdout.read().decode('utf-8', errors='replace'))
 
 # Also check .env
 print('\n=== Checking .env ===')
-cmd = 'cd /var/www/hoopstats && cat .env 2>/dev/null | grep -E "SCRAPER|PROXY" || echo "Not found in .env"'
+cmd = 'cd /var/www/courtsideedge && cat .env 2>/dev/null | grep -E "SCRAPER|PROXY" || echo "Not found in .env"'
 stdin, stdout, stderr = client.exec_command(cmd, timeout=15)
 print(stdout.read().decode('utf-8', errors='replace'))
 
@@ -35,7 +35,7 @@ time.sleep(10)
 
 # Check logs after refresh
 print('\n=== PM2 Logs after refresh attempt ===')
-cmd = 'pm2 logs hoopstats --nostream --lines 20 2>&1 | tail -20'
+cmd = 'pm2 logs courtsideedge --nostream --lines 20 2>&1 | tail -20'
 stdin, stdout, stderr = client.exec_command(cmd, timeout=30)
 print(stdout.read().decode('utf-8', errors='replace'))
 

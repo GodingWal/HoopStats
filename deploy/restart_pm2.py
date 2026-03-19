@@ -7,14 +7,14 @@ if sys.platform == 'win32':
 HOST = "76.13.100.125"
 USERNAME = "root"
 PASSWORD = "Wittymango520@"
-MODEL_DIR = "/var/www/hoopstats/server/nba-prop-model"
+MODEL_DIR = "/var/www/courtsideedge/server/nba-prop-model"
 
 client = paramiko.SSHClient()
 client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 client.connect(HOST, username=USERNAME, password=PASSWORD, timeout=30)
 
 print("Restarting PM2...")
-cmd = "pm2 restart hoopstats-server"
+cmd = "pm2 restart courtsideedge-server"
 stdin, stdout, stderr = client.exec_command(cmd)
 print(stdout.read().decode().strip())
 print(stderr.read().decode().strip())

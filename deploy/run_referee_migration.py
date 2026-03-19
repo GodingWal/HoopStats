@@ -76,21 +76,21 @@ def main():
     
     # Write migration file
     print("\n[1] Uploading migration file...")
-    run_command(client, f"cat > /var/www/hoopstats/migrations/008_referee_tracking.sql << 'EOF'\n{MIGRATION_CONTENT}\nEOF")
+    run_command(client, f"cat > /var/www/courtsideedge/migrations/008_referee_tracking.sql << 'EOF'\n{MIGRATION_CONTENT}\nEOF")
     
     # Run migration
     print("\n[2] Running migration 008_referee_tracking.sql...")
-    run_command(client, "sudo -u postgres psql -d hoopstats -f /var/www/hoopstats/migrations/008_referee_tracking.sql")
+    run_command(client, "sudo -u postgres psql -d courtsideedge -f /var/www/courtsideedge/migrations/008_referee_tracking.sql")
     
     # Grant permissions
-    print("\n[3] Granting permissions to hoopstats_user...")
-    run_command(client, """sudo -u postgres psql -d hoopstats -c "GRANT ALL PRIVILEGES ON TABLE referees TO hoopstats_user;" """)
-    run_command(client, """sudo -u postgres psql -d hoopstats -c "GRANT ALL PRIVILEGES ON TABLE game_referees TO hoopstats_user;" """)
-    run_command(client, """sudo -u postgres psql -d hoopstats -c "GRANT ALL PRIVILEGES ON SEQUENCE game_referees_id_seq TO hoopstats_user;" """)
+    print("\n[3] Granting permissions to courtsideedge_user...")
+    run_command(client, """sudo -u postgres psql -d courtsideedge -c "GRANT ALL PRIVILEGES ON TABLE referees TO courtsideedge_user;" """)
+    run_command(client, """sudo -u postgres psql -d courtsideedge -c "GRANT ALL PRIVILEGES ON TABLE game_referees TO courtsideedge_user;" """)
+    run_command(client, """sudo -u postgres psql -d courtsideedge -c "GRANT ALL PRIVILEGES ON SEQUENCE game_referees_id_seq TO courtsideedge_user;" """)
 
     # Verify
     print("\n[4] Verifying tables...")
-    run_command(client, r"sudo -u postgres psql -d hoopstats -c \"\\dt *referee*\"")
+    run_command(client, r"sudo -u postgres psql -d courtsideedge -c \"\\dt *referee*\"")
     
     client.close()
     print("\n" + "="*60)

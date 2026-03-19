@@ -22,7 +22,7 @@ def main():
         
         print("=== Checking PM2 Info Safely ===")
         # Redirect output and cat it
-        cmd = "pm2 show hoopstats > pm2_info.txt"
+        cmd = "pm2 show courtsideedge > pm2_info.txt"
         client.exec_command(cmd)
         time.sleep(1)
         

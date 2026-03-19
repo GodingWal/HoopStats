@@ -1,10 +1,10 @@
 # Database Migrations
 
-This directory contains database migration scripts for HoopStats.
+This directory contains database migration scripts for CourtSideEdge.
 
 ## Migration Strategy
 
-HoopStats uses **Drizzle Kit** for schema management. Instead of traditional step-by-step migrations, Drizzle uses a "push" strategy:
+CourtSideEdge uses **Drizzle Kit** for schema management. Instead of traditional step-by-step migrations, Drizzle uses a "push" strategy:
 
 1. Define your schema in `shared/schema.ts`
 2. Run `npm run db:push` to sync your database with the schema
@@ -19,10 +19,10 @@ HoopStats uses **Drizzle Kit** for schema management. Instead of traditional ste
 pg_isready
 
 # 2. Create the database (if not already created)
-psql -c "CREATE DATABASE hoopstats;"
+psql -c "CREATE DATABASE courtsideedge;"
 
 # 3. Set DATABASE_URL in .env
-echo "DATABASE_URL=postgresql://user:password@localhost:5432/hoopstats" >> .env
+echo "DATABASE_URL=postgresql://user:password@localhost:5432/courtsideedge" >> .env
 
 # 4. Push the schema to your database
 npm run db:push
@@ -52,13 +52,13 @@ psql $DATABASE_URL -f migrations/001_seed_sportsbooks.sql
 
 1. **Always backup before migrations**
    ```bash
-   pg_dump hoopstats > backup_before_migration.sql
+   pg_dump courtsideedge > backup_before_migration.sql
    ```
 
 2. **Test in development first**
    ```bash
    # Test against development database
-   DATABASE_URL=postgresql://localhost/hoopstats_dev npm run db:push
+   DATABASE_URL=postgresql://localhost/courtsideedge_dev npm run db:push
    ```
 
 3. **Use transactions for data migrations**
@@ -76,8 +76,8 @@ psql $DATABASE_URL -f migrations/001_seed_sportsbooks.sql
 
 ```bash
 # Drop and recreate database
-psql postgres -c "DROP DATABASE IF EXISTS hoopstats;"
-psql postgres -c "CREATE DATABASE hoopstats;"
+psql postgres -c "DROP DATABASE IF EXISTS courtsideedge;"
+psql postgres -c "CREATE DATABASE courtsideedge;"
 
 # Push schema
 npm run db:push

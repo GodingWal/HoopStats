@@ -18,7 +18,7 @@ from dotenv import load_dotenv
 import os
 import pandas as pd
 
-load_dotenv("/var/www/hoopstats/.env")
+load_dotenv("/var/www/courtsideedge/.env")
 DB_URL = os.getenv("DATABASE_URL")
 if DB_URL.startswith("postgres://"):
     DB_URL = DB_URL.replace("postgres://", "postgresql://", 1)
@@ -39,7 +39,7 @@ with engine.connect() as conn:
 """
 
 sftp = client.open_sftp()
-remote_path = "/var/www/hoopstats/server/nba-prop-model/scripts/check_b2b_window.py"
+remote_path = "/var/www/courtsideedge/server/nba-prop-model/scripts/check_b2b_window.py"
 with sftp.file(remote_path, "w") as f:
     f.write(script_content)
 sftp.close()

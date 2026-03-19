@@ -16,9 +16,9 @@ def main():
         stdin, stdout, stderr = client.exec_command("curl -s http://localhost:3000/api/ref-signal/games 2>&1")
         print(stdout.read().decode('utf-8', errors='replace')[:2000])
         
-        # Check what port hoopstats is running on
+        # Check what port courtsideedge is running on
         print("\n=== PM2 Status ===")
-        stdin, stdout, stderr = client.exec_command("pm2 show hoopstats 2>&1 | grep -E '(port|status|pid)'")
+        stdin, stdout, stderr = client.exec_command("pm2 show courtsideedge 2>&1 | grep -E '(port|status|pid)'")
         print(stdout.read().decode('utf-8', errors='replace'))
         
         client.close()

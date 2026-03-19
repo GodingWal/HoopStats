@@ -14,7 +14,7 @@ def main():
         
         print("=== Rebuilding Server ===")
         # Redirect output to file to avoid buffer issues or encoding issues
-        cmd = "cd /var/www/hoopstats && npm run build > build_debug.log 2>&1"
+        cmd = "cd /var/www/courtsideedge && npm run build > build_debug.log 2>&1"
         print(f"Executing: {cmd}")
         stdin, stdout, stderr = client.exec_command(cmd)
         
@@ -24,13 +24,13 @@ def main():
         print(f"Build Exit Status: {exit_status}")
         
         print("=== Build Output ===")
-        cmd = "cat /var/www/hoopstats/build_debug.log"
+        cmd = "cat /var/www/courtsideedge/build_debug.log"
         stdin, stdout, stderr = client.exec_command(cmd)
         print(stdout.read().decode())
         
         if exit_status == 0:
             print("=== Restarting PM2 ===")
-            stdin, stdout, stderr = client.exec_command("pm2 restart hoopstats")
+            stdin, stdout, stderr = client.exec_command("pm2 restart courtsideedge")
             print(stdout.read().decode())
             print(stderr.read().decode())
         else:

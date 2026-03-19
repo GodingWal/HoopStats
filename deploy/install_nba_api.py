@@ -51,7 +51,7 @@ def main():
         
         print("\n" + "=" * 50)
         print("4. Restarting PM2...")
-        run_command(client, "cd /var/www/hoopstats && pm2 restart hoopstats")
+        run_command(client, "cd /var/www/courtsideedge && pm2 restart courtsideedge")
         
         print("\n" + "=" * 50)
         print("Setup Complete!")

@@ -33,9 +33,9 @@ client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 client.connect(HOST, username=USERNAME, password=PASSWORD, timeout=30)
 
 cmds = [
-    "cd /var/www/hoopstats && git pull",
-    "cd /var/www/hoopstats && npm install",
-    "cd /var/www/hoopstats && npm run build",
+    "cd /var/www/courtsideedge && git pull",
+    "cd /var/www/courtsideedge && npm install",
+    "cd /var/www/courtsideedge && npm run build",
     "pm2 restart all"
 ]
 

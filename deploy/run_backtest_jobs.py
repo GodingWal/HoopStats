@@ -8,19 +8,19 @@ client.connect('76.13.100.125', username='root', password='Wittymango520@', time
 
 # Run actuals job
 print('=== Running actuals job ===')
-cmd = 'cd /var/www/hoopstats && source server/nba-prop-model/venv/bin/activate && set -a && source .env && set +a && python server/nba-prop-model/scripts/cron_jobs.py actuals 2>&1 | tail -30'
+cmd = 'cd /var/www/courtsideedge && source server/nba-prop-model/venv/bin/activate && set -a && source .env && set +a && python server/nba-prop-model/scripts/cron_jobs.py actuals 2>&1 | tail -30'
 stdin, stdout, stderr = client.exec_command(cmd, timeout=180)
 print(stdout.read().decode('utf-8', errors='replace'))
 
 # Run validate job
 print('\n=== Running validate job ===')
-cmd = 'cd /var/www/hoopstats && source server/nba-prop-model/venv/bin/activate && set -a && source .env && set +a && python server/nba-prop-model/scripts/cron_jobs.py validate 2>&1 | tail -30'
+cmd = 'cd /var/www/courtsideedge && source server/nba-prop-model/venv/bin/activate && set -a && source .env && set +a && python server/nba-prop-model/scripts/cron_jobs.py validate 2>&1 | tail -30'
 stdin, stdout, stderr = client.exec_command(cmd, timeout=180)
 print(stdout.read().decode('utf-8', errors='replace'))
 
 # Check database for recent captures and actuals
 print('\n=== Checking database status ===')
-cmd = """cd /var/www/hoopstats && source server/nba-prop-model/venv/bin/activate && set -a && source .env && set +a && python3 << 'PYEOF'
+cmd = """cd /var/www/courtsideedge && source server/nba-prop-model/venv/bin/activate && set -a && source .env && set +a && python3 << 'PYEOF'
 import os
 import psycopg2
 

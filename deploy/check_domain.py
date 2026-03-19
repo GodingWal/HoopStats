@@ -33,7 +33,7 @@ def main():
     
     # Check current nginx config
     print("\n[1] Nginx configuration:")
-    run_command(client, "cat /etc/nginx/sites-available/hoopstats")
+    run_command(client, "cat /etc/nginx/sites-available/courtsideedge")
     
     # Check nginx access log for requests
     print("\n[2] Recent nginx access logs:")
