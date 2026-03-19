@@ -1,12 +1,11 @@
-import OpenAI from "openai";
+import Anthropic from "@anthropic-ai/sdk";
 
-// Lazy initialization to prevent startup crashes if key is missing
-function getOpenAI() {
-    const apiKey = process.env.OPENAI_API_KEY;
+function getClient() {
+    const apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) {
-        throw new Error("OPENAI_API_KEY is not set in environment variables");
+        throw new Error("ANTHROPIC_API_KEY is not set in environment variables");
     }
-    return new OpenAI({ apiKey });
+    return new Anthropic({ apiKey });
 }
 
 interface ExplanationRequest {
@@ -24,11 +23,11 @@ export async function generateBetExplanation(
     request: ExplanationRequest
 ): Promise<string> {
     try {
-        const openai = getOpenAI();
+        const client = getClient();
         const prompt = `
       You are an expert NBA sports bettor and analyst.
       Explain why taking the ${request.side} on ${request.player_name} for ${request.line} ${request.prop} is a good bet.
-      
+
       Key Stats:
       - Season Average: ${request.season_average}
       - Last 5 Games Average: ${request.last_5_average}
@@ -39,64 +38,58 @@ export async function generateBetExplanation(
       Do not mention that you are an AI. Be confident but objective.
     `;
 
-        const response = await openai.chat.completions.create({
-            model: "gpt-4o",
-            messages: [
-                {
-                    role: "system",
-                    content: "You are a helpful and knowledgeable NBA sports betting analyst.",
-                },
-                { role: "user", content: prompt },
-            ],
-            temperature: 0.7,
-            max_tokens: 200,
+        const response = await client.messages.create({
+            model: "claude-haiku-4-5",
+            max_tokens: 300,
+            system: "You are a helpful and knowledgeable NBA sports betting analyst.",
+            messages: [{ role: "user", content: prompt }],
         });
 
         return (
-            response.choices[0].message.content ||
+            (response.content[0] as Anthropic.TextBlock).text ||
             "Analysis currently unavailable. Please check the stats manually."
         );
     } catch (error) {
-        console.error("OpenAI API Error:", error);
-        // Return a safe fallback message instead of crashing or throwing 500
+        console.error("Anthropic API Error:", error);
         return "AI analysis unavailable (Missing API configuration).";
     }
 }
 
 export async function parseBetScreenshot(base64Image: string): Promise<any[]> {
     try {
-        const openai = getOpenAI();
-        const response = await openai.chat.completions.create({
-            model: "gpt-4o",
+        const client = getClient();
+        const response = await client.messages.create({
+            model: "claude-haiku-4-5",
+            max_tokens: 1000,
+            system: "You are an expert at extracting data from images. Return ONLY valid JSON with no markdown formatting or code blocks.",
             messages: [
-                {
-                    role: "system",
-                    content: "You are an expert at extracting data from images. You will be given a screenshot of a PrizePicks (or similar) betting slip. Extract the bets into a JSON array. Return ONLY valid JSON.",
-                },
                 {
                     role: "user",
                     content: [
-                        { type: "text", text: "Extract the bets from this image. Return a JSON array where each object has: 'playerName' (string), 'line' (number), 'stat' (string - e.g. 'Points', 'Rebs+Asts'), 'side' ('over' or 'under'). If the side is not explicit, assume 'over' (More) if the arrow is green or pointing up, and 'under' (Less) if red or pointing down. If you cannot determine, default to 'over'." },
                         {
-                            type: "image_url",
-                            image_url: {
-                                "url": `data:image/jpeg;base64,${base64Image}`,
+                            type: "image",
+                            source: {
+                                type: "base64",
+                                media_type: "image/jpeg",
+                                data: base64Image,
                             },
+                        },
+                        {
+                            type: "text",
+                            text: "Extract the bets from this PrizePicks (or similar) betting slip image. Return a JSON object with a 'bets' array where each object has: 'playerName' (string), 'line' (number), 'stat' (string - e.g. 'Points', 'Rebs+Asts'), 'side' ('over' or 'under'). If the side is not explicit, assume 'over' (More) if the arrow is green or pointing up, and 'under' (Less) if red or pointing down. If you cannot determine, default to 'over'.",
                         },
                     ],
                 },
             ],
-            response_format: { type: "json_object" },
-            max_tokens: 1000,
         });
 
-        const content = response.choices[0].message.content;
-        if (!content) return [];
+        const text = (response.content[0] as Anthropic.TextBlock).text;
+        if (!text) return [];
 
-        const result = JSON.parse(content);
-        return result.bets || result.picks || result; // Handle potential variations in JSON structure
+        const result = JSON.parse(text);
+        return result.bets || result.picks || result;
     } catch (error) {
-        console.error("OpenAI Vision Error:", error);
-        throw new Error("Failed to parse screenshot. Please ensure OpenAI API key is configured.");
+        console.error("Anthropic Vision Error:", error);
+        throw new Error("Failed to parse screenshot. Please ensure Anthropic API key is configured.");
     }
 }

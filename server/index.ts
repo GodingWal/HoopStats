@@ -14,7 +14,7 @@ const OPTIONAL_ENV_VARS: Array<{ key: string; feature: string }> = [
   { key: "DATABASE_URL", feature: "persistent database storage" },
   { key: "ODDS_API_KEY", feature: "live sportsbook odds" },
   { key: "BALLDONTLIE_API_KEY", feature: "BallDontLie player stats" },
-  { key: "OPENAI_API_KEY", feature: "AI bet explanations and vision parsing" },
+  { key: "ANTHROPIC_API_KEY", feature: "AI bet explanations and vision parsing" },
 ];
 
 for (const { key, feature } of OPTIONAL_ENV_VARS) {
