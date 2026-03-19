@@ -23,6 +23,7 @@ import DailyPicksPage from "@/pages/daily-picks";
 import ProjectionDashboardPage from "@/pages/projection-dashboard";
 import SignalWeightsPanelPage from "@/pages/signal-weights-panel";
 import BacktestViewPage from "@/pages/backtest-view";
+import ParlayCorrelationPage from "@/pages/parlay-correlation";
 import { ThemeToggle } from "@/components/theme-toggle";
 import {
   SidebarProvider,
@@ -39,7 +40,7 @@ import {
   SidebarFooter,
 } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
-import { Users, Target, TrendingUp, RefreshCw, CloudDownload, AlertCircle, Tv, BrainCircuit, History, LayoutDashboard, Award, BarChart3, Wallet, FlaskConical, Crosshair, Zap, Activity, LineChart } from "lucide-react";
+import { Users, Target, TrendingUp, RefreshCw, CloudDownload, AlertCircle, Tv, BrainCircuit, History, LayoutDashboard, Award, BarChart3, Wallet, FlaskConical, Crosshair, Zap, Activity, LineChart, GitMerge } from "lucide-react";
 
 function Router() {
   return (
@@ -59,6 +60,7 @@ function Router() {
       <Route path="/signal-engine" component={ProjectionDashboardPage} />
       <Route path="/signal-weights" component={SignalWeightsPanelPage} />
       <Route path="/backtest-signals" component={BacktestViewPage} />
+      <Route path="/parlay-correlations" component={ParlayCorrelationPage} />
       <Route component={NotFound} />
     </Switch>
   );
@@ -139,6 +141,11 @@ const navItems = [
     title: "Signal Backtest",
     url: "/backtest-signals",
     icon: LineChart,
+  },
+  {
+    title: "Parlay Correlations",
+    url: "/parlay-correlations",
+    icon: GitMerge,
   },
 ];
 

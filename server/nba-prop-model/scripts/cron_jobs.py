@@ -628,6 +628,64 @@ def run_positional_defense_update() -> int:
         return 0
 
 
+def run_correlation_refresh() -> int:
+    """
+    Weekly job: recalculate all pairwise player correlations and upsert
+    into player_correlations table.
+
+    Run Sunday at 2 AM (after positional defense update).
+
+    Returns:
+        Number of correlation pairs processed.
+    """
+    try:
+        sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        from correlations.correlation_engine import CorrelationEngine
+        engine = CorrelationEngine()
+        processed = engine.refresh_all_correlations()
+        logger.info(f"Correlation refresh complete: {processed} pairs processed")
+        return processed
+    except Exception as e:
+        logger.error(f"run_correlation_refresh failed: {e}")
+        return 0
+
+
+def run_parlay_builder(target_date: Optional[str] = None, parlay_size: int = 2) -> int:
+    """
+    Daily job: generate correlated parlay recommendations for today's props.
+
+    Run at 10:30 AM ET (after projection_engine finishes at 10 AM).
+
+    Args:
+        target_date: Date string YYYY-MM-DD (defaults to today)
+        parlay_size: Number of legs per parlay (default 2)
+
+    Returns:
+        Number of parlays written to parlay_results.
+    """
+    try:
+        if target_date is None:
+            target_date = datetime.now().strftime('%Y-%m-%d')
+
+        sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        from correlations.parlay_builder import CorrelatedParlayBuilder
+        builder = CorrelatedParlayBuilder()
+        parlays = builder.find_optimal_parlays(
+            game_date=target_date,
+            parlay_size=parlay_size,
+            min_ev=0.05,
+            max_results=20,
+        )
+        logger.info(
+            f"Parlay builder: {len(parlays)} parlays written for {target_date} "
+            f"(size={parlay_size})"
+        )
+        return len(parlays)
+    except Exception as e:
+        logger.error(f"run_parlay_builder failed: {e}")
+        return 0
+
+
 def snapshot_lines() -> int:
     """
     Snapshot current PrizePicks lines every 15 minutes for line movement tracking.
@@ -719,6 +777,7 @@ def main():
         choices=[
             'capture', 'actuals', 'validate', 'weights', 'backfill', 'all',
             'injuries', 'projections', 'bayesian', 'positional-defense', 'snapshot',
+            'correlations', 'parlays',
         ],
         help='Command to run'
     )
@@ -792,6 +851,15 @@ def main():
         result = snapshot_lines()
         print(f"Snapshotted {result} lines")
 
+    elif args.command == 'correlations':
+        result = run_correlation_refresh()
+        print(f"Processed {result} correlation pairs")
+
+    elif args.command == 'parlays':
+        size = getattr(args, 'size', 2)
+        result = run_parlay_builder(args.date, parlay_size=size)
+        print(f"Generated {result} parlay recommendations")
+
 
 # ---------------------------------------------------------------------------
 # APScheduler integration (used when running as a long-lived process)
@@ -808,6 +876,8 @@ def start_scheduler():
       - Projection engine: daily 10 AM ET
       - Bayesian optimizer: weekly Sunday midnight
       - Positional defense update: weekly Sunday 1 AM
+      - Correlation refresh: weekly Sunday 2 AM
+      - Parlay builder: daily 10:30 AM ET
     """
     try:
         from apscheduler.schedulers.blocking import BlockingScheduler
@@ -860,6 +930,15 @@ def start_scheduler():
     scheduler.add_job(run_positional_defense_update, 'cron',
                       day_of_week='sun', hour=1, minute=0,
                       id='positional_defense_update', replace_existing=True)
+
+    # Correlation refresh weekly Sunday 2 AM
+    scheduler.add_job(run_correlation_refresh, 'cron',
+                      day_of_week='sun', hour=2, minute=0,
+                      id='correlation_refresh', replace_existing=True)
+
+    # Parlay builder daily 10:30 AM (after projection engine at 10 AM)
+    scheduler.add_job(run_parlay_builder, 'cron', hour=10, minute=30,
+                      id='parlay_builder', replace_existing=True)
 
     logger.info("Starting scheduler with all jobs...")
     try:

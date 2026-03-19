@@ -3508,6 +3508,235 @@ print(json.dumps(result.to_dict()))
     }
   });
 
+  // =========================================================================
+  // CORRELATED PARLAY ENDPOINTS
+  // =========================================================================
+
+  /**
+   * GET /api/parlays?date=YYYY-MM-DD&size=2&min_ev=0.05&limit=20
+   * Returns top correlated parlay recommendations from parlay_results.
+   */
+  app.get("/api/parlays", async (req, res) => {
+    try {
+      const date = (req.query.date as string) || new Date().toISOString().slice(0, 10);
+      const size = parseInt((req.query.size as string) || "0", 10) || null;
+      const minEv = parseFloat((req.query.min_ev as string) || "0");
+      const limit = Math.min(parseInt((req.query.limit as string) || "20", 10), 100);
+
+      let query = `
+        SELECT
+          id, legs, correlations, parlay_type, parlay_template,
+          leg_count, base_hit_prob, true_hit_prob, payout,
+          combined_ev, recommendation, avoid_reason,
+          outcome, payout_received, game_date, created_at
+        FROM parlay_results
+        WHERE game_date = $1
+          AND combined_ev >= $2
+      `;
+      const params: any[] = [date, minEv];
+
+      if (size) {
+        params.push(size);
+        query += ` AND leg_count = $${params.length}`;
+      }
+
+      query += ` ORDER BY combined_ev DESC LIMIT $${params.length + 1}`;
+      params.push(limit);
+
+      const result = await pool.query(query, params);
+      res.json({ date, parlays: result.rows, count: result.rows.length });
+    } catch (error: any) {
+      apiLogger.error("[Parlays] Error fetching parlays:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  /**
+   * GET /api/parlays/correlations?player_a=X&player_b=Y&stat=pts
+   * Look up a specific pairwise correlation from the cache.
+   */
+  app.get("/api/parlays/correlations", async (req, res) => {
+    try {
+      const { player_a, player_b, stat } = req.query as Record<string, string>;
+      if (!player_a || !player_b) {
+        return res.status(400).json({ error: "player_a and player_b are required" });
+      }
+      const statType = stat || "pts";
+
+      const result = await pool.query(
+        `SELECT *
+         FROM player_correlations
+         WHERE (
+           (player_a_id = $1 AND player_b_id = $2)
+           OR (player_a_id = $2 AND player_b_id = $1)
+         )
+         AND stat_type = $3
+         LIMIT 1`,
+        [player_a, player_b, statType]
+      );
+
+      if (result.rows.length === 0) {
+        return res.status(404).json({ error: "Correlation not found in cache" });
+      }
+      res.json(result.rows[0]);
+    } catch (error: any) {
+      apiLogger.error("[Parlays] Error fetching correlation:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  /**
+   * GET /api/parlays/team-matrix?team_id=X&stat=pts
+   * Return all cached pairwise correlations for a team's rotation.
+   */
+  app.get("/api/parlays/team-matrix", async (req, res) => {
+    try {
+      const { team_id, stat } = req.query as Record<string, string>;
+      if (!team_id) {
+        return res.status(400).json({ error: "team_id is required" });
+      }
+      const statType = stat || "pts";
+
+      const result = await pool.query(
+        `SELECT
+           pc.player_a_id, pc.player_b_id, pc.correlation,
+           pc.relationship, pc.confidence, pc.sample_size,
+           pc.same_team, pc.updated_at
+         FROM player_correlations pc
+         WHERE pc.stat_type = $1
+           AND pc.same_team = true
+           AND pc.confidence IN ('HIGH', 'MEDIUM')
+           AND (
+             pc.player_a_id IN (
+               SELECT DISTINCT CAST(player_id AS VARCHAR)
+               FROM player_game_stats
+               WHERE team_id = $2
+                 AND game_date >= NOW() - INTERVAL '60 days'
+             )
+             OR pc.player_b_id IN (
+               SELECT DISTINCT CAST(player_id AS VARCHAR)
+               FROM player_game_stats
+               WHERE team_id = $2
+                 AND game_date >= NOW() - INTERVAL '60 days'
+             )
+           )
+         ORDER BY ABS(pc.correlation) DESC`,
+        [statType, team_id]
+      );
+
+      res.json({ team_id, stat: statType, correlations: result.rows });
+    } catch (error: any) {
+      apiLogger.error("[Parlays] Error fetching team matrix:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  /**
+   * POST /api/parlays/generate
+   * Trigger the parlay builder Python script for a given date.
+   * Body: { date?: string, parlay_size?: number }
+   */
+  app.post("/api/parlays/generate", async (req, res) => {
+    try {
+      const { date, parlay_size } = req.body as {
+        date?: string;
+        parlay_size?: number;
+      };
+      const targetDate = date || new Date().toISOString().slice(0, 10);
+      const size = parlay_size || 2;
+
+      const pythonCmd = getPythonCommand();
+      const scriptPath = path.join(
+        process.cwd(),
+        "server",
+        "nba-prop-model",
+        "scripts",
+        "cron_jobs.py"
+      );
+
+      const child = spawn(pythonCmd, [
+        scriptPath,
+        "parlays",
+        "--date",
+        targetDate,
+      ]);
+
+      let stdout = "";
+      let stderr = "";
+      child.stdout?.on("data", (d: Buffer) => { stdout += d.toString(); });
+      child.stderr?.on("data", (d: Buffer) => { stderr += d.toString(); });
+
+      child.on("close", async (code: number) => {
+        if (code !== 0) {
+          apiLogger.error(`[Parlays] generate script exited ${code}: ${stderr}`);
+          return res.status(500).json({
+            error: "Parlay generation failed",
+            stderr: stderr.slice(0, 500),
+          });
+        }
+
+        // Return the freshly generated parlays
+        const result = await pool.query(
+          `SELECT id, legs, correlations, parlay_type, parlay_template,
+                  leg_count, base_hit_prob, true_hit_prob, payout,
+                  combined_ev, recommendation, avoid_reason, game_date
+           FROM parlay_results
+           WHERE game_date = $1
+             AND leg_count = $2
+           ORDER BY combined_ev DESC
+           LIMIT 20`,
+          [targetDate, size]
+        );
+
+        res.json({
+          date: targetDate,
+          parlay_size: size,
+          parlays: result.rows,
+          count: result.rows.length,
+          stdout: stdout.trim(),
+        });
+      });
+    } catch (error: any) {
+      apiLogger.error("[Parlays] Error triggering generation:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  /**
+   * PATCH /api/parlays/:id/outcome
+   * Settle a parlay once games complete.
+   * Body: { outcome: boolean, payout_received?: number }
+   */
+  app.patch("/api/parlays/:id/outcome", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      const { outcome, payout_received } = req.body as {
+        outcome: boolean;
+        payout_received?: number;
+      };
+
+      if (typeof outcome !== "boolean") {
+        return res.status(400).json({ error: "outcome must be a boolean" });
+      }
+
+      const result = await pool.query(
+        `UPDATE parlay_results
+         SET outcome = $1, payout_received = $2
+         WHERE id = $3
+         RETURNING *`,
+        [outcome, payout_received ?? null, id]
+      );
+
+      if (result.rows.length === 0) {
+        return res.status(404).json({ error: "Parlay not found" });
+      }
+      res.json(result.rows[0]);
+    } catch (error: any) {
+      apiLogger.error("[Parlays] Error settling parlay:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   return httpServer;
 }
 
