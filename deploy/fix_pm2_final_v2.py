@@ -22,8 +22,8 @@ def main():
         print("=== Fix PM2 Process ===")
         
         # Delete existing
-        print("Deleting hoopstats...")
-        client.exec_command("pm2 delete hoopstats")
+        print("Deleting courtsideedge...")
+        client.exec_command("pm2 delete courtsideedge")
         time.sleep(2)
         
         # Kill manual run if any
@@ -32,9 +32,9 @@ def main():
         time.sleep(2)
         
         # Start fresh
-        print("Starting hoopstats...")
+        print("Starting courtsideedge...")
         # Ensure we are in the right directory
-        cmd = "cd /var/www/hoopstats && pm2 start dist/index.cjs --name hoopstats"
+        cmd = "cd /var/www/courtsideedge && pm2 start dist/index.cjs --name courtsideedge"
         stdin, stdout, stderr = client.exec_command(cmd)
         print(stdout.read().decode())
         print(stderr.read().decode())
@@ -46,7 +46,7 @@ def main():
         time.sleep(5)
         
         print("=== Checking Logs Head ===")
-        cmd = "head -n 20 /root/.pm2/logs/hoopstats-out-0.log"
+        cmd = "head -n 20 /root/.pm2/logs/courtsideedge-out-0.log"
         stdin, stdout, stderr = client.exec_command(cmd)
         print(stdout.read().decode())
 

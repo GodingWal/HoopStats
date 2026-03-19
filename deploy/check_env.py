@@ -16,11 +16,11 @@ def main():
         client.connect(HOST, username=USERNAME, password=PASSWORD)
         
         print("Checking .env file...")
-        stdin, stdout, stderr = client.exec_command("ls -l /var/www/hoopstats/.env")
+        stdin, stdout, stderr = client.exec_command("ls -l /var/www/courtsideedge/.env")
         print(f"File: {stdout.read().decode().strip()}")
         
         print("Checking content keys...")
-        stdin, stdout, stderr = client.exec_command("cat /var/www/hoopstats/.env")
+        stdin, stdout, stderr = client.exec_command("cat /var/www/courtsideedge/.env")
         content = stdout.read().decode().strip()
         
         if not content:

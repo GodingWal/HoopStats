@@ -18,7 +18,7 @@ def main():
         
         # Get recent PM2 error logs  
         print("\n=== Recent PM2 error logs ===")
-        stdin, stdout, stderr = client.exec_command("pm2 logs hoopstats --err --lines 20 --nostream 2>&1")
+        stdin, stdout, stderr = client.exec_command("pm2 logs courtsideedge --err --lines 20 --nostream 2>&1")
         print(stdout.read().decode('utf-8', errors='replace'))
         
         client.close()

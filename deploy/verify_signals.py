@@ -16,7 +16,7 @@ print(stderr.read().decode('utf-8', errors='replace'))
 
 # Also check if signal loading is working
 print('\n=== Checking server logs for SignalScoring ===')
-cmd = 'pm2 logs hoopstats --nostream --lines 30 2>&1 | grep -i "signal" || echo "No signal logs found"'
+cmd = 'pm2 logs courtsideedge --nostream --lines 30 2>&1 | grep -i "signal" || echo "No signal logs found"'
 stdin, stdout, stderr = client.exec_command(cmd, timeout=15)
 print(stdout.read().decode('utf-8', errors='replace'))
 

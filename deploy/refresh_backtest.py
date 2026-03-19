@@ -8,7 +8,7 @@ if sys.platform == 'win32':
 HOST = "76.13.100.125"
 USERNAME = "root"
 PASSWORD = "Wittymango520@"
-MODEL_DIR = "/var/www/hoopstats/server/nba-prop-model"
+MODEL_DIR = "/var/www/courtsideedge/server/nba-prop-model"
 VENV_PYTHON = f"{MODEL_DIR}/venv/bin/python"
 
 def run_with_streaming(client, command, timeout=120):
@@ -66,7 +66,7 @@ def main():
         client.connect(HOST, username=USERNAME, password=PASSWORD, timeout=30)
         print("Connected!")
         
-        env_cmd = "export $(cat /var/www/hoopstats/.env | xargs)"
+        env_cmd = "export $(cat /var/www/courtsideedge/.env | xargs)"
         
         # Just run validate for now to get backtest results
         print("\nRunning backtest validation...")

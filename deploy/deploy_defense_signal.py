@@ -13,8 +13,8 @@ client = paramiko.SSHClient()
 client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 client.connect(HOST, username=USERNAME, password=PASSWORD, timeout=30)
 
-local_path = r"c:\Users\Goding Wal\Desktop\Hoop-Stats\server\nba-prop-model\src\signals\defense_vs_position.py"
-remote_path = "/var/www/hoopstats/server/nba-prop-model/src/signals/defense_vs_position.py"
+local_path = r"c:\Users\Goding Wal\Desktop\CourtSideEdge\server\nba-prop-model\src\signals\defense_vs_position.py"
+remote_path = "/var/www/courtsideedge/server/nba-prop-model/src/signals/defense_vs_position.py"
 
 print(f"Uploading {local_path} -> {remote_path}...")
 sftp = client.open_sftp()
@@ -22,7 +22,7 @@ sftp.put(local_path, remote_path)
 sftp.close()
 
 print("Restarting PM2...")
-cmd_restart = "pm2 restart hoopstats"
+cmd_restart = "pm2 restart courtsideedge"
 stdin, stdout, stderr = client.exec_command(cmd_restart)
 print(stdout.read().decode())
 

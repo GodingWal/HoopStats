@@ -49,7 +49,7 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
         logging.StreamHandler(),
-        logging.FileHandler('/tmp/hoopstats_cron.log'),
+        logging.FileHandler('/tmp/courtsideedge_cron.log'),
     ]
 )
 logger = logging.getLogger(__name__)
@@ -73,7 +73,7 @@ def get_db_connection():
         return psycopg2.connect(
             host=os.environ.get('DB_HOST', 'localhost'),
             port=os.environ.get('DB_PORT', 5432),
-            database=os.environ.get('DB_NAME', 'hoopstats'),
+            database=os.environ.get('DB_NAME', 'courtsideedge'),
             user=os.environ.get('DB_USER', 'postgres'),
             password=os.environ.get('DB_PASSWORD', ''),
         )

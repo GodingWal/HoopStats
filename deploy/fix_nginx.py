@@ -56,11 +56,11 @@ def main():
     }
 }'''
     
-    run_command(client, f"""cat > /etc/nginx/sites-available/hoopstats << 'EOF'
+    run_command(client, f"""cat > /etc/nginx/sites-available/courtsideedge << 'EOF'
 {nginx_config}
 EOF""")
     
-    run_command(client, "ln -sf /etc/nginx/sites-available/hoopstats /etc/nginx/sites-enabled/")
+    run_command(client, "ln -sf /etc/nginx/sites-available/courtsideedge /etc/nginx/sites-enabled/")
     run_command(client, "rm -f /etc/nginx/sites-enabled/default")
     run_command(client, "nginx -t")
     run_command(client, "systemctl start nginx")

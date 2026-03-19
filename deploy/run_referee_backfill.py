@@ -8,7 +8,7 @@ if sys.platform == 'win32':
 HOST = "76.13.100.125"
 USERNAME = "root"
 PASSWORD = "Wittymango520@"
-BASE_DIR = r"c:\Users\Goding Wal\Desktop\Hoop-Stats"
+BASE_DIR = r"c:\Users\Goding Wal\Desktop\CourtSideEdge"
 
 def upload_file(sftp, local_path, remote_path):
     print(f"Uploading {local_path} -> {remote_path}")
@@ -41,7 +41,7 @@ def main():
     
     # Upload script
     local_script = os.path.join(BASE_DIR, "server", "nba-prop-model", "scripts", "backfill_referees.py")
-    remote_script = "/var/www/hoopstats/server/nba-prop-model/scripts/backfill_referees.py"
+    remote_script = "/var/www/courtsideedge/server/nba-prop-model/scripts/backfill_referees.py"
     upload_file(sftp, local_script, remote_script)
     
     sftp.close()
@@ -49,12 +49,12 @@ def main():
     # Run in background using nohup
     print("\n[1] Starting backfill process (this will take ~10 mins)...")
     # We use source venv and env vars
-    cmd = "cd /var/www/hoopstats && source venv/bin/activate && set -a && source .env && set +a && nohup python server/nba-prop-model/scripts/backfill_referees.py > /var/log/hoopstats_backfill.log 2>&1 &"
+    cmd = "cd /var/www/courtsideedge && source venv/bin/activate && set -a && source .env && set +a && nohup python server/nba-prop-model/scripts/backfill_referees.py > /var/log/courtsideedge_backfill.log 2>&1 &"
     
     # We don't wait for completion, just start it
     client.exec_command(cmd)
     
-    print("Backfill started in background. Logs at /var/log/hoopstats_backfill.log")
+    print("Backfill started in background. Logs at /var/log/courtsideedge_backfill.log")
     
     # Verify it started
     run_command(client, "ps aux | grep backfill_referees.py | grep -v grep")

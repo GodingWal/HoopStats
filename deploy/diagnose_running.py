@@ -33,11 +33,11 @@ def main():
     
     # Check PM2 details for log paths
     print("\n[1] PM2 Show...")
-    run_command(client, "pm2 show hoopstats | grep 'log path'")
+    run_command(client, "pm2 show courtsideedge | grep 'log path'")
     
     # Check actual process
     print("\n[2] PS AUX...")
-    run_command(client, "ps aux | grep hoopstats | grep -v grep")
+    run_command(client, "ps aux | grep courtsideedge | grep -v grep")
     
     # Check disk space (maybe full?)
     print("\n[3] Disk Space...")

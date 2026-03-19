@@ -10,7 +10,7 @@ if sys.platform == 'win32':
 HOST = "76.13.100.125"
 USERNAME = "root"
 PASSWORD = "Wittymango520@"
-ROOT_DIR = "/var/www/hoopstats"
+ROOT_DIR = "/var/www/courtsideedge"
 MODEL_DIR = f"{ROOT_DIR}/server/nba-prop-model"
 VENV_DIR = f"{MODEL_DIR}/venv"
 PYTHON_EXEC = f"{VENV_DIR}/bin/python"
@@ -79,7 +79,7 @@ try:
         conn = psycopg2.connect(
             host=os.environ.get('DB_HOST', 'localhost'),
             port=os.environ.get('DB_PORT', 5432),
-            database=os.environ.get('DB_NAME', 'hoopstats'),
+            database=os.environ.get('DB_NAME', 'courtsideedge'),
             user=os.environ.get('DB_USER', 'postgres'),
             password=os.environ.get('DB_PASSWORD', '')
         )

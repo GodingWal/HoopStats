@@ -8,8 +8,8 @@ PASSWORD = "Wittymango520@"
 DEBUG_SCRIPT = """
 import sys
 import pandas as pd
-sys.path.append('/var/www/hoopstats')
-sys.path.append('/var/www/hoopstats/server/nba-prop-model')
+sys.path.append('/var/www/courtsideedge')
+sys.path.append('/var/www/courtsideedge/server/nba-prop-model')
 
 from src.data.nba_api_client import NBADataClient
 

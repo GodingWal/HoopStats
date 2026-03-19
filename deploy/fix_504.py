@@ -41,7 +41,7 @@ def main():
     
     # Check recent PM2 error logs
     print("\n[3] Recent error logs...")
-    run_command(client, "pm2 logs hoopstats --lines 30 --nostream")
+    run_command(client, "pm2 logs courtsideedge --lines 30 --nostream")
     
     # Check memory usage
     print("\n[4] Memory usage...")
@@ -49,7 +49,7 @@ def main():
     
     # Restart PM2 if needed
     print("\n[5] Restarting PM2...")
-    run_command(client, "pm2 restart hoopstats")
+    run_command(client, "pm2 restart courtsideedge")
     
     import time
     time.sleep(5)

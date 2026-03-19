@@ -38,9 +38,9 @@ def main():
         print("--- VERIFICATION START ---")
         
         print("Checking remote git status:")
-        run_command(client, "cd /var/www/hoopstats && git status")
+        run_command(client, "cd /var/www/courtsideedge && git status")
         print("---")
-        run_command(client, "cd /var/www/hoopstats && git log -1 --format='%H %s'")
+        run_command(client, "cd /var/www/courtsideedge && git log -1 --format='%H %s'")
         
         print("--- VERIFICATION END ---")
     finally:

@@ -22,7 +22,7 @@ from nba_api.stats.static import teams
 from dotenv import load_dotenv
 
 # Load env
-load_dotenv("/var/www/hoopstats/.env")
+load_dotenv("/var/www/courtsideedge/.env")
 DB_URL = os.getenv("DATABASE_URL")
 
 if not DB_URL:
@@ -116,7 +116,7 @@ if __name__ == "__main__":
 
 # Save script to remote
 sftp = client.open_sftp()
-with sftp.file("/var/www/hoopstats/server/nba-prop-model/scripts/populate_team_stats.py", "w") as f:
+with sftp.file("/var/www/courtsideedge/server/nba-prop-model/scripts/populate_team_stats.py", "w") as f:
     f.write(script_content)
 sftp.close()
 
@@ -130,7 +130,7 @@ print(f"Pip Out: {out}")
 print(f"Pip Err: {err}")
 
 print("Running script...")
-cmd_run = "python3 /var/www/hoopstats/server/nba-prop-model/scripts/populate_team_stats.py"
+cmd_run = "python3 /var/www/courtsideedge/server/nba-prop-model/scripts/populate_team_stats.py"
 stdin, stdout, stderr = client.exec_command(cmd_run)
 print(stdout.read().decode())
 print(stderr.read().decode())

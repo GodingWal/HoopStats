@@ -10,7 +10,7 @@ if sys.platform == 'win32':
 HOST = "76.13.100.125"
 USERNAME = "root"
 PASSWORD = "Wittymango520@"
-REMOTE_DIR = "/var/www/hoopstats"
+REMOTE_DIR = "/var/www/courtsideedge"
 
 def create_ssh_client():
     client = paramiko.SSHClient()
@@ -66,7 +66,7 @@ def main():
             
             # 4. Restart App
             print("Restarting application...")
-            run_command(client, f"cd {REMOTE_DIR} && pm2 restart hoopstats")
+            run_command(client, f"cd {REMOTE_DIR} && pm2 restart courtsideedge")
             
             # 5. Verify
             print("Verifying...")

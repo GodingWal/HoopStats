@@ -21,14 +21,14 @@ def main():
         client.connect(HOST, username=USERNAME, password=PASSWORD, timeout=30)
         
         print("=== Pulling latest code ===")
-        stdin, stdout, stderr = client.exec_command("cd /var/www/hoopstats && git pull")
+        stdin, stdout, stderr = client.exec_command("cd /var/www/courtsideedge && git pull")
         out = stdout.read().decode('utf-8', errors='replace')
         print(out)
         err = stderr.read().decode('utf-8', errors='replace')
         if err: print(err)
 
         print("=== Rebuilding Server (TSC) ===")
-        stdin, stdout, stderr = client.exec_command("cd /var/www/hoopstats && npm run build")
+        stdin, stdout, stderr = client.exec_command("cd /var/www/courtsideedge && npm run build")
         
         # Stream output safely
         while not stdout.channel.exit_status_ready():
@@ -49,7 +49,7 @@ def main():
             time.sleep(0.1)
             
         print("\n=== Restarting PM2 ===")
-        stdin, stdout, stderr = client.exec_command("pm2 restart hoopstats")
+        stdin, stdout, stderr = client.exec_command("pm2 restart courtsideedge")
         out = stdout.read().decode('utf-8', errors='replace')
         print(out)
         err = stderr.read().decode('utf-8', errors='replace')

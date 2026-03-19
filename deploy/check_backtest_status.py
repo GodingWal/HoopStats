@@ -8,11 +8,11 @@ client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 client.connect('76.13.100.125', username='root', password='Wittymango520@', timeout=30)
 
 print('=== Checking backtest tables in database ===')
-cmd = """cd /var/www/hoopstats && source server/nba-prop-model/venv/bin/activate && python3 << 'PYEOF'
+cmd = """cd /var/www/courtsideedge && source server/nba-prop-model/venv/bin/activate && python3 << 'PYEOF'
 import os
 import psycopg2
 
-conn = psycopg2.connect(os.environ.get('DATABASE_URL', 'postgresql://hoopstats:hoopstats123@localhost:5432/hoopstats'))
+conn = psycopg2.connect(os.environ.get('DATABASE_URL', 'postgresql://courtsideedge:courtsideedge123@localhost:5432/courtsideedge'))
 cur = conn.cursor()
 
 # Check prop_captures

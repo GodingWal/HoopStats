@@ -13,7 +13,7 @@ def main():
         client.connect(HOST, username=USERNAME, password=PASSWORD, timeout=30)
         
         print("=== Checking Timestamp ===")
-        cmd = "stat /var/www/hoopstats/dist/index.cjs"
+        cmd = "stat /var/www/courtsideedge/dist/index.cjs"
         stdin, stdout, stderr = client.exec_command(cmd)
         print(stdout.read().decode())
         print(stderr.read().decode())

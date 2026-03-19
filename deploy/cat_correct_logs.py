@@ -13,12 +13,12 @@ def main():
         client.connect(HOST, username=USERNAME, password=PASSWORD, timeout=30)
         
         print("=== Checking Correct Error Logs ===")
-        cmd = "tail -n 100 /root/.pm2/logs/hoopstats-error-0.log"
+        cmd = "tail -n 100 /root/.pm2/logs/courtsideedge-error-0.log"
         stdin, stdout, stderr = client.exec_command(cmd)
         print(stdout.read().decode())
 
         print("=== Checking Correct Out Logs ===")
-        cmd = "tail -n 50 /root/.pm2/logs/hoopstats-out-0.log"
+        cmd = "tail -n 50 /root/.pm2/logs/courtsideedge-out-0.log"
         stdin, stdout, stderr = client.exec_command(cmd)
         print(stdout.read().decode())
 

@@ -12,7 +12,7 @@ time.sleep(3)
 
 # Check recent PM2 logs for scraping attempts
 print('=== Recent PM2 Logs (last 30 lines) ===')
-cmd = 'pm2 logs hoopstats --nostream --lines 30 2>&1'
+cmd = 'pm2 logs courtsideedge --nostream --lines 30 2>&1'
 stdin, stdout, stderr = client.exec_command(cmd, timeout=30)
 print(stdout.read().decode('utf-8', errors='replace'))
 

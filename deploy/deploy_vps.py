@@ -4,7 +4,7 @@ import sys
 HOST = "76.13.100.125"
 USERNAME = "root"
 PASSWORD = "Wittymango520@"
-REMOTE_DIR = "/var/www/hoopstats"
+REMOTE_DIR = "/var/www/courtsideedge"
 
 def main():
     print(f"Connecting to {HOST}...")
@@ -14,7 +14,7 @@ def main():
         client.connect(HOST, username=USERNAME, password=PASSWORD, timeout=30)
         
         # Build and restart
-        cmd = f"cd {REMOTE_DIR} && npm run build && pm2 restart hoopstats && pm2 status"
+        cmd = f"cd {REMOTE_DIR} && npm run build && pm2 restart courtsideedge && pm2 status"
         print("Building and restarting...")
         stdin, stdout, stderr = client.exec_command(cmd, timeout=180, get_pty=True)
         

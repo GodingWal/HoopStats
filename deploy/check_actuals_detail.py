@@ -18,7 +18,7 @@ print("Connected!")
 # Check what stat types have actuals
 print("\n[1/2] Checking actuals by stat type...")
 stdin, stdout, stderr = client.exec_command("""
-export $(cat /var/www/hoopstats/.env | xargs 2>/dev/null)
+export $(cat /var/www/courtsideedge/.env | xargs 2>/dev/null)
 PGPASSWORD=$(echo $DATABASE_URL | sed -n 's/.*:\\/\\/[^:]*:\\([^@]*\\)@.*/\\1/p') psql -h $(echo $DATABASE_URL | sed -n 's/.*@\\([^:]*\\):.*/\\1/p') -U $(echo $DATABASE_URL | sed -n 's/.*:\\/\\/\\([^:]*\\):.*/\\1/p') -d $(echo $DATABASE_URL | sed -n 's/.*\\/\\([^?]*\\).*/\\1/p') -c "
 SELECT stat_type, game_date, COUNT(*) as total, COUNT(actual_value) as with_actuals 
 FROM prizepicks_daily_lines 
@@ -31,7 +31,7 @@ print(stdout.read().decode().strip())
 # Check some sample records with actuals
 print("\n[2/2] Sample records with actuals...")
 stdin, stdout, stderr = client.exec_command("""
-export $(cat /var/www/hoopstats/.env | xargs 2>/dev/null)
+export $(cat /var/www/courtsideedge/.env | xargs 2>/dev/null)
 PGPASSWORD=$(echo $DATABASE_URL | sed -n 's/.*:\\/\\/[^:]*:\\([^@]*\\)@.*/\\1/p') psql -h $(echo $DATABASE_URL | sed -n 's/.*@\\([^:]*\\):.*/\\1/p') -U $(echo $DATABASE_URL | sed -n 's/.*:\\/\\/\\([^:]*\\):.*/\\1/p') -d $(echo $DATABASE_URL | sed -n 's/.*\\/\\([^?]*\\).*/\\1/p') -c "
 SELECT player_name, stat_type, opening_line, actual_value, hit_over 
 FROM prizepicks_daily_lines 

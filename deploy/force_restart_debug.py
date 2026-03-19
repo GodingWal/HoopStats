@@ -13,7 +13,7 @@ def main():
         client.connect(HOST, username=USERNAME, password=PASSWORD, timeout=30)
         
         print("=== Stopping Server ===")
-        client.exec_command("pm2 stop hoopstats")
+        client.exec_command("pm2 stop courtsideedge")
         time.sleep(2)
         
         print("=== Flushing Logs ===")
@@ -21,16 +21,16 @@ def main():
         time.sleep(1)
         
         print("=== Starting Server ===")
-        client.exec_command("pm2 restart hoopstats")
+        client.exec_command("pm2 restart courtsideedge")
         
         print("Waiting for startup (5s)...")
         time.sleep(5)
         
         print("=== Reading Startup Logs (Head) ===")
         # Read the first 100 lines of the output log
-        # The log file path might vary, standard is ~/.pm2/logs/hoopstats-out-0.log
-        # or /root/.pm2/logs/hoopstats-out-0.log
-        cmd = "head -n 100 /root/.pm2/logs/hoopstats-out-0.log"
+        # The log file path might vary, standard is ~/.pm2/logs/courtsideedge-out-0.log
+        # or /root/.pm2/logs/courtsideedge-out-0.log
+        cmd = "head -n 100 /root/.pm2/logs/courtsideedge-out-0.log"
         stdin, stdout, stderr = client.exec_command(cmd)
         print(stdout.read().decode())
         print("STDERR (if any):")

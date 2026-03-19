@@ -37,7 +37,7 @@ def main():
     
     # Check PM2 logs
     print("\n[2] PM2 Logs (last 30 lines):")
-    run_command(client, "pm2 logs hoopstats --lines 30 --nostream")
+    run_command(client, "pm2 logs courtsideedge --lines 30 --nostream")
     
     # Check nginx status
     print("\n[3] Nginx Status:")
@@ -53,7 +53,7 @@ def main():
     
     # Restart PM2 if needed
     print("\n[6] Restarting PM2 process...")
-    run_command(client, "cd /var/www/hoopstats && pm2 restart hoopstats")
+    run_command(client, "cd /var/www/courtsideedge && pm2 restart courtsideedge")
     
     import time
     time.sleep(3)

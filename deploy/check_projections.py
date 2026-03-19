@@ -34,11 +34,11 @@ def main():
     # Check for non-zero projections
     print("\n[1] Checking for non-zero projections...")
     run_command(client, """
-        sudo -u postgres psql -d hoopstats -c "SELECT COUNT(*) as non_zero_projections FROM projection_logs WHERE projected_value > 0;"
+        sudo -u postgres psql -d courtsideedge -c "SELECT COUNT(*) as non_zero_projections FROM projection_logs WHERE projected_value > 0;"
     """)
     
     run_command(client, """
-        sudo -u postgres psql -d hoopstats -c "SELECT player_name, stat_type, projected_value FROM projection_logs WHERE projected_value > 0 LIMIT 5;"
+        sudo -u postgres psql -d courtsideedge -c "SELECT player_name, stat_type, projected_value FROM projection_logs WHERE projected_value > 0 LIMIT 5;"
     """)
 
     client.close()

@@ -13,8 +13,8 @@ import pandas as pd
 import json
 
 # Add project path to sys.path
-sys.path.append('/var/www/hoopstats')
-sys.path.append('/var/www/hoopstats/server/nba-prop-model')
+sys.path.append('/var/www/courtsideedge')
+sys.path.append('/var/www/courtsideedge/server/nba-prop-model')
 
 try:
     from src.data.nba_api_client import NBADataClient

@@ -7,7 +7,7 @@ if sys.platform == 'win32':
 HOST = "76.13.100.125"
 USERNAME = "root"
 PASSWORD = "Wittymango520@"
-MODEL_DIR = "/var/www/hoopstats/server/nba-prop-model"
+MODEL_DIR = "/var/www/courtsideedge/server/nba-prop-model"
 VENV_PYTHON = f"{MODEL_DIR}/venv/bin/python"
 
 client = paramiko.SSHClient()

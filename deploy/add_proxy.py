@@ -38,13 +38,13 @@ def main():
     # Create updated ecosystem config with PROXY_LIST
     ecosystem_config = f'''module.exports = {{
   apps: [{{
-    name: 'hoopstats',
+    name: 'courtsideedge',
     script: 'dist/index.cjs',
-    cwd: '/var/www/hoopstats',
+    cwd: '/var/www/courtsideedge',
     env: {{
       NODE_ENV: 'production',
       PORT: 5000,
-      DATABASE_URL: 'postgres://hoopstats_user:HoopStats2026Secure!@localhost:5432/hoopstats',
+      DATABASE_URL: 'postgres://courtsideedge_user:CourtSideEdge2026Secure!@localhost:5432/courtsideedge',
       THE_ODDS_API_KEY: 'c5873a5a6e8bc29b33e7b9a69b974da5',
       SCRAPER_API_KEY: 'abe0ac49c9e68691cd38a1972b254f35',
       PROXY_LIST: '{proxy_url}'
@@ -57,7 +57,7 @@ def main():
 }};'''
     
     print("\n[1] Writing updated ecosystem config with proxy...")
-    run_command(client, f"""cat > /var/www/hoopstats/ecosystem.config.cjs << 'EOFCONFIG'
+    run_command(client, f"""cat > /var/www/courtsideedge/ecosystem.config.cjs << 'EOFCONFIG'
 {ecosystem_config}
 EOFCONFIG""")
     
@@ -65,7 +65,7 @@ EOFCONFIG""")
     run_command(client, "pm2 delete all")
     
     print("\n[3] Starting PM2 with new config...")
-    run_command(client, "cd /var/www/hoopstats && pm2 start ecosystem.config.cjs")
+    run_command(client, "cd /var/www/courtsideedge && pm2 start ecosystem.config.cjs")
     
     print("\n[4] Saving PM2 config...")
     run_command(client, "pm2 save")
@@ -77,7 +77,7 @@ EOFCONFIG""")
     run_command(client, "pm2 status")
     
     print("\n[6] Checking PM2 logs for proxy loading...")
-    run_command(client, "pm2 logs hoopstats --lines 20 --nostream")
+    run_command(client, "pm2 logs courtsideedge --lines 20 --nostream")
     
     print("\n[7] Testing PrizePicks endpoint...")
     run_command(client, "curl -s http://localhost:5000/api/prizepicks/projections | head -c 500")

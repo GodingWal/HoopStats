@@ -18,7 +18,7 @@ client.connect(HOST, username=USERNAME, password=PASSWORD, timeout=30)
 # The app uses DATABASE_URL=postgres://neondb_owner:npg_6C...
 # I'll source .env to get the real connection string.
 
-cmd_env = "cat /var/www/hoopstats/server/nba-prop-model/.env"
+cmd_env = "cat /var/www/courtsideedge/server/nba-prop-model/.env"
 stdin, stdout, stderr = client.exec_command(cmd_env)
 env_content = stdout.read().decode()
 

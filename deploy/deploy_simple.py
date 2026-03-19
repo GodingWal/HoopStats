@@ -8,25 +8,25 @@ client.connect('76.13.100.125', username='root', password='Wittymango520@', time
 
 # Pull latest code
 print('=== Pulling latest code ===')
-cmd = 'cd /var/www/hoopstats && git fetch --all && git reset --hard origin/main 2>&1'
+cmd = 'cd /var/www/courtsideedge && git fetch --all && git reset --hard origin/main 2>&1'
 stdin, stdout, stderr = client.exec_command(cmd, timeout=60)
 print(stdout.read().decode('utf-8', errors='replace'))
 
 # Install dependencies
 print('\n=== Installing dependencies ===')
-cmd = 'cd /var/www/hoopstats && npm install 2>&1'
+cmd = 'cd /var/www/courtsideedge && npm install 2>&1'
 stdin, stdout, stderr = client.exec_command(cmd, timeout=180)
 print(stdout.read().decode('utf-8', errors='replace')[-2000:])
 
 # Skip db:push since no schema changes - just build
 print('\n=== Building app ===')
-cmd = 'cd /var/www/hoopstats && npm run build 2>&1'
+cmd = 'cd /var/www/courtsideedge && npm run build 2>&1'
 stdin, stdout, stderr = client.exec_command(cmd, timeout=180)
 print(stdout.read().decode('utf-8', errors='replace')[-2000:])
 
 # Restart PM2
 print('\n=== Restarting PM2 ===')
-cmd = 'cd /var/www/hoopstats && pm2 restart hoopstats 2>&1'
+cmd = 'cd /var/www/courtsideedge && pm2 restart courtsideedge 2>&1'
 stdin, stdout, stderr = client.exec_command(cmd, timeout=30)
 print(stdout.read().decode('utf-8', errors='replace'))
 

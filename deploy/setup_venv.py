@@ -8,7 +8,7 @@ if sys.platform == 'win32':
 HOST = "76.13.100.125"
 USERNAME = "root"
 PASSWORD = "Wittymango520@"
-REMOTE_DIR = "/var/www/hoopstats"
+REMOTE_DIR = "/var/www/courtsideedge"
 
 def create_ssh_client():
     client = paramiko.SSHClient()
@@ -50,12 +50,12 @@ def main():
         print("3. Creating python3 symlink to venv...")
         # Create a wrapper script that uses the venv python
         wrapper_script = """#!/bin/bash
-source /var/www/hoopstats/.venv/bin/activate
+source /var/www/courtsideedge/.venv/bin/activate
 python3 "$@"
 """
         # Write wrapper via ssh
-        run_command(client, f'echo \'{wrapper_script}\' > /usr/local/bin/hoopstats-python')
-        run_command(client, "chmod +x /usr/local/bin/hoopstats-python")
+        run_command(client, f'echo \'{wrapper_script}\' > /usr/local/bin/courtsideedge-python')
+        run_command(client, "chmod +x /usr/local/bin/courtsideedge-python")
         
         print("\n" + "=" * 50)
         print("4. Testing venv python...")
@@ -63,7 +63,7 @@ python3 "$@"
         
         print("\n" + "=" * 50)
         print("5. Restarting PM2...")
-        run_command(client, f"cd {REMOTE_DIR} && pm2 restart hoopstats")
+        run_command(client, f"cd {REMOTE_DIR} && pm2 restart courtsideedge")
         
         print("\n" + "=" * 50)
         print("Setup Complete!")

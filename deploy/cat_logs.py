@@ -13,16 +13,16 @@ def main():
         client.connect(HOST, username=USERNAME, password=PASSWORD, timeout=30)
         
         print("=== Checking Error Logs ===")
-        # Guess log path: /root/.pm2/logs/hoopstats-error.log
-        # Or check pm2 paths first? 'pm2 show hoopstats'
+        # Guess log path: /root/.pm2/logs/courtsideedge-error.log
+        # Or check pm2 paths first? 'pm2 show courtsideedge'
         # Just try common path
-        cmd = "tail -n 50 /root/.pm2/logs/hoopstats-error.log"
+        cmd = "tail -n 50 /root/.pm2/logs/courtsideedge-error.log"
         stdin, stdout, stderr = client.exec_command(cmd)
         print(stdout.read().decode())
         print(stderr.read().decode())
 
         print("=== Checking Out Logs ===")
-        cmd = "tail -n 20 /root/.pm2/logs/hoopstats-out.log"
+        cmd = "tail -n 20 /root/.pm2/logs/courtsideedge-out.log"
         stdin, stdout, stderr = client.exec_command(cmd)
         print(stdout.read().decode())
         print(stderr.read().decode())

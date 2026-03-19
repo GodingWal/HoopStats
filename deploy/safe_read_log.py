@@ -13,12 +13,12 @@ def main():
         client.connect(HOST, username=USERNAME, password=PASSWORD, timeout=30)
         
         print("=== Listing dist/ ===")
-        cmd = "ls -l /var/www/hoopstats/dist/"
+        cmd = "ls -l /var/www/courtsideedge/dist/"
         stdin, stdout, stderr = client.exec_command(cmd)
         print(stdout.read().decode())
 
         print("=== Reading build_debug.log Safely ===")
-        cmd = "cat /var/www/hoopstats/build_debug.log"
+        cmd = "cat /var/www/courtsideedge/build_debug.log"
         stdin, stdout, stderr = client.exec_command(cmd)
         
         # Read bytes

@@ -34,21 +34,21 @@ def main():
     
     # 1. Run test.cjs manually and check output
     print("\n[1] Running Puppeteer test manually...")
-    run_command(client, "cd /var/www/hoopstats && node test.cjs")
+    run_command(client, "cd /var/www/courtsideedge && node test.cjs")
     
     # 2. Delete and Start PM2
     print("\n[2] Hard Reset PM2...")
-    run_command(client, "pm2 delete hoopstats")
-    run_command(client, "cd /var/www/hoopstats && pm2 start ecosystem.config.cjs")
+    run_command(client, "pm2 delete courtsideedge")
+    run_command(client, "cd /var/www/courtsideedge && pm2 start ecosystem.config.cjs")
     
     # 3. Check Status
     print("\n[3] Checking status...")
-    run_command(client, "pm2 status hoopstats")
+    run_command(client, "pm2 status courtsideedge")
     
     # 4. Check Logs for Puppeteer init
     print("\n[4] Checking new logs...")
     time.sleep(5)
-    run_command(client, "grep 'Using Puppeteer' /root/.pm2/logs/hoopstats-out.log | tail -n 5")
+    run_command(client, "grep 'Using Puppeteer' /root/.pm2/logs/courtsideedge-out.log | tail -n 5")
     
     client.close()
     print("\n" + "="*60)

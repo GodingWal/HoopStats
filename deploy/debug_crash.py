@@ -21,7 +21,7 @@ def main():
         client.connect(HOST, username=USERNAME, password=PASSWORD, timeout=30)
         
         print("=== Checking dist/index.cjs existence ===")
-        cmd = "ls -l /var/www/hoopstats/dist/index.cjs"
+        cmd = "ls -l /var/www/courtsideedge/dist/index.cjs"
         stdin, stdout, stderr = client.exec_command(cmd)
         out = stdout.read().decode().strip()
         print(out)
@@ -30,7 +30,7 @@ def main():
              print(stderr.read().decode())
 
         print("\n=== Tailing Error Log Safely ===")
-        cmd = "tail -n 50 /root/.pm2/logs/hoopstats-error-0.log"
+        cmd = "tail -n 50 /root/.pm2/logs/courtsideedge-error-0.log"
         stdin, stdout, stderr = client.exec_command(cmd)
         
         content = stdout.read().decode('utf-8', errors='replace')
@@ -38,7 +38,7 @@ def main():
         print(safe_content)
         
         print("\n=== Tailing Out Log Safely ===")
-        cmd = "tail -n 50 /root/.pm2/logs/hoopstats-out-0.log"
+        cmd = "tail -n 50 /root/.pm2/logs/courtsideedge-out-0.log"
         stdin, stdout, stderr = client.exec_command(cmd)
         
         content = stdout.read().decode('utf-8', errors='replace')

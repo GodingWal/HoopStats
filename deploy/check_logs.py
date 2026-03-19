@@ -14,7 +14,7 @@ def main():
         
         # Check PM2 logs for errors
         print("\n=== PM2 Logs (last 50 lines) ===")
-        stdin, stdout, stderr = client.exec_command("pm2 logs hoopstats --lines 50 --nostream 2>&1 | tail -50")
+        stdin, stdout, stderr = client.exec_command("pm2 logs courtsideedge --lines 50 --nostream 2>&1 | tail -50")
         print(stdout.read().decode('utf-8', errors='replace'))
         
         # Test the API endpoint directly

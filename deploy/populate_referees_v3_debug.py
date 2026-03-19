@@ -27,7 +27,7 @@ print("Starting synchronous debug population...")
 # Flush stdout
 sys.stdout.reconfigure(line_buffering=True)
 
-load_dotenv("/var/www/hoopstats/.env")
+load_dotenv("/var/www/courtsideedge/.env")
 DB_URL = os.getenv("DATABASE_URL")
 if DB_URL.startswith("postgres://"):
     DB_URL = DB_URL.replace("postgres://", "postgresql://", 1)
@@ -151,7 +151,7 @@ if __name__ == "__main__":
 
 # Upload script
 sftp = client.open_sftp()
-remote_path = "/var/www/hoopstats/server/nba-prop-model/scripts/populate_referees_v3_debug.py"
+remote_path = "/var/www/courtsideedge/server/nba-prop-model/scripts/populate_referees_v3_debug.py"
 with sftp.file(remote_path, "w") as f:
     f.write(script_content)
 sftp.close()

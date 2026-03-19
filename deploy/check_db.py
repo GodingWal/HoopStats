@@ -34,19 +34,19 @@ def main():
     # Check if there are PrizePicks lines in the database
     print("\n[1] Checking PrizePicks lines in database...")
     run_command(client, """
-        sudo -u postgres psql -d hoopstats -c "SELECT COUNT(*) as total_lines, MAX(captured_at) as last_capture FROM prizepicks_lines;"
+        sudo -u postgres psql -d courtsideedge -c "SELECT COUNT(*) as total_lines, MAX(captured_at) as last_capture FROM prizepicks_lines;"
     """)
     
     # Show some sample lines
     print("\n[2] Sample PrizePicks lines...")
     run_command(client, """
-        sudo -u postgres psql -d hoopstats -c "SELECT player_name, stat_type, line_value, captured_at FROM prizepicks_lines ORDER BY captured_at DESC LIMIT 10;"
+        sudo -u postgres psql -d courtsideedge -c "SELECT player_name, stat_type, line_value, captured_at FROM prizepicks_lines ORDER BY captured_at DESC LIMIT 10;"
     """)
     
     # Check the table structure
     print("\n[3] PrizePicks lines table structure...")
     run_command(client, """
-        sudo -u postgres psql -d hoopstats -c "\\d prizepicks_lines" 2>/dev/null || echo "Table may not exist"
+        sudo -u postgres psql -d courtsideedge -c "\\d prizepicks_lines" 2>/dev/null || echo "Table may not exist"
     """)
     
     client.close()

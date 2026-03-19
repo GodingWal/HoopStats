@@ -17,7 +17,7 @@ import os
 import sys
 
 # Ensure project root is in path
-sys.path.append("/var/www/hoopstats/server/nba-prop-model")
+sys.path.append("/var/www/courtsideedge/server/nba-prop-model")
 
 from dotenv import load_dotenv
 from sqlalchemy import create_engine
@@ -27,7 +27,7 @@ import logging
 # Setup basic logging
 logging.basicConfig(level=logging.INFO)
 
-load_dotenv("/var/www/hoopstats/.env")
+load_dotenv("/var/www/courtsideedge/.env")
 DB_URL = os.getenv("DATABASE_URL")
 if DB_URL.startswith("postgres://"):
     DB_URL = DB_URL.replace("postgres://", "postgresql://", 1)
@@ -64,13 +64,13 @@ conn.close()
 """
 
 sftp = client.open_sftp()
-remote_path = "/var/www/hoopstats/server/nba-prop-model/scripts/refresh_signals_debug.py"
+remote_path = "/var/www/courtsideedge/server/nba-prop-model/scripts/refresh_signals_debug.py"
 with sftp.file(remote_path, "w") as f:
     f.write(script_content)
 sftp.close()
 
 print("Script uploaded. Running refresh debug...")
-cmd_run = "python3 /var/www/hoopstats/server/nba-prop-model/scripts/refresh_signals_debug.py"
+cmd_run = "python3 /var/www/courtsideedge/server/nba-prop-model/scripts/refresh_signals_debug.py"
 stdin, stdout, stderr = client.exec_command(cmd_run)
 print(stdout.read().decode())
 print(stderr.read().decode())

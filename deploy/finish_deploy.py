@@ -7,7 +7,7 @@ if sys.platform == 'win32':
 HOST = "76.13.100.125"
 USERNAME = "root"
 PASSWORD = "Wittymango520@"
-REMOTE_DIR = "/var/www/hoopstats"
+REMOTE_DIR = "/var/www/courtsideedge"
 
 def run_command(client, command, timeout=600):
     print(f"\n{'='*60}")
@@ -43,7 +43,7 @@ def main():
         
         # Restart PM2
         print("\n[2/2] Restarting PM2...")
-        run_command(client, f"cd {REMOTE_DIR} && pm2 restart hoopstats")
+        run_command(client, f"cd {REMOTE_DIR} && pm2 restart courtsideedge")
         
         # Check status
         print("\n[VERIFICATION] Checking PM2 status...")

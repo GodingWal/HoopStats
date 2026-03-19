@@ -33,25 +33,25 @@ def main():
     
     # Install scipy
     print("\n[1] Installing scipy...")
-    run_command(client, "cd /var/www/hoopstats && source venv/bin/activate && pip install scipy")
+    run_command(client, "cd /var/www/courtsideedge && source venv/bin/activate && pip install scipy")
     
     # Run capture
     print("\n[2] Running CAPTURE...")
-    success = run_command(client, "cd /var/www/hoopstats && source venv/bin/activate && python server/nba-prop-model/scripts/cron_jobs.py capture 2>&1")
+    success = run_command(client, "cd /var/www/courtsideedge && source venv/bin/activate && python server/nba-prop-model/scripts/cron_jobs.py capture 2>&1")
     
     # Run actuals  
     print("\n[3] Running ACTUALS...")
-    run_command(client, "cd /var/www/hoopstats && source venv/bin/activate && python server/nba-prop-model/scripts/cron_jobs.py actuals 2>&1")
+    run_command(client, "cd /var/www/courtsideedge && source venv/bin/activate && python server/nba-prop-model/scripts/cron_jobs.py actuals 2>&1")
     
     # Run validate
     print("\n[4] Running VALIDATE...")
-    run_command(client, "cd /var/www/hoopstats && source venv/bin/activate && python server/nba-prop-model/scripts/cron_jobs.py validate 2>&1")
+    run_command(client, "cd /var/www/courtsideedge && source venv/bin/activate && python server/nba-prop-model/scripts/cron_jobs.py validate 2>&1")
     
     # Check database tables
     print("\n[5] Checking database for backtest data...")
-    run_command(client, """sudo -u postgres psql -d hoopstats -c "\\dt" | grep -i 'signal\|backtest\|prop'""")
-    run_command(client, """sudo -u postgres psql -d hoopstats -c "SELECT COUNT(*) FROM prop_signals;" 2>/dev/null || echo 'prop_signals table does not exist'""")
-    run_command(client, """sudo -u postgres psql -d hoopstats -c "SELECT relname, n_tup_ins FROM pg_stat_user_tables WHERE n_tup_ins > 0 ORDER BY n_tup_ins DESC LIMIT 10;"  """)
+    run_command(client, """sudo -u postgres psql -d courtsideedge -c "\\dt" | grep -i 'signal\|backtest\|prop'""")
+    run_command(client, """sudo -u postgres psql -d courtsideedge -c "SELECT COUNT(*) FROM prop_signals;" 2>/dev/null || echo 'prop_signals table does not exist'""")
+    run_command(client, """sudo -u postgres psql -d courtsideedge -c "SELECT relname, n_tup_ins FROM pg_stat_user_tables WHERE n_tup_ins > 0 ORDER BY n_tup_ins DESC LIMIT 10;"  """)
     
     client.close()
     print("\n" + "="*60)

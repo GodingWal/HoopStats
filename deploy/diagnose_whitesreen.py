@@ -25,11 +25,11 @@ def main():
         print(out)
         
         print("=== 2. Checking for JS syntax errors ===")
-        out, err = run_command(client, "node --check /var/www/hoopstats/dist/public/assets/index-CWYhc6xh.js 2>&1 | head -5")
+        out, err = run_command(client, "node --check /var/www/courtsideedge/dist/public/assets/index-CWYhc6xh.js 2>&1 | head -5")
         print(out or err or "No syntax errors detected")
         
         print("=== 3. Checking CSS file exists ===")
-        out, _ = run_command(client, "ls -la /var/www/hoopstats/dist/public/assets/index-*.css")
+        out, _ = run_command(client, "ls -la /var/www/courtsideedge/dist/public/assets/index-*.css")
         print(out)
         
         print("=== 4. Testing CSS file HTTP response ===")
@@ -37,11 +37,11 @@ def main():
         print(out)
         
         print("=== 5. Checking recent error logs ===")
-        out, _ = run_command(client, "tail -30 /root/.pm2/logs/hoopstats-error.log | grep -v 'WARN' | tail -10")
+        out, _ = run_command(client, "tail -30 /root/.pm2/logs/courtsideedge-error.log | grep -v 'WARN' | tail -10")
         print(out or "No non-warning errors")
         
         print("=== 6. Checking if JS imports React correctly ===")
-        out, _ = run_command(client, "head -c 1000 /var/www/hoopstats/dist/public/assets/index-CWYhc6xh.js | grep -o 'React\\|createRoot\\|render' | head -5")
+        out, _ = run_command(client, "head -c 1000 /var/www/courtsideedge/dist/public/assets/index-CWYhc6xh.js | grep -o 'React\\|createRoot\\|render' | head -5")
         print(out or "React keywords not found in first 1000 chars")
         
         print("=== 7. Testing full page load time ===")

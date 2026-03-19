@@ -7,7 +7,7 @@ if sys.platform == 'win32':
 HOST = "76.13.100.125"
 USERNAME = "root"
 PASSWORD = "Wittymango520@"
-PROJECT_DIR = "/var/www/hoopstats"
+PROJECT_DIR = "/var/www/courtsideedge"
 
 client = paramiko.SSHClient()
 client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
@@ -19,7 +19,7 @@ cd {PROJECT_DIR} &&
 git pull origin main &&
 echo "Rebuilding frontend..." &&
 npm run build &&
-pm2 restart hoopstats
+pm2 restart courtsideedge
 """
 
 stdin, stdout, stderr = client.exec_command(cmd)

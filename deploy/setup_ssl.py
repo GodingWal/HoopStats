@@ -54,7 +54,7 @@ def main():
         # Check if nginx config file exists
         print("\n[4/6] Finding nginx config...")
         run_command(client, "find /etc/nginx -name '*.conf' -type f | head -20")
-        run_command(client, "cat /etc/nginx/conf.d/hoopstats.conf 2>/dev/null || echo 'No hoopstats.conf'")
+        run_command(client, "cat /etc/nginx/conf.d/courtsideedge.conf 2>/dev/null || echo 'No courtsideedge.conf'")
         
         # Get/renew SSL certificate
         print(f"\n[5/6] Getting SSL certificate for {DOMAIN}...")

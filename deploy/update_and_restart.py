@@ -13,7 +13,7 @@ def main():
         client.connect(HOST, username=USERNAME, password=PASSWORD, timeout=30)
         
         print("=== Pulling latest code ===")
-        stdin, stdout, stderr = client.exec_command("cd /var/www/hoopstats && git pull")
+        stdin, stdout, stderr = client.exec_command("cd /var/www/courtsideedge && git pull")
         print(stdout.read().decode())
         print(stderr.read().decode())
 
@@ -31,7 +31,7 @@ def main():
         # Check if `npm run build` is needed. Yes, likely.
         
         print("Building...")
-        stdin, stdout, stderr = client.exec_command("cd /var/www/hoopstats && npm run build")
+        stdin, stdout, stderr = client.exec_command("cd /var/www/courtsideedge && npm run build")
         # Stream output?
         while True:
             line = stdout.readline()
@@ -58,7 +58,7 @@ def main():
                     pass
 
         print("=== Restarting PM2 ===")
-        stdin, stdout, stderr = client.exec_command("pm2 restart hoopstats")
+        stdin, stdout, stderr = client.exec_command("pm2 restart courtsideedge")
         try:
             print(stdout.read().decode())
         except:

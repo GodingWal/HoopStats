@@ -42,11 +42,11 @@ def main():
     
     # Check full error logs
     print("\n[3] Full recent error logs...")
-    run_command(client, "pm2 logs hoopstats --lines 50 --nostream")
+    run_command(client, "pm2 logs courtsideedge --lines 50 --nostream")
     
     # Test if Puppeteer can launch browser
     print("\n[4] Testing Puppeteer directly...")
-    run_command(client, """cd /var/www/hoopstats && node -e "
+    run_command(client, """cd /var/www/courtsideedge && node -e "
         const puppeteer = require('puppeteer');
         (async () => {
             console.log('Launching browser...');

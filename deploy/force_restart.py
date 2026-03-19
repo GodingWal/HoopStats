@@ -34,15 +34,15 @@ def main():
     
     # Force restart
     print("\n[1] Restarting PM2...")
-    run_command(client, "pm2 restart hoopstats")
+    run_command(client, "pm2 restart courtsideedge")
     
     # Check status
     print("\n[2] Checking Status (should be 0s uptime)...")
-    run_command(client, "pm2 status hoopstats")
+    run_command(client, "pm2 status courtsideedge")
     
     # Watch logs for 30 seconds
     print("\n[3] Watching logs for 30s...")
-    cmd = "timeout 30 tail -f /root/.pm2/logs/hoopstats-out.log"
+    cmd = "timeout 30 tail -f /root/.pm2/logs/courtsideedge-out.log"
     # Execute and stream
     stdin, stdout, stderr = client.exec_command(cmd)
     

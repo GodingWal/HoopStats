@@ -33,15 +33,15 @@ def main():
     print("="*60)
     
     # 1. Check config
-    run_command(client, "grep USE_PUPPETEER /var/www/hoopstats/ecosystem.config.cjs")
+    run_command(client, "grep USE_PUPPETEER /var/www/courtsideedge/ecosystem.config.cjs")
     
     # 2. Check PM2 status/uptime
-    run_command(client, "pm2 status hoopstats")
+    run_command(client, "pm2 status courtsideedge")
     
     # 3. Check logs for "Puppeteer" initialization
     print("\nChecking logs for Puppeteer start...")
     # Grep recent logs
-    run_command(client, "grep 'Using Puppeteer' /root/.pm2/logs/hoopstats-out.log | tail -n 5")
+    run_command(client, "grep 'Using Puppeteer' /root/.pm2/logs/courtsideedge-out.log | tail -n 5")
     
     client.close()
     print("\n" + "="*60)

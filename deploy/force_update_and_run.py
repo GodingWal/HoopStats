@@ -14,14 +14,14 @@ def main():
         
         print("=== Forcing Update (Hard Reset) ===")
         # Fetch and Reset
-        cmd = "cd /var/www/hoopstats && git fetch origin && git reset --hard origin/main"
+        cmd = "cd /var/www/courtsideedge && git fetch origin && git reset --hard origin/main"
         print(f"Executing: {cmd}")
         stdin, stdout, stderr = client.exec_command(cmd)
         print(stdout.read().decode())
         print(stderr.read().decode())
 
         print("=== Running Full Backfill ===")
-        cmd = "cd /var/www/hoopstats && /usr/bin/python3 server/nba-prop-model/scripts/backfill_players.py --season 2025-26"
+        cmd = "cd /var/www/courtsideedge && /usr/bin/python3 server/nba-prop-model/scripts/backfill_players.py --season 2025-26"
         print(f"Executing: {cmd}")
         # Run properly
         stdin, stdout, stderr = client.exec_command(cmd)

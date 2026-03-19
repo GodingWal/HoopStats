@@ -1,7 +1,7 @@
 import sys
 import os
 import pandas as pd
-sys.path.append('/var/www/hoopstats')
+sys.path.append('/var/www/courtsideedge')
 from server.nba-prop-model.src.data.nba_api_client import NBADataClient
 
 def main():

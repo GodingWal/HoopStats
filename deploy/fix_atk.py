@@ -73,7 +73,7 @@ def main():
     
     # Test Puppeteer browser launch
     print("\n[4] Testing Puppeteer browser launch...")
-    run_command(client, """cd /var/www/hoopstats && node -e "
+    run_command(client, """cd /var/www/courtsideedge && node -e "
         const puppeteer = require('puppeteer');
         (async () => {
             console.log('Launching browser...');

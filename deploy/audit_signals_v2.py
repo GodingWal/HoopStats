@@ -13,8 +13,8 @@ client = paramiko.SSHClient()
 client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 client.connect(HOST, username=USERNAME, password=PASSWORD, timeout=30)
 
-# Found in /var/www/hoopstats/.env
-cmd_env = "cat /var/www/hoopstats/.env"
+# Found in /var/www/courtsideedge/.env
+cmd_env = "cat /var/www/courtsideedge/.env"
 stdin, stdout, stderr = client.exec_command(cmd_env)
 env_content = stdout.read().decode()
 

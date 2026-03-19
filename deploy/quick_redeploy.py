@@ -34,11 +34,11 @@ def main():
     
     # Pull, install, build
     print("\n[1] Pull, install, build...")
-    run_command(client, "cd /var/www/hoopstats && git pull && npm install && npm run build")
+    run_command(client, "cd /var/www/courtsideedge && git pull && npm install && npm run build")
     
     # Restart PM2
     print("\n[2] Restarting PM2...")
-    run_command(client, "pm2 restart hoopstats")
+    run_command(client, "pm2 restart courtsideedge")
     
     # Wait for startup
     time.sleep(10)
@@ -49,7 +49,7 @@ def main():
     
     # Check logs
     print("\n[4] Recent logs...")
-    run_command(client, "pm2 logs hoopstats --lines 15 --nostream")
+    run_command(client, "pm2 logs courtsideedge --lines 15 --nostream")
     
     client.close()
     print("\n" + "="*60)

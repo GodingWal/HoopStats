@@ -21,9 +21,9 @@ def main():
         
         print("\n=== Running npm run build manually ===")
         # Clean dist first to be sure
-        client.exec_command("rm -rf /var/www/hoopstats/dist")
+        client.exec_command("rm -rf /var/www/courtsideedge/dist")
         
-        cmd = "cd /var/www/hoopstats && npm run build"
+        cmd = "cd /var/www/courtsideedge && npm run build"
         stdin, stdout, stderr = client.exec_command(cmd)
         
         # Stream output
@@ -41,7 +41,7 @@ def main():
         print(f"Exit Status: {exit_status}")
         
         print("\n=== Checking for dist/index.cjs ===")
-        cmd = "ls -l /var/www/hoopstats/dist/index.cjs"
+        cmd = "ls -l /var/www/courtsideedge/dist/index.cjs"
         stdin, stdout, stderr = client.exec_command(cmd)
         out = stdout.read().decode().strip()
         print(out)
