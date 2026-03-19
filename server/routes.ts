@@ -3083,6 +3083,431 @@ export async function registerRoutes(
   apiLogger.info("DEBUG: About to register Ref Signal Routes in routes.ts");
   registerRefSignalRoutes(app);
 
+  // -------------------------------------------------------------------------
+  // Signal Engine API Endpoints
+  // -------------------------------------------------------------------------
+
+  // Helper: run a Python script and return parsed JSON output
+  async function runPythonScript(
+    scriptArgs: string[],
+    timeoutMs: number = 30000
+  ): Promise<{ data: any; error?: string }> {
+    return new Promise((resolve) => {
+      const pythonCmd = getPythonCommand();
+      const scriptPath = path.join(
+        __dirname,
+        "nba-prop-model",
+        "scripts",
+        "cron_jobs.py"
+      );
+      const proc = spawn(pythonCmd, [scriptPath, ...scriptArgs], {
+        cwd: path.join(__dirname, "nba-prop-model"),
+        env: { ...process.env },
+      });
+
+      let stdout = "";
+      let stderr = "";
+      proc.stdout.on("data", (d: Buffer) => (stdout += d.toString()));
+      proc.stderr.on("data", (d: Buffer) => (stderr += d.toString()));
+
+      const timer = setTimeout(() => {
+        proc.kill();
+        resolve({ data: null, error: "Script timed out" });
+      }, timeoutMs);
+
+      proc.on("close", (code: number) => {
+        clearTimeout(timer);
+        if (code !== 0) {
+          resolve({ data: null, error: stderr || `Exit code ${code}` });
+          return;
+        }
+        try {
+          resolve({ data: JSON.parse(stdout.trim()) });
+        } catch {
+          resolve({ data: stdout.trim() });
+        }
+      });
+    });
+  }
+
+  // Cache helper
+  const signalCache: Map<string, { data: any; fetchedAt: number }> = new Map();
+  const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+  function getCached(key: string) {
+    const entry = signalCache.get(key);
+    if (!entry) return null;
+    if (Date.now() - entry.fetchedAt > CACHE_TTL_MS) {
+      signalCache.delete(key);
+      return null;
+    }
+    return entry;
+  }
+
+  function setCached(key: string, data: any) {
+    signalCache.set(key, { data, fetchedAt: Date.now() });
+  }
+
+  // GET /api/projections/today — All projections for today, sorted by edge_pct DESC
+  app.get("/api/projections/today", async (req, res) => {
+    try {
+      const gameDate =
+        (req.query.date as string) ||
+        new Date().toISOString().split("T")[0];
+
+      const cacheKey = `projections_today_${gameDate}`;
+      const cached = getCached(cacheKey);
+      if (cached) {
+        return res.json({
+          projections: cached.data,
+          cached: true,
+          cache_age: Math.floor((Date.now() - cached.fetchedAt) / 1000),
+        });
+      }
+
+      const result = await pool.query(
+        `SELECT po.*, p.player_name
+         FROM projection_outputs po
+         LEFT JOIN players p ON po.player_id = p.id
+         WHERE po.game_date = $1
+         ORDER BY ABS(po.edge_pct) DESC`,
+        [gameDate]
+      );
+
+      const projections = result.rows.map((row) => ({
+        ...row,
+        signals_fired:
+          typeof row.signals_fired === "string"
+            ? JSON.parse(row.signals_fired)
+            : row.signals_fired,
+      }));
+
+      setCached(cacheKey, projections);
+      res.json({ projections, cached: false });
+    } catch (error: any) {
+      apiLogger.error("[Projections Today] Error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // GET /api/projections/:id — Single projection with signals breakdown
+  app.get("/api/projections/:id", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const result = await pool.query(
+        `SELECT po.*, p.player_name
+         FROM projection_outputs po
+         LEFT JOIN players p ON po.player_id = p.id
+         WHERE po.id = $1`,
+        [id]
+      );
+      if (result.rows.length === 0) {
+        return res.status(404).json({ error: "Projection not found" });
+      }
+      const row = result.rows[0];
+      res.json({
+        ...row,
+        signals_fired:
+          typeof row.signals_fired === "string"
+            ? JSON.parse(row.signals_fired)
+            : row.signals_fired,
+      });
+    } catch (error: any) {
+      apiLogger.error("[Projection Detail] Error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // GET /api/signals/history?days=30 — Signal hit rates by type
+  app.get("/api/signals/history", async (req, res) => {
+    try {
+      const days = parseInt((req.query.days as string) || "30", 10);
+      const cacheKey = `signals_history_${days}`;
+      const cached = getCached(cacheKey);
+      if (cached) {
+        return res.json({ ...cached.data, cached: true, cache_age: Math.floor((Date.now() - cached.fetchedAt) / 1000) });
+      }
+
+      const result = await pool.query(
+        `SELECT
+           signal_type,
+           COUNT(*) AS total,
+           COUNT(*) FILTER (WHERE outcome = true) AS wins,
+           ROUND(COUNT(*) FILTER (WHERE outcome = true)::numeric / NULLIF(COUNT(*), 0), 4) AS hit_rate,
+           ROUND(AVG(clv), 2) AS avg_clv,
+           ROUND(AVG(edge_pct), 2) AS avg_edge
+         FROM signal_results
+         WHERE game_date >= NOW() - $1 * INTERVAL '1 day'
+           AND outcome IS NOT NULL
+         GROUP BY signal_type
+         ORDER BY hit_rate DESC`,
+        [days]
+      );
+
+      const data = { signals: result.rows, days };
+      setCached(cacheKey, data);
+      res.json({ ...data, cached: false });
+    } catch (error: any) {
+      apiLogger.error("[Signal History] Error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // GET /api/signals/weights — Current weight_registry values
+  app.get("/api/signals/weights", async (req, res) => {
+    try {
+      const cacheKey = "signals_weights";
+      const cached = getCached(cacheKey);
+      if (cached) {
+        return res.json({ weights: cached.data, cached: true, cache_age: Math.floor((Date.now() - cached.fetchedAt) / 1000) });
+      }
+
+      const result = await pool.query(
+        `SELECT signal_type, weight, hit_rate, clv_rate, sample_size, updated_at
+         FROM weight_registry
+         ORDER BY weight DESC`
+      );
+
+      setCached(cacheKey, result.rows);
+      res.json({ weights: result.rows, cached: false });
+    } catch (error: any) {
+      apiLogger.error("[Signal Weights] Error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // POST /api/signals/run — Manually trigger signal engine for a player/game
+  app.post("/api/signals/run", async (req, res) => {
+    try {
+      const {
+        player_id,
+        team_id,
+        opp_team_id,
+        game_date,
+        prop_type,
+        prizepicks_line,
+        absent_players = [],
+        referee_crew = [],
+        extra = {},
+      } = req.body;
+
+      if (!player_id || !prop_type || !prizepicks_line) {
+        return res.status(400).json({
+          error: "Required: player_id, prop_type, prizepicks_line",
+        });
+      }
+
+      const targetDate = game_date || new Date().toISOString().split("T")[0];
+
+      // Spawn Python to run signal engine
+      const contextArg = JSON.stringify({
+        player_id,
+        team_id: team_id || "",
+        opp_team_id: opp_team_id || "",
+        game_date: targetDate,
+        prop_type,
+        prizepicks_line,
+        absent_players,
+        referee_crew,
+        ...extra,
+      });
+
+      const pyScript = `
+import sys, json, os
+sys.path.insert(0, '${path.join(__dirname, "nba-prop-model")}')
+os.chdir('${path.join(__dirname, "nba-prop-model")}')
+from src.signals.signal_engine import SignalEngine, GameContext
+ctx_data = json.loads(${JSON.stringify(JSON.stringify(contextArg))})
+if isinstance(ctx_data, str): ctx_data = json.loads(ctx_data)
+ctx = GameContext(
+    player_id=ctx_data.get('player_id',''),
+    team_id=ctx_data.get('team_id',''),
+    opp_team_id=ctx_data.get('opp_team_id',''),
+    game_date=ctx_data.get('game_date',''),
+    prop_type=ctx_data.get('prop_type',''),
+    prizepicks_line=float(ctx_data.get('prizepicks_line',0)),
+    absent_players=ctx_data.get('absent_players',[]),
+    referee_crew=ctx_data.get('referee_crew',[]),
+    extra={k:v for k,v in ctx_data.items() if k not in ('player_id','team_id','opp_team_id','game_date','prop_type','prizepicks_line','absent_players','referee_crew')},
+)
+engine = SignalEngine()
+result = engine.run(ctx)
+print(json.dumps(result.to_dict()))
+`;
+
+      const pythonCmd = getPythonCommand();
+      const { execSync } = require("child_process");
+      try {
+        const output = execSync(`${pythonCmd} -c "${pyScript.replace(/"/g, '\\"').replace(/\n/g, ' ')}"`, {
+          cwd: path.join(__dirname, "nba-prop-model"),
+          env: { ...process.env },
+          timeout: 15000,
+        });
+        res.json(JSON.parse(output.toString()));
+      } catch (execErr: any) {
+        // Fallback: return signal skeletons without running Python
+        res.json({
+          weighted_delta: 0,
+          direction: null,
+          confidence_tier: "SKIP",
+          signals_fired: [],
+          signals_skipped: [],
+          conflict_detected: false,
+          error: "Signal engine unavailable",
+        });
+      }
+    } catch (error: any) {
+      apiLogger.error("[Signals Run] Error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // GET /api/clv/summary — CLV stats by confidence tier
+  app.get("/api/clv/summary", async (req, res) => {
+    try {
+      const cacheKey = "clv_summary";
+      const cached = getCached(cacheKey);
+      if (cached) {
+        return res.json({ ...cached.data, cached: true, cache_age: Math.floor((Date.now() - cached.fetchedAt) / 1000) });
+      }
+
+      const [overall, byTier] = await Promise.all([
+        pool.query(
+          `SELECT
+             COUNT(*) AS total_plays,
+             ROUND(AVG(clv), 2) AS avg_clv,
+             COUNT(*) FILTER (WHERE clv > 0)::numeric / NULLIF(COUNT(*), 0) AS pct_positive_clv
+           FROM signal_results
+           WHERE clv IS NOT NULL`
+        ),
+        pool.query(
+          `SELECT
+             po.confidence_tier,
+             COUNT(*) AS plays,
+             ROUND(AVG(sr.clv), 2) AS avg_clv,
+             ROUND(COUNT(*) FILTER (WHERE sr.outcome = true)::numeric / NULLIF(COUNT(*), 0), 4) AS hit_rate
+           FROM projection_outputs po
+           LEFT JOIN signal_results sr ON sr.player_id = po.player_id
+             AND sr.game_date = po.game_date
+             AND sr.prop_type = po.prop_type
+           WHERE po.confidence_tier IS NOT NULL
+           GROUP BY po.confidence_tier
+           ORDER BY po.confidence_tier`
+        ),
+      ]);
+
+      const data = {
+        overall: overall.rows[0],
+        by_tier: byTier.rows,
+      };
+      setCached(cacheKey, data);
+      res.json({ ...data, cached: false });
+    } catch (error: any) {
+      apiLogger.error("[CLV Summary] Error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // GET /api/backtest?signal=usage&days=90 — Backtest results for specific signal
+  app.get("/api/backtest", async (req, res) => {
+    try {
+      const signal = (req.query.signal as string) || null;
+      const days = parseInt((req.query.days as string) || "90", 10);
+
+      const cacheKey = `backtest_${signal}_${days}`;
+      const cached = getCached(cacheKey);
+      if (cached) {
+        return res.json({ ...cached.data, cached: true, cache_age: Math.floor((Date.now() - cached.fetchedAt) / 1000) });
+      }
+
+      let query: string;
+      let params: any[];
+
+      if (signal) {
+        query = `
+          SELECT
+            game_date,
+            signal_type,
+            COUNT(*) AS plays,
+            COUNT(*) FILTER (WHERE outcome = true) AS wins,
+            ROUND(COUNT(*) FILTER (WHERE outcome = true)::numeric / NULLIF(COUNT(*), 0), 4) AS hit_rate,
+            ROUND(AVG(clv), 2) AS avg_clv,
+            ROUND(AVG(edge_pct), 2) AS avg_edge,
+            SUM(CASE WHEN outcome = true THEN 0.85 ELSE -1 END) AS daily_units
+          FROM signal_results
+          WHERE signal_type = $1
+            AND game_date >= NOW() - $2 * INTERVAL '1 day'
+            AND outcome IS NOT NULL
+          GROUP BY game_date, signal_type
+          ORDER BY game_date ASC`;
+        params = [signal, days];
+      } else {
+        query = `
+          SELECT
+            game_date,
+            signal_type,
+            COUNT(*) AS plays,
+            COUNT(*) FILTER (WHERE outcome = true) AS wins,
+            ROUND(COUNT(*) FILTER (WHERE outcome = true)::numeric / NULLIF(COUNT(*), 0), 4) AS hit_rate,
+            ROUND(AVG(clv), 2) AS avg_clv,
+            SUM(CASE WHEN outcome = true THEN 0.85 ELSE -1 END) AS daily_units
+          FROM signal_results
+          WHERE game_date >= NOW() - $1 * INTERVAL '1 day'
+            AND outcome IS NOT NULL
+          GROUP BY game_date, signal_type
+          ORDER BY game_date ASC, signal_type`;
+        params = [days];
+      }
+
+      const result = await pool.query(query, params);
+
+      // Compute cumulative units per signal
+      const bySignal: Record<string, any[]> = {};
+      for (const row of result.rows) {
+        if (!bySignal[row.signal_type]) bySignal[row.signal_type] = [];
+        bySignal[row.signal_type].push(row);
+      }
+
+      // Add cumulative_units column
+      for (const rows of Object.values(bySignal)) {
+        let cumUnits = 0;
+        for (const row of rows) {
+          cumUnits += parseFloat(row.daily_units || "0");
+          row.cumulative_units = parseFloat(cumUnits.toFixed(2));
+        }
+      }
+
+      // Summary stats
+      const summaryResult = await pool.query(
+        `SELECT
+           signal_type,
+           COUNT(*) AS total_plays,
+           ROUND(COUNT(*) FILTER (WHERE outcome = true)::numeric / NULLIF(COUNT(*), 0), 4) AS hit_rate,
+           ROUND(AVG(clv), 2) AS avg_clv,
+           ROUND(SUM(CASE WHEN outcome = true THEN 0.85 ELSE -1 END), 2) AS total_units
+         FROM signal_results
+         WHERE ${signal ? "signal_type = $1 AND" : ""} game_date >= NOW() - ${signal ? "$2" : "$1"} * INTERVAL '1 day'
+           AND outcome IS NOT NULL
+         GROUP BY signal_type
+         ORDER BY total_units DESC`,
+        signal ? [signal, days] : [days]
+      );
+
+      const data = {
+        daily: result.rows,
+        by_signal: bySignal,
+        summary: summaryResult.rows,
+        signal,
+        days,
+      };
+      setCached(cacheKey, data);
+      res.json({ ...data, cached: false });
+    } catch (error: any) {
+      apiLogger.error("[Backtest] Error:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   return httpServer;
 }
 
