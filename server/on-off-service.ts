@@ -206,6 +206,11 @@ export class OnOffSplitsService {
       let dataString = "";
       let errorString = "";
 
+      pythonProcess.on("error", (err) => {
+        apiLogger.error("Failed to start Python process for on/off calculation", err);
+        reject(new Error(`Failed to start Python process: ${err.message}`));
+      });
+
       pythonProcess.stdout.on("data", (data) => {
         dataString += data.toString();
       });

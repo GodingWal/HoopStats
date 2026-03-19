@@ -3,7 +3,7 @@
  * Rate limiting, CORS, error handling, and request logging
  */
 
-import { Request, Response, NextFunction } from "express";
+import { Request, Response, NextFunction, RequestHandler } from "express";
 import rateLimit from "express-rate-limit";
 import cors from "cors";
 import { RATE_LIMIT_CONFIG } from "./constants";
@@ -22,7 +22,6 @@ const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(",") || [
   "https://www.courtside-edge.com",
   "http://courtside-edge.com",
   "http://www.courtside-edge.com",
-  "http://76.13.100.125",
 ];
 
 export const corsMiddleware = cors({
@@ -160,6 +159,22 @@ export function errorHandler(
     error: message,
     stack,
   });
+}
+
+// ========================================
+// ASYNC ROUTE WRAPPER
+// ========================================
+
+/**
+ * Wraps an async route handler to forward unhandled promise rejections
+ * to Express's next() error handler, preventing unhandled promise warnings.
+ */
+export function asyncHandler(
+  fn: (req: Request, res: Response, next: NextFunction) => Promise<unknown>
+): RequestHandler {
+  return (req, res, next) => {
+    Promise.resolve(fn(req, res, next)).catch(next);
+  };
 }
 
 // ========================================
