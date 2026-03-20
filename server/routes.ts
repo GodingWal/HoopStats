@@ -2,6 +2,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { spawn } from "child_process";
 import path from "path";
+import fs from "fs";
 
 import { storage } from "./storage";
 import { pool } from "./db";
@@ -50,10 +51,9 @@ function getPythonCommand(): string {
   if (process.platform === 'win32') {
     return 'python';
   }
-  // On Linux, use the venv Python in the nba-prop-model directory
+  // On Linux, use the venv Python if it exists, otherwise fall back to system python3
   const venvPath = path.join(process.cwd(), 'server', 'nba-prop-model', 'venv', 'bin', 'python');
-  // Fallback to system python3 if venv doesn't exist
-  return venvPath;
+  return fs.existsSync(venvPath) ? venvPath : 'python3';
 }
 
 // ========================================

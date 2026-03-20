@@ -382,8 +382,7 @@ export default function ParlayCorrelationPage() {
   const { data, isLoading, isFetching, refetch } = useQuery<ParlaysResponse>({
     queryKey: ["/api/parlays", date, parlaySize],
     queryFn: async () => {
-      const res = await fetch(`/api/parlays?date=${date}&size=${parlaySize}&min_ev=-1&limit=50`, { credentials: "include" });
-      if (!res.ok) throw new Error(`${res.status}: ${res.statusText}`);
+      const res = await apiRequest("GET", `/api/parlays?date=${date}&size=${parlaySize}&min_ev=-1&limit=50`);
       return res.json() as Promise<ParlaysResponse>;
     },
   });
