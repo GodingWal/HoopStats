@@ -962,7 +962,7 @@ export async function registerRoutes(
             args.push("--injured_minutes", JSON.stringify(injuredMinutesMap));
           }
         } catch (injError) {
-          apiLogger.warn("Could not fetch injuries for projections:", injError);
+          apiLogger.warn("Could not fetch injuries for projections:", { error: injError });
           // Continue without injury data
         }
       }
@@ -2320,7 +2320,7 @@ export async function registerRoutes(
               season as string | undefined
             );
           } catch (calcError) {
-            apiLogger.warn("Python auto-calculation failed, trying game-log fallback:", calcError);
+            apiLogger.warn("Python auto-calculation failed, trying game-log fallback:", { error: calcError });
           }
 
           // Fallback: compute from game log data already in DB
@@ -3229,6 +3229,10 @@ export async function registerRoutes(
         });
       }
 
+      if (!pool) {
+        return res.status(503).json({ error: "Database not available" });
+      }
+
       const result = await pool.query(
         `SELECT po.*, p.player_name
          FROM projection_outputs po
@@ -3258,6 +3262,9 @@ export async function registerRoutes(
   app.get("/api/projections/:id", async (req, res) => {
     try {
       const { id } = req.params;
+      if (!pool) {
+        return res.status(503).json({ error: "Database not available" });
+      }
       const result = await pool.query(
         `SELECT po.*, p.player_name
          FROM projection_outputs po
@@ -3292,6 +3299,10 @@ export async function registerRoutes(
         return res.json({ ...cached.data, cached: true, cache_age: Math.floor((Date.now() - cached.fetchedAt) / 1000) });
       }
 
+      if (!pool) {
+        return res.status(503).json({ error: "Database not available" });
+      }
+
       const result = await pool.query(
         `SELECT
            signal_type,
@@ -3324,6 +3335,10 @@ export async function registerRoutes(
       const cached = getCached(cacheKey);
       if (cached) {
         return res.json({ weights: cached.data, cached: true, cache_age: Math.floor((Date.now() - cached.fetchedAt) / 1000) });
+      }
+
+      if (!pool) {
+        return res.status(503).json({ error: "Database not available" });
       }
 
       const result = await pool.query(
@@ -3435,6 +3450,10 @@ print(json.dumps(result.to_dict()))
         return res.json({ ...cached.data, cached: true, cache_age: Math.floor((Date.now() - cached.fetchedAt) / 1000) });
       }
 
+      if (!pool) {
+        return res.status(503).json({ error: "Database not available" });
+      }
+
       const [overall, byTier] = await Promise.all([
         pool.query(
           `SELECT
@@ -3482,6 +3501,10 @@ print(json.dumps(result.to_dict()))
       const cached = getCached(cacheKey);
       if (cached) {
         return res.json({ ...cached.data, cached: true, cache_age: Math.floor((Date.now() - cached.fetchedAt) / 1000) });
+      }
+
+      if (!pool) {
+        return res.status(503).json({ error: "Database not available" });
       }
 
       let query: string;
@@ -3607,6 +3630,10 @@ print(json.dumps(result.to_dict()))
       query += ` ORDER BY combined_ev DESC LIMIT $${params.length + 1}`;
       params.push(limit);
 
+      if (!pool) {
+        return res.status(503).json({ error: "Database not available" });
+      }
+
       const result = await pool.query(query, params);
       res.json({ date, parlays: result.rows, count: result.rows.length });
     } catch (error: any) {
@@ -3626,6 +3653,10 @@ print(json.dumps(result.to_dict()))
         return res.status(400).json({ error: "player_a and player_b are required" });
       }
       const statType = stat || "pts";
+
+      if (!pool) {
+        return res.status(503).json({ error: "Database not available" });
+      }
 
       const result = await pool.query(
         `SELECT *
@@ -3660,6 +3691,10 @@ print(json.dumps(result.to_dict()))
         return res.status(400).json({ error: "team_id is required" });
       }
       const statType = stat || "pts";
+
+      if (!pool) {
+        return res.status(503).json({ error: "Database not available" });
+      }
 
       const result = await pool.query(
         `SELECT
@@ -3740,6 +3775,9 @@ print(json.dumps(result.to_dict()))
         }
 
         // Return the freshly generated parlays
+        if (!pool) {
+          return res.status(503).json({ error: "Database not available" });
+        }
         const result = await pool.query(
           `SELECT id, legs, correlations, parlay_type, parlay_template,
                   leg_count, base_hit_prob, true_hit_prob, payout,
@@ -3781,6 +3819,10 @@ print(json.dumps(result.to_dict()))
 
       if (typeof outcome !== "boolean") {
         return res.status(400).json({ error: "outcome must be a boolean" });
+      }
+
+      if (!pool) {
+        return res.status(503).json({ error: "Database not available" });
       }
 
       const result = await pool.query(

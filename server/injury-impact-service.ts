@@ -19,11 +19,11 @@ class InjuryImpactService {
     this.isRunning = true;
 
     // Listen for injury updates
-    injuryWatcher.on("injuriesUpdated", async (injuries) => {
+    injuryWatcher.on("injuriesUpdated", async (injuries: Array<{ team: string; [key: string]: unknown }>) => {
       log(`Injury update detected: ${injuries.length} total injuries`, "injury-impact");
 
       // Get affected teams
-      const affectedTeams = new Set(injuries.map(inj => inj.team));
+      const affectedTeams = new Set(injuries.map((inj) => inj.team as string));
       log(`Affected teams: ${Array.from(affectedTeams).join(", ")}`, "injury-impact");
 
       // Recalculate edges for players on affected teams
@@ -114,7 +114,8 @@ class InjuryImpactService {
       recommendation: string;
     }>;
   }> {
-    const injuries = injuryWatcher.getTeamOutPlayers(team);
+    const injuryStates = injuryWatcher.getTeamInjuries(team) as Array<{ playerName: string; status: string; description?: string }>;
+    const outPlayerNames = injuryWatcher.getTeamOutPlayers(team);
     const players = await storage.getPlayers();
     const teamPlayers = players.filter(p => p.team === team);
 
@@ -127,13 +128,13 @@ class InjuryImpactService {
 
     // Find players who benefit from these injuries
     for (const player of teamPlayers) {
-      const onOffSplits = player.on_off_splits || [];
+      const onOffSplits: any[] = (player as any).on_off_splits || [];
 
       for (const split of onOffSplits) {
         // Check if any injured player matches this on/off split
-        const matchingInjury = injuries.find(inj =>
-          inj.playerName.toLowerCase().includes(split.without_player.toLowerCase()) ||
-          split.without_player.toLowerCase().includes(inj.playerName.toLowerCase())
+        const matchingInjury = outPlayerNames.find((injName: string) =>
+          injName.toLowerCase().includes(split.without_player.toLowerCase()) ||
+          split.without_player.toLowerCase().includes(injName.toLowerCase())
         );
 
         if (matchingInjury && split.impact > 3.0) {
@@ -148,10 +149,10 @@ class InjuryImpactService {
     }
 
     return {
-      injuries: injuries.map(inj => ({
+      injuries: injuryStates.map(inj => ({
         playerName: inj.playerName,
         status: inj.status,
-        description: inj.description,
+        description: inj.description ?? "",
       })),
       beneficiaries: beneficiaries.sort((a, b) => b.impact - a.impact),
     };

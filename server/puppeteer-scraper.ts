@@ -10,16 +10,25 @@
  * - Automatic retry with exponential backoff
  */
 
-import type { Browser, Page, HTTPRequest, HTTPResponse } from 'puppeteer';
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type Browser = any;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type Page = any;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type HTTPRequest = any;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type HTTPResponse = any;
 import { apiLogger } from './logger';
 
 // Lazy load puppeteer to avoid issues when not installed
-let puppeteer: typeof import('puppeteer') | null = null;
+let puppeteer: any = null;
 
-async function getPuppeteer() {
+async function getPuppeteer(): Promise<any> {
     if (!puppeteer) {
         try {
-            puppeteer = await import('puppeteer');
+            // Use dynamic string to avoid TypeScript module resolution error
+            const moduleName = 'puppeteer';
+            puppeteer = await import(/* @ts-ignore */ moduleName);
         } catch (error) {
             throw new Error('Puppeteer not installed. Run: npm install puppeteer');
         }

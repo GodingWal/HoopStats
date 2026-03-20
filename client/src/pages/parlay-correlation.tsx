@@ -381,18 +381,16 @@ export default function ParlayCorrelationPage() {
 
   const { data, isLoading, isFetching, refetch } = useQuery<ParlaysResponse>({
     queryKey: ["/api/parlays", date, parlaySize],
-    queryFn: () =>
-      apiRequest(
-        `/api/parlays?date=${date}&size=${parlaySize}&min_ev=-1&limit=50`
-      ),
+    queryFn: async () => {
+      const res = await fetch(`/api/parlays?date=${date}&size=${parlaySize}&min_ev=-1&limit=50`, { credentials: "include" });
+      if (!res.ok) throw new Error(`${res.status}: ${res.statusText}`);
+      return res.json() as Promise<ParlaysResponse>;
+    },
   });
 
   const generateMutation = useMutation({
     mutationFn: () =>
-      apiRequest("/api/parlays/generate", {
-        method: "POST",
-        body: JSON.stringify({ date, parlay_size: parlaySize }),
-      }),
+      apiRequest("POST", "/api/parlays/generate", { date, parlay_size: parlaySize }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/parlays"] });
     },

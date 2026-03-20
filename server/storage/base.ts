@@ -8,25 +8,25 @@ import { dbLogger } from "../logger";
 /**
  * Check if database is initialized
  */
-export function assertDb(): typeof db {
+export function assertDb(): NonNullable<typeof db> {
   if (!db) {
     throw new Error("Database not initialized");
   }
-  return db;
+  return db as NonNullable<typeof db>;
 }
 
 /**
  * Execute a function within a database transaction
  */
 export async function withTransaction<T>(
-  fn: (tx: typeof db) => Promise<T>
+  fn: (tx: NonNullable<typeof db>) => Promise<T>
 ): Promise<T> {
   const database = assertDb();
 
   // Drizzle ORM transaction support
   return await database.transaction(async (tx) => {
     try {
-      return await fn(tx as typeof db);
+      return await fn(tx as unknown as NonNullable<typeof db>);
     } catch (error) {
       dbLogger.error("Transaction failed, rolling back", error);
       throw error;

@@ -672,6 +672,7 @@ export class DatabaseStorage implements IStorage {
 
   async getParlays(filters?: { pending?: boolean }): Promise<Array<DbParlay & { picks: DbParlayPick[] }>> {
     if (!db) throw new Error("Database not initialized");
+    const database = db;
 
     const conditions = [];
 
@@ -679,14 +680,14 @@ export class DatabaseStorage implements IStorage {
       conditions.push(eq(parlays.result, 'pending'));
     }
 
-    const allParlays = await db.select().from(parlays)
+    const allParlays = await database.select().from(parlays)
       .where(conditions.length > 0 ? and(...conditions) : undefined)
       .orderBy(desc(parlays.placedAt));
 
     // Fetch picks for each parlay
     const parlaysWithPicks = await Promise.all(
       allParlays.map(async (parlay) => {
-        const picks = await db.select().from(parlayPicks)
+        const picks = await database.select().from(parlayPicks)
           .where(eq(parlayPicks.parlayId, parlay.id));
         return { ...parlay, picks };
       })
@@ -835,22 +836,22 @@ export class DatabaseStorage implements IStorage {
   async getPlayerOnOffSplits(withoutPlayerId: number, season?: string): Promise<DbPlayerOnOffSplit[]> {
     if (!db) throw new Error("Database not initialized");
 
-    const query = db
+    if (season) {
+      return await db
+        .select()
+        .from(playerOnOffSplits)
+        .where(
+          and(
+            eq(playerOnOffSplits.withoutPlayerId, withoutPlayerId),
+            eq(playerOnOffSplits.season, season)
+          )
+        );
+    }
+
+    return await db
       .select()
       .from(playerOnOffSplits)
       .where(eq(playerOnOffSplits.withoutPlayerId, withoutPlayerId));
-
-    if (season) {
-      const result = await query.where(
-        and(
-          eq(playerOnOffSplits.withoutPlayerId, withoutPlayerId),
-          eq(playerOnOffSplits.season, season)
-        )
-      );
-      return result;
-    }
-
-    return await query;
   }
 
   async getTopBeneficiaries(
@@ -883,22 +884,22 @@ export class DatabaseStorage implements IStorage {
   async getOnOffSplitsByTeam(teamAbbr: string, season?: string): Promise<DbPlayerOnOffSplit[]> {
     if (!db) throw new Error("Database not initialized");
 
-    const query = db
+    if (season) {
+      return await db
+        .select()
+        .from(playerOnOffSplits)
+        .where(
+          and(
+            eq(playerOnOffSplits.team, teamAbbr),
+            eq(playerOnOffSplits.season, season)
+          )
+        );
+    }
+
+    return await db
       .select()
       .from(playerOnOffSplits)
       .where(eq(playerOnOffSplits.team, teamAbbr));
-
-    if (season) {
-      const result = await query.where(
-        and(
-          eq(playerOnOffSplits.team, teamAbbr),
-          eq(playerOnOffSplits.season, season)
-        )
-      );
-      return result;
-    }
-
-    return await query;
   }
 
   async deleteStaleOnOffSplits(olderThanDays: number): Promise<void> {
@@ -1037,6 +1038,9 @@ export class MemStorage implements IStorage {
       ...bet,
       id,
       last_5_avg: bet.last_5_avg ?? undefined,
+      edge_type: bet.edge_type ?? undefined,
+      edge_score: bet.edge_score ?? undefined,
+      edge_description: bet.edge_description ?? undefined,
       recommendation: bet.recommendation as "OVER" | "UNDER",
       confidence: bet.confidence as "HIGH" | "MEDIUM" | "LOW"
     };
@@ -1053,6 +1057,10 @@ export class MemStorage implements IStorage {
       ...existingBet,
       ...updates,
       id,
+      last_5_avg: (updates.last_5_avg ?? existingBet.last_5_avg) ?? undefined,
+      edge_type: (updates.edge_type ?? existingBet.edge_type) ?? undefined,
+      edge_score: (updates.edge_score ?? existingBet.edge_score) ?? undefined,
+      edge_description: (updates.edge_description ?? existingBet.edge_description) ?? undefined,
       recommendation: (updates.recommendation as "OVER" | "UNDER") ?? existingBet.recommendation,
       confidence: (updates.confidence as "HIGH" | "MEDIUM" | "LOW") ?? existingBet.confidence,
     };
@@ -1280,6 +1288,9 @@ export class MemStorage implements IStorage {
     const id = this.parlayIdCounter++;
     const newParlay: DbParlay = {
       id,
+      result: null,
+      profit: null,
+      notes: null,
       ...parlay,
       placedAt: new Date(),
       settledAt: null,
@@ -1289,6 +1300,7 @@ export class MemStorage implements IStorage {
       id: this.parlayPickIdCounter++,
       parlayId: id,
       ...pick,
+      playerId: pick.playerId ?? null,
       result: 'pending' as const,
       actualValue: null,
     }));
@@ -1344,12 +1356,18 @@ export class MemStorage implements IStorage {
       astWithTeammate: split.astWithTeammate ?? null,
       minWithTeammate: split.minWithTeammate ?? null,
       fgaWithTeammate: split.fgaWithTeammate ?? null,
+      ptsWithoutTeammate: (split as any).ptsWithoutTeammate ?? null,
+      rebWithoutTeammate: (split as any).rebWithoutTeammate ?? null,
+      astWithoutTeammate: (split as any).astWithoutTeammate ?? null,
+      minWithoutTeammate: (split as any).minWithoutTeammate ?? null,
+      fgaWithoutTeammate: (split as any).fgaWithoutTeammate ?? null,
       ptsDelta: split.ptsDelta ?? null,
       rebDelta: split.rebDelta ?? null,
       astDelta: split.astDelta ?? null,
       minDelta: split.minDelta ?? null,
       fgaDelta: split.fgaDelta ?? null,
-      calculatedAt: new Date()
+      calculatedAt: new Date(),
+      updatedAt: new Date()
     };
 
     // Store by withoutPlayerId
