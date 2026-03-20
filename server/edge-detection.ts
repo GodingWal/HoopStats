@@ -77,7 +77,7 @@ export function analyzeEdges(
 
 function detectStarOutEdge(player: Player, statType: string): Edge | null {
   // Check if this player has a significant on/off split showing they benefit from a star being out
-  const onOffSplits = player.on_off_splits;
+  const onOffSplits = (player as any).on_off_splits;
   if (!onOffSplits || onOffSplits.length === 0) return null;
 
   // Get currently injured players from the team
@@ -88,9 +88,10 @@ function detectStarOutEdge(player: Player, statType: string): Edge | null {
   for (const split of onOffSplits) {
     if (split.stat === statType.toLowerCase() && split.impact > 5.0) {
       // Check if this star player is actually OUT today
-      const starIsOut = teamOutPlayers.some(injury =>
-        injury.playerName.toLowerCase().includes(split.without_player.toLowerCase()) ||
-        split.without_player.toLowerCase().includes(injury.playerName.toLowerCase())
+      // getTeamOutPlayers returns string[] (player names)
+      const starIsOut = teamOutPlayers.some(playerName =>
+        playerName.toLowerCase().includes(split.without_player.toLowerCase()) ||
+        split.without_player.toLowerCase().includes(playerName.toLowerCase())
       );
 
       if (starIsOut) {
@@ -122,7 +123,7 @@ function detectStarOutEdge(player: Player, statType: string): Edge | null {
 function detectBackToBackEdge(player: Player, recommendation: "OVER" | "UNDER"): Edge | null {
   // Check if player is on second night of back-to-back
   // This would require game schedule data - for now, check if last game was yesterday
-  const gameLogs = player.game_logs;
+  const gameLogs = (player as any).game_logs;
   if (!gameLogs || gameLogs.length < 2) return null;
 
   const lastGame = gameLogs[0];
@@ -151,15 +152,15 @@ function detectBlowoutRiskEdge(player: Player, recommendation: "OVER" | "UNDER")
   // Check if matchup has high blowout potential based on team quality diff
   // This requires opponent data and team ratings
   // For now, we can check if player's team has inconsistent results (high variance)
-  const gameLogs = player.game_logs;
+  const gameLogs = (player as any).game_logs;
   if (!gameLogs || gameLogs.length < 5) return null;
 
   // Check if player's minutes varied significantly in recent games (blowout indicator)
-  const recentMinutes = gameLogs.slice(0, 5).map(g => g.min).filter((m): m is number => m !== null);
+  const recentMinutes = (gameLogs as any[]).slice(0, 5).map((g: any) => g.min as number).filter((m: number | null): m is number => m !== null);
   if (recentMinutes.length < 5) return null;
 
-  const avgMinutes = recentMinutes.reduce((sum, m) => sum + m, 0) / recentMinutes.length;
-  const variance = recentMinutes.reduce((sum, m) => sum + Math.pow(m - avgMinutes, 2), 0) / recentMinutes.length;
+  const avgMinutes = recentMinutes.reduce((sum: number, m: number) => sum + m, 0) / recentMinutes.length;
+  const variance = recentMinutes.reduce((sum: number, m: number) => sum + Math.pow(m - avgMinutes, 2), 0) / recentMinutes.length;
   const stdDev = Math.sqrt(variance);
 
   // High variance in minutes suggests blowout risk
@@ -178,7 +179,7 @@ function detectBlowoutRiskEdge(player: Player, recommendation: "OVER" | "UNDER")
 function detectPaceEdge(player: Player, statType: string, recommendation: "OVER" | "UNDER"): Edge | null {
   // Check if player's team or opponent plays at fast pace
   // Fast pace = more possessions = more counting stats
-  const pace = player.team_pace;
+  const pace = (player as any).team_pace;
   if (!pace) return null;
 
   // NBA average pace is around 99-100
@@ -209,13 +210,13 @@ function detectPaceEdge(player: Player, statType: string, recommendation: "OVER"
 function detectDefensiveEdge(player: Player, statType: string, recommendation: "OVER" | "UNDER"): Edge | null {
   // Check if upcoming opponent is weak defensively against this stat type
   // This requires team defense ratings vs position
-  const vsTeamStats = player.vs_team_stats;
+  const vsTeamStats = (player as any).vs_team_stats;
   if (!vsTeamStats || Object.keys(vsTeamStats).length === 0) return null;
 
   // Find teams where player performs significantly better
-  for (const [team, stats] of Object.entries(vsTeamStats)) {
-    const relevantStat = stats[statType as keyof typeof stats];
-    if (typeof relevantStat === 'number' && relevantStat > player.season_averages[statType as keyof typeof player.season_averages] * 1.15) {
+  for (const [team, stats] of Object.entries(vsTeamStats) as [string, any][]) {
+    const relevantStat = stats[statType];
+    if (typeof relevantStat === 'number' && relevantStat > (player.season_averages[statType as keyof typeof player.season_averages] as number) * 1.15) {
       // Player averages 15%+ more against this team
       if (recommendation === "OVER") {
         return {
@@ -233,13 +234,13 @@ function detectDefensiveEdge(player: Player, statType: string, recommendation: "
 
 function detectMinutesStabilityEdge(player: Player): Edge | null {
   // Check if player has consistent minutes (34+ locked in)
-  const gameLogs = player.game_logs;
+  const gameLogs = (player as any).game_logs;
   if (!gameLogs || gameLogs.length < 10) return null;
 
-  const recentMinutes = gameLogs.slice(0, 10).map(g => g.min).filter((m): m is number => m !== null);
+  const recentMinutes = (gameLogs as any[]).slice(0, 10).map((g: any) => g.min as number).filter((m: number | null): m is number => m !== null);
   if (recentMinutes.length < 8) return null;
 
-  const avgMinutes = recentMinutes.reduce((sum, m) => sum + m, 0) / recentMinutes.length;
+  const avgMinutes = recentMinutes.reduce((sum: number, m: number) => sum + m, 0) / recentMinutes.length;
   const minMinutes = Math.min(...recentMinutes);
 
   // Consistent 34+ minutes = predictable output
@@ -257,8 +258,8 @@ function detectMinutesStabilityEdge(player: Player): Edge | null {
 
 function detectHomeRoadSplitEdge(player: Player, statType: string, recommendation: "OVER" | "UNDER"): Edge | null {
   // Check for dramatic home/road splits
-  const homeSplits = player.home_splits;
-  const awaySplits = player.away_splits;
+  const homeSplits = (player as any).home_splits;
+  const awaySplits = (player as any).away_splits;
 
   if (!homeSplits || !awaySplits) return null;
 
