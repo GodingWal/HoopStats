@@ -3018,14 +3018,16 @@ export async function registerRoutes(
       `);
       const lastValidationDate = lastValidationResult.rows[0]?.last_date;
 
-      // Data is stale if: there are pending actuals OR validation hasn't run recently
-      const today = new Date().toISOString().split('T')[0];
-      const validationStale = !lastValidationDate || lastValidationDate < today;
-
       const stats = projStats.rows[0];
       const total = parseInt(stats.total) || 0;
       const completed = parseInt(stats.completed) || 0;
       const hits = parseInt(stats.hits) || 0;
+
+      // Data is stale if: there are pending actuals OR validation hasn't run recently
+      // But only flag staleness when there are actual projections to validate
+      const today = new Date().toISOString().split('T')[0];
+      const validationStale = !lastValidationDate || lastValidationDate < today;
+      const needsRefresh = total > 0 && (pendingActuals > 0 || validationStale);
 
       res.json({
         totalProjections: total,
@@ -3058,7 +3060,7 @@ export async function registerRoutes(
           pendingActuals,
           validationStale,
           lastValidationDate,
-          needsRefresh: pendingActuals > 0 || validationStale,
+          needsRefresh,
         },
       });
     } catch (error: any) {

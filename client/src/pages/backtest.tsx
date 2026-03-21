@@ -440,67 +440,71 @@ export default function BacktestPage() {
           {/* Overview Stats */}
           <OverviewCards overview={overview} />
 
-          {/* Accuracy Trend */}
-          {overview && overview.recentAccuracy.length > 0 && (
-            <AccuracyTrendChart data={overview.recentAccuracy} />
-          )}
-
-          {/* Signal Accuracy Table */}
-          <SignalAccuracySection signals={signals} isLoading={signalsLoading} />
-
-          {/* Weights */}
-          <WeightsSection weightsData={weightsData} signals={signals} />
-
-          {/* Projection Log */}
-          <ProjectionLogSection projections={projections} isLoading={projectionsLoading} />
-
-          {/* Backtest Run History */}
-          {runs.length > 0 && <BacktestRunsSection runs={runs} />}
-
-          {/* XGBoost Model Section */}
-          {xgbOverview && xgbOverview.total > 0 && (
+          {hasData ? (
             <>
-              <XGBoostOverviewCards overview={xgbOverview} />
-
-              {xgbOverview.dailyAccuracy.length > 0 && (
-                <XGBoostAccuracyChart data={xgbOverview.dailyAccuracy} />
+              {/* Accuracy Trend */}
+              {overview && overview.recentAccuracy.length > 0 && (
+                <AccuracyTrendChart data={overview.recentAccuracy} />
               )}
 
-              {xgbOverview.byConfidenceTier.length > 0 && (
-                <XGBoostConfidenceTierSection tiers={xgbOverview.byConfidenceTier} />
-              )}
+              {/* Signal Accuracy Table */}
+              <SignalAccuracySection signals={signals} isLoading={signalsLoading} />
 
-              {xgbFeatures && xgbFeatures.features.length > 0 && (
-                <XGBoostFeatureImportanceSection features={xgbFeatures.features} sampleSize={xgbFeatures.sampleSize} />
-              )}
+              {/* Weights */}
+              <WeightsSection weightsData={weightsData} signals={signals} />
 
-              <XGBoostPredictionLogSection
-                predictions={xgbPredictions?.predictions || []}
-                isLoading={xgbPredictionsLoading}
-              />
+              {/* Projection Log */}
+              <ProjectionLogSection projections={projections} isLoading={projectionsLoading} />
+
+              {/* Backtest Run History */}
+              {runs.length > 0 && <BacktestRunsSection runs={runs} />}
+
+              {/* XGBoost Model Section */}
+              {xgbOverview && xgbOverview.total > 0 && (
+                <>
+                  <XGBoostOverviewCards overview={xgbOverview} />
+
+                  {xgbOverview.dailyAccuracy.length > 0 && (
+                    <XGBoostAccuracyChart data={xgbOverview.dailyAccuracy} />
+                  )}
+
+                  {xgbOverview.byConfidenceTier.length > 0 && (
+                    <XGBoostConfidenceTierSection tiers={xgbOverview.byConfidenceTier} />
+                  )}
+
+                  {xgbFeatures && xgbFeatures.features.length > 0 && (
+                    <XGBoostFeatureImportanceSection features={xgbFeatures.features} sampleSize={xgbFeatures.sampleSize} />
+                  )}
+
+                  <XGBoostPredictionLogSection
+                    predictions={xgbPredictions?.predictions || []}
+                    isLoading={xgbPredictionsLoading}
+                  />
+                </>
+              )}
             </>
-          )}
-
-          {/* Empty state */}
-          {!hasData && !overviewLoading && (
-            <Card>
-              <CardContent className="p-12 text-center">
-                <FlaskConical className="w-16 h-16 mx-auto mb-4 text-muted-foreground/30" />
-                <h3 className="text-xl font-semibold mb-2">No Backtest Data Yet</h3>
-                <p className="text-muted-foreground max-w-md mx-auto mb-4">
-                  The backtest infrastructure is set up and ready. Data will automatically
-                  update when projections are captured and games complete.
-                </p>
-                <Button
-                  variant="outline"
-                  onClick={handleManualRefresh}
-                  disabled={isRefreshing}
-                >
-                  <RefreshCw className={`w-4 h-4 mr-2 ${isRefreshing ? "animate-spin" : ""}`} />
-                  {isRefreshing ? "Checking for data..." : "Check for Updates"}
-                </Button>
-              </CardContent>
-            </Card>
+          ) : (
+            /* Empty state - only show when there's no data */
+            !overviewLoading && (
+              <Card>
+                <CardContent className="p-12 text-center">
+                  <FlaskConical className="w-16 h-16 mx-auto mb-4 text-muted-foreground/30" />
+                  <h3 className="text-xl font-semibold mb-2">No Backtest Data Yet</h3>
+                  <p className="text-muted-foreground max-w-md mx-auto mb-4">
+                    The backtest infrastructure is set up and ready. Data will automatically
+                    update when projections are captured and games complete.
+                  </p>
+                  <Button
+                    variant="outline"
+                    onClick={handleManualRefresh}
+                    disabled={isRefreshing}
+                  >
+                    <RefreshCw className={`w-4 h-4 mr-2 ${isRefreshing ? "animate-spin" : ""}`} />
+                    {isRefreshing ? "Checking for data..." : "Check for Updates"}
+                  </Button>
+                </CardContent>
+              </Card>
+            )
           )}
         </TabsContent>
       </Tabs>
