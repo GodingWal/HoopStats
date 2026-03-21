@@ -3766,37 +3766,44 @@ print(json.dumps(result.to_dict()))
       child.stderr?.on("data", (d: Buffer) => { stderr += d.toString(); });
 
       child.on("close", async (code: number) => {
-        if (code !== 0) {
-          apiLogger.error(`[Parlays] generate script exited ${code}: ${stderr}`);
-          return res.status(500).json({
-            error: "Parlay generation failed",
-            stderr: stderr.slice(0, 500),
+        try {
+          if (code !== 0) {
+            apiLogger.error(`[Parlays] generate script exited ${code}: ${stderr}`);
+            return res.status(500).json({
+              error: "Parlay generation failed",
+              stderr: stderr.slice(0, 500),
+            });
+          }
+
+          // Return the freshly generated parlays
+          if (!pool) {
+            return res.status(503).json({ error: "Database not available" });
+          }
+          const result = await pool.query(
+            `SELECT id, legs, correlations, parlay_type, parlay_template,
+                    leg_count, base_hit_prob, true_hit_prob, payout,
+                    combined_ev, recommendation, avoid_reason, game_date
+             FROM parlay_results
+             WHERE game_date = $1
+               AND leg_count = $2
+             ORDER BY combined_ev DESC
+             LIMIT 20`,
+            [targetDate, size]
+          );
+
+          res.json({
+            date: targetDate,
+            parlay_size: size,
+            parlays: result.rows,
+            count: result.rows.length,
+            stdout: stdout.trim(),
           });
+        } catch (err: any) {
+          apiLogger.error("[Parlays] Error after script completion:", err);
+          if (!res.headersSent) {
+            res.status(500).json({ error: err.message });
+          }
         }
-
-        // Return the freshly generated parlays
-        if (!pool) {
-          return res.status(503).json({ error: "Database not available" });
-        }
-        const result = await pool.query(
-          `SELECT id, legs, correlations, parlay_type, parlay_template,
-                  leg_count, base_hit_prob, true_hit_prob, payout,
-                  combined_ev, recommendation, avoid_reason, game_date
-           FROM parlay_results
-           WHERE game_date = $1
-             AND leg_count = $2
-           ORDER BY combined_ev DESC
-           LIMIT 20`,
-          [targetDate, size]
-        );
-
-        res.json({
-          date: targetDate,
-          parlay_size: size,
-          parlays: result.rows,
-          count: result.rows.length,
-          stdout: stdout.trim(),
-        });
       });
     } catch (error: any) {
       apiLogger.error("[Parlays] Error triggering generation:", error);
