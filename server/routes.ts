@@ -50,7 +50,6 @@ import {
 } from "./team-stats-api";
 import { generateBetExplanation, parseBetScreenshot } from "./services/openai";
 import { getPlayerStatsByName, getActivePlayersWithStats } from "./services/balldontlie";
-import { registerRefSignalRoutes } from "./routes/ref-signal";
 import { lineWatcher } from "./services/line-watcher";
 import { SAMPLE_PLAYERS } from "./data/sample-players-loader";
 
@@ -3451,9 +3450,6 @@ export async function registerRoutes(
     }
   });
 
-  // Register ref foul signal routes
-  apiLogger.info("DEBUG: About to register Ref Signal Routes in routes.ts");
-  registerRefSignalRoutes(app);
 
   // -------------------------------------------------------------------------
   // Signal Engine API Endpoints
