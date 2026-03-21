@@ -17,7 +17,6 @@ import Dashboard from "@/pages/dashboard";
 import TrackRecord from "@/pages/track-record";
 import TeamStatsPage from "@/pages/team-stats";
 import BacktestPage from "@/pages/backtest";
-import RefSignalPage from "@/pages/ref-signal";
 import ParlayCorrelationPage from "@/pages/parlay-correlation";
 import { ThemeToggle } from "@/components/theme-toggle";
 import {
@@ -35,7 +34,7 @@ import {
   SidebarFooter,
 } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
-import { Users, Target, RefreshCw, CloudDownload, AlertCircle, Tv, History, LayoutDashboard, Award, BarChart3, Wallet, FlaskConical, Crosshair, GitMerge } from "lucide-react";
+import { Users, Target, RefreshCw, CloudDownload, AlertCircle, Tv, History, LayoutDashboard, Award, BarChart3, Wallet, FlaskConical, GitMerge } from "lucide-react";
 
 function Router() {
   return (
@@ -49,7 +48,6 @@ function Router() {
       <Route path="/line-history" component={LineHistory} />
       <Route path="/team-stats" component={TeamStatsPage} />
       <Route path="/backtest" component={BacktestPage} />
-      <Route path="/ref-signal" component={RefSignalPage} />
       <Route path="/parlay-correlations" component={ParlayCorrelationPage} />
       <Route component={NotFound} />
     </Switch>
@@ -101,11 +99,6 @@ const navItems = [
     title: "Backtest Lab",
     url: "/backtest",
     icon: FlaskConical,
-  },
-  {
-    title: "Ref Signal",
-    url: "/ref-signal",
-    icon: Crosshair,
   },
   {
     title: "Parlay Correlations",
