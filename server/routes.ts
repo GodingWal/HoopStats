@@ -3023,11 +3023,10 @@ export async function registerRoutes(
       const completed = parseInt(stats.completed) || 0;
       const hits = parseInt(stats.hits) || 0;
 
-      // Data is stale if: there are pending actuals OR validation hasn't run recently
-      // But only flag staleness when there are actual projections to validate
+      // Data is stale if: no projections exist yet, there are pending actuals, OR validation hasn't run recently
       const today = new Date().toISOString().split('T')[0];
       const validationStale = !lastValidationDate || lastValidationDate < today;
-      const needsRefresh = total > 0 && (pendingActuals > 0 || validationStale);
+      const needsRefresh = total === 0 || pendingActuals > 0 || validationStale;
 
       res.json({
         totalProjections: total,
@@ -3149,17 +3148,25 @@ export async function registerRoutes(
         });
       };
 
-      // Step 1: Populate actuals for yesterday's games
+      // Step 1: Capture today's projections (ensures new data flows in)
+      apiLogger.info("[Backtest Refresh] Running projection capture...");
+      const captureResult = await runPythonScript("capture");
+
+      // Step 2: Populate actuals for yesterday's games
       apiLogger.info("[Backtest Refresh] Running actuals population...");
       const actualsResult = await runPythonScript("actuals");
 
-      // Step 2: Run validation
+      // Step 3: Run validation
       apiLogger.info("[Backtest Refresh] Running validation...");
       const validationResult = await runPythonScript("validate");
 
       const duration = Date.now() - startTime;
       lastRefreshTime = new Date();
       lastRefreshResult = {
+        capture: {
+          success: captureResult.success,
+          message: captureResult.output.trim() || (captureResult.success ? "Completed" : captureResult.error),
+        },
         actuals: {
           success: actualsResult.success,
           message: actualsResult.output.trim() || (actualsResult.success ? "Completed" : actualsResult.error),
