@@ -3600,10 +3600,10 @@ print(json.dumps(result.to_dict()))
   // =========================================================================
 
   /**
-   * GET /api/parlays?date=YYYY-MM-DD&size=2&min_ev=0.05&limit=20
+   * GET /api/correlated-parlays?date=YYYY-MM-DD&size=2&min_ev=0.05&limit=20
    * Returns top correlated parlay recommendations from parlay_results.
    */
-  app.get("/api/parlays", async (req, res) => {
+  app.get("/api/correlated-parlays", async (req, res) => {
     try {
       const date = (req.query.date as string) || new Date().toISOString().slice(0, 10);
       const size = parseInt((req.query.size as string) || "0", 10) || null;

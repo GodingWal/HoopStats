@@ -380,9 +380,9 @@ export default function ParlayCorrelationPage() {
   const [showAvoid, setShowAvoid] = useState(false);
 
   const { data, isLoading, isFetching, refetch } = useQuery<ParlaysResponse>({
-    queryKey: ["/api/parlays", date, parlaySize],
+    queryKey: ["/api/correlated-parlays", date, parlaySize],
     queryFn: async () => {
-      const res = await apiRequest("GET", `/api/parlays?date=${date}&size=${parlaySize}&min_ev=-1&limit=50`);
+      const res = await apiRequest("GET", `/api/correlated-parlays?date=${date}&size=${parlaySize}&min_ev=-1&limit=50`);
       return res.json() as Promise<ParlaysResponse>;
     },
   });
@@ -391,7 +391,7 @@ export default function ParlayCorrelationPage() {
     mutationFn: () =>
       apiRequest("POST", "/api/parlays/generate", { date, parlay_size: parlaySize }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/parlays"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/correlated-parlays"] });
     },
   });
 
