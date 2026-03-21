@@ -2,7 +2,7 @@
 Model Stacking / Ensemble
 
 Combines the analytical projection model with a simple ML model
-and a deep learning model to produce more robust predictions.
+to produce more robust predictions.
 
 Ensembles almost always outperform individual models because they
 capture different aspects of the signal.
@@ -10,19 +10,12 @@ capture different aspects of the signal.
 Components:
 1. Analytical model: The existing projection engine (feature-based)
 2. Simple ML model: Gradient-boosted trees on engineered features
-3. Deep Learning model: Hybrid LSTM+MLP (PropNet) trained on historical logs
-4. Blending: Weighted average of all model outputs
-
-The DL model is optional — when not trained, weights automatically
-redistribute to the analytical and GBM components.
+3. Blending: Weighted average of both model outputs
 """
 
 from typing import Dict, List, Optional, Tuple, Any
-import logging
 import numpy as np
 from dataclasses import dataclass, field
-
-logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -38,10 +31,6 @@ class EnsemblePrediction:
     ml_weight: float
     confidence: float
     feature_importances: Dict[str, float] = field(default_factory=dict)
-    # Deep learning fields (populated when DL model is available)
-    dl_projection: Optional[float] = None
-    dl_weight: float = 0.0
-    dl_confidence: float = 0.0
 
 
 class SimpleGradientBoostedModel:
@@ -188,130 +177,22 @@ class SimpleGradientBoostedModel:
 
 class EnsembleProjector:
     """
-    Ensemble projector combining analytical, GBM, and deep learning models.
-
-    Weight allocation:
-        - When DL model is absent:   analytical=0.65, gbm=0.35, dl=0.0
-        - When DL model is present:  analytical=0.50, gbm=0.25, dl=0.25
-
-    DL models are loaded lazily from ModelStore the first time predict() is
-    called for a stat type.  Set dl_model_dir to the weights directory, or
-    call load_dl_models() explicitly.
+    Ensemble projector combining analytical and ML models.
     """
 
     def __init__(
         self,
         analytical_weight: float = 0.65,
         ml_weight: float = 0.35,
-        dl_model_dir: Optional[str] = None,
     ):
         """
         Args:
-            analytical_weight: Weight for analytical model (no-DL baseline)
-            ml_weight: Weight for GBM model (no-DL baseline)
-            dl_model_dir: Directory containing PropNet .npz weight files
+            analytical_weight: Weight for analytical model output
+            ml_weight: Weight for ML model output (should sum to 1.0 with analytical)
         """
         self.analytical_weight = analytical_weight
         self.ml_weight = ml_weight
         self.ml_models: Dict[str, SimpleGradientBoostedModel] = {}
-
-        # --- Deep Learning components ---
-        self._dl_dir = dl_model_dir
-        self._dl_models: Dict[str, Any] = {}   # stat_type → PropNet
-        self._dl_store: Optional[Any] = None   # ModelStore (lazy-loaded)
-        self._dl_initialised = False
-
-    # -----------------------------------------------------------------------
-    # Deep Learning helpers
-    # -----------------------------------------------------------------------
-
-    def _init_dl(self):
-        """Lazy-load the ModelStore and any available PropNet weights."""
-        if self._dl_initialised:
-            return
-        try:
-            from .deep_learning import ModelStore
-            self._dl_store = ModelStore(self._dl_dir)
-            for stat_type in self._dl_store.list_saved():
-                model = self._dl_store.load(stat_type)
-                if model is not None:
-                    self._dl_models[stat_type] = model
-            if self._dl_models:
-                logger.info(
-                    "Loaded DL models for: %s", list(self._dl_models.keys())
-                )
-        except Exception as e:
-            logger.debug("DL model init skipped: %s", e)
-        self._dl_initialised = True
-
-    def load_dl_models(self, model_dir: Optional[str] = None):
-        """
-        Explicitly load or reload DL models from a directory.
-
-        Args:
-            model_dir: Path to .npz weight files. If None, uses dl_model_dir
-                       set at construction.
-        """
-        if model_dir:
-            self._dl_dir = model_dir
-        self._dl_initialised = False
-        self._dl_models = {}
-        self._init_dl()
-
-    def register_dl_model(self, stat_type: str, model: Any):
-        """
-        Register a trained PropNet directly (e.g., after running
-        DLTrainingPipeline in the same process).
-        """
-        self._dl_models[stat_type] = model
-        logger.info("Registered DL model for %s", stat_type)
-
-    def _get_dl_projection(
-        self,
-        stat_type: str,
-        analytical_projection: float,
-        context: Dict[str, Any],
-        line: Optional[float] = None,
-    ) -> Tuple[Optional[float], float]:
-        """
-        Run PropNet inference for one player-game.
-
-        Returns (dl_projection, dl_confidence). Returns (None, 0.0) if
-        no DL model is available for this stat type.
-        """
-        self._init_dl()
-        model = self._dl_models.get(stat_type)
-        if model is None:
-            return None, 0.0
-
-        try:
-            from .deep_learning.prop_net import (
-                build_sequence_from_game_log,
-                build_static_features,
-            )
-            game_log = context.get("recent_games", [])
-            signals  = context.get("signal_adjustments", {})
-            signal_score = float(sum(signals.values())) if signals else 0.0
-
-            seq = build_sequence_from_game_log(
-                game_log=game_log,
-                seq_len=model.config.seq_len,
-                signal_score=signal_score,
-                opp_pace=context.get("opponent_pace", 100.0),
-                opp_def_rtg=context.get("opponent_def_rating", 110.0),
-                is_home=context.get("is_home", True),
-                is_b2b=context.get("is_b2b", False),
-                rest_days=context.get("rest_days", 2),
-                spread_abs=abs(context.get("vegas_spread", 0.0)),
-                total=context.get("vegas_total", 225.0),
-            )
-            static = build_static_features(context)
-
-            pred = model.predict(seq, static, analytical_projection, line=line)
-            return pred.projection, pred.confidence
-        except Exception as e:
-            logger.debug("DL inference failed for %s: %s", stat_type, e)
-            return None, 0.0
 
     def build_feature_vector(self, context: Dict[str, Any]) -> Tuple[np.ndarray, List[str]]:
         """
@@ -414,19 +295,19 @@ class EnsembleProjector:
         line: Optional[float] = None,
     ) -> EnsemblePrediction:
         """
-        Generate ensemble prediction (analytical + GBM + optional DL).
+        Generate ensemble prediction.
 
         Args:
             stat_type: Stat type being predicted
             analytical_projection: Output from analytical model
-            context: Full context dict (including recent_games for DL)
+            context: Full context dict
             line: Optional betting line
 
         Returns:
-            EnsemblePrediction with three-way blended output
+            EnsemblePrediction with blended output
         """
-        # --- GBM prediction ---
-        ml_projection = analytical_projection  # Default to analytical if no GBM model
+        # Get ML prediction
+        ml_projection = analytical_projection  # Default to analytical if no ML model
         feature_importances = {}
 
         if stat_type in self.ml_models:
@@ -435,51 +316,29 @@ class EnsembleProjector:
             ml_projection = float(model.predict(X)[0])
             feature_importances = model.get_feature_importance()
 
-        # --- Deep Learning prediction ---
-        dl_proj, dl_conf = self._get_dl_projection(
-            stat_type, analytical_projection, context, line
-        )
-
-        # --- Compute adaptive weights ---
-        # When DL is available: analytical=0.50, gbm=0.25, dl=0.25
-        # When DL is absent:    analytical=0.65, gbm=0.35, dl=0.00
-        if dl_proj is not None:
-            w_analytical = 0.50
-            w_ml         = 0.25
-            w_dl         = 0.25
-        else:
-            w_analytical = self.analytical_weight
-            w_ml         = self.ml_weight
-            w_dl         = 0.0
-            dl_proj      = analytical_projection  # placeholder
-
+        # Blend
         ensemble_projection = (
-            w_analytical * analytical_projection
-            + w_ml         * ml_projection
-            + w_dl         * dl_proj
+            self.analytical_weight * analytical_projection +
+            self.ml_weight * ml_projection
         )
 
-        # --- Probabilities ---
+        # Calculate probabilities if line provided
         prob_over = 0.5
         prob_under = 0.5
         if line is not None:
+            # Use ensemble projection and estimated std
             std = self._estimate_std(stat_type, context)
             if std > 0:
                 from scipy.stats import norm
-                prob_over  = 1 - norm.cdf(line, ensemble_projection, std)
+                prob_over = 1 - norm.cdf(line, ensemble_projection, std)
                 prob_under = 1 - prob_over
 
-        # --- Confidence (all three models) ---
-        agreements = []
+        # Confidence based on model agreement
         if analytical_projection > 0:
-            agreements.append(
-                1.0 - abs(analytical_projection - ml_projection) / analytical_projection
-            )
-            if w_dl > 0:
-                agreements.append(
-                    1.0 - abs(analytical_projection - dl_proj) / analytical_projection
-                )
-        confidence = max(0.3, min(float(np.mean(agreements)) if agreements else 0.5, 0.9))
+            agreement = 1.0 - abs(analytical_projection - ml_projection) / analytical_projection
+            confidence = max(0.3, min(agreement, 0.9))
+        else:
+            confidence = 0.5
 
         return EnsemblePrediction(
             stat_type=stat_type,
@@ -488,13 +347,10 @@ class EnsembleProjector:
             ensemble_projection=ensemble_projection,
             prob_over=prob_over,
             prob_under=prob_under,
-            analytical_weight=w_analytical,
-            ml_weight=w_ml,
+            analytical_weight=self.analytical_weight,
+            ml_weight=self.ml_weight,
             confidence=confidence,
             feature_importances=feature_importances,
-            dl_projection=dl_proj if w_dl > 0 else None,
-            dl_weight=w_dl,
-            dl_confidence=dl_conf,
         )
 
     def _estimate_std(self, stat_type: str, context: Dict[str, Any]) -> float:
