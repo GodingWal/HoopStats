@@ -46,22 +46,24 @@ def _compute_baseline(player_id: str, prop_type: str, conn) -> Optional[float]:
 
     Returns float baseline or None if insufficient data.
     """
+    # DB stores season_averages with uppercase keys (PTS, REB, etc.)
     stat_col_map = {
-        "Points": "pts",
-        "Rebounds": "reb",
-        "Assists": "ast",
-        "3-Pointers Made": "fg3m",
-        "Steals": "stl",
-        "Blocks": "blk",
-        "Turnovers": "tov",
+        "Points": "PTS",
+        "Rebounds": "REB",
+        "Assists": "AST",
+        "3-Pointers Made": "FG3M",
+        "Steals": "STL",
+        "Blocks": "BLK",
+        "Blocked Shots": "BLK",
+        "Turnovers": "TOV",
     }
     # Combo stats: sum of components
     combo_map = {
-        "Pts+Rebs": ["pts", "reb"],
-        "Pts+Asts": ["pts", "ast"],
-        "Rebs+Asts": ["reb", "ast"],
-        "Pts+Rebs+Asts": ["pts", "reb", "ast"],
-        "Blks+Stls": ["blk", "stl"],
+        "Pts+Rebs": ["PTS", "REB"],
+        "Pts+Asts": ["PTS", "AST"],
+        "Rebs+Asts": ["REB", "AST"],
+        "Pts+Rebs+Asts": ["PTS", "REB", "AST"],
+        "Blks+Stls": ["BLK", "STL"],
     }
 
     if conn is None:
@@ -72,9 +74,10 @@ def _compute_baseline(player_id: str, prop_type: str, conn) -> Optional[float]:
 
         if prop_type in combo_map:
             cols = combo_map[prop_type]
-            # Pull from players.season_averages JSONB
+            # Pull from players.season_averages JSONB by player_name
             cursor.execute(
-                "SELECT season_averages FROM players WHERE id = %s", (player_id,)
+                "SELECT season_averages FROM players WHERE LOWER(player_name) = LOWER(%s) LIMIT 1",
+                (player_id,),
             )
             row = cursor.fetchone()
             cursor.close()
@@ -87,8 +90,10 @@ def _compute_baseline(player_id: str, prop_type: str, conn) -> Optional[float]:
         if not stat_key:
             return None
 
-        # Try player_advanced_stats first (pace-adjusted)
+        # Try player_advanced_stats first (pace-adjusted), using a savepoint
+        # so a missing table doesn't abort the outer transaction
         try:
+            cursor.execute("SAVEPOINT sp_adv")
             cursor.execute(
                 f"""
                 SELECT AVG(pas.pace / NULLIF(t.pace, 0) * p.season_averages->>'{stat_key}')
@@ -104,17 +109,18 @@ def _compute_baseline(player_id: str, prop_type: str, conn) -> Optional[float]:
                 (player_id, player_id),
             )
             row = cursor.fetchone()
+            cursor.execute("RELEASE SAVEPOINT sp_adv")
             if row and row[0]:
                 cursor.close()
                 return float(row[0])
         except Exception:
-            # Table may not exist — rollback and fall through to simpler lookup
-            conn.rollback()
-            cursor = conn.cursor()
+            # Table may not exist — roll back to savepoint, transaction stays intact
+            cursor.execute("ROLLBACK TO SAVEPOINT sp_adv")
 
-        # Fallback: plain season average from players table
+        # Fallback: plain season average from players table by player_name
         cursor.execute(
-            "SELECT season_averages FROM players WHERE id = %s", (player_id,)
+            "SELECT season_averages FROM players WHERE LOWER(player_name) = LOWER(%s) LIMIT 1",
+            (player_id,),
         )
         row = cursor.fetchone()
         cursor.close()
@@ -163,6 +169,37 @@ def _kelly_stake(edge_pct: float, payout: float = PRIZEPICKS_PAYOUT) -> float:
     return round(f_quarter, 4)
 
 
+def _baseline_from_averages(prop_type: str, season_averages: dict) -> Optional[float]:
+    """Derive a baseline from a season_averages dict when DB lookup fails.
+
+    Handles both uppercase keys (e.g. 'PTS') and lowercase (e.g. 'pts').
+    """
+    if not season_averages:
+        return None
+    # Normalise to uppercase lookup (DB stores as PTS, REB, etc.)
+    avgs = {k.upper(): v for k, v in season_averages.items()}
+    stat_col_map = {
+        "Points": "PTS", "Rebounds": "REB", "Assists": "AST",
+        "3-Pointers Made": "FG3M", "Steals": "STL",
+        "Blocks": "BLK", "Blocked Shots": "BLK",
+        "Turnovers": "TOV",
+    }
+    combo_map = {
+        "Pts+Rebs": ["PTS", "REB"], "Pts+Asts": ["PTS", "AST"],
+        "Rebs+Asts": ["REB", "AST"], "Pts+Rebs+Asts": ["PTS", "REB", "AST"],
+        "Blks+Stls": ["BLK", "STL"],
+    }
+    if prop_type in combo_map:
+        vals = [float(avgs.get(c, 0) or 0) for c in combo_map[prop_type]]
+        total = sum(vals)
+        return total if total > 0 else None
+    key = stat_col_map.get(prop_type)
+    if key:
+        val = avgs.get(key)
+        return float(val) if val else None
+    return None
+
+
 def project_player(
     player_id: str,
     game_date: str,
@@ -178,6 +215,11 @@ def project_player(
     Returns a dict matching the projection_outputs schema, or None on failure.
     """
     baseline = _compute_baseline(player_id, prop_type, conn)
+    if baseline is None or baseline == 0:
+        # Fallback: compute from season_averages passed in via game_context_extra
+        baseline = _baseline_from_averages(
+            prop_type, game_context_extra.get("season_averages") or {}
+        )
     if baseline is None or baseline == 0:
         logger.debug(f"No baseline for {player_id}/{prop_type}, skipping")
         return None

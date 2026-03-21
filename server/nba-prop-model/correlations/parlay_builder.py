@@ -13,12 +13,21 @@ Entry point: CorrelatedParlayBuilder.find_optimal_parlays()
 Cron target: daily 10:30 AM (after projection_engine.run_daily())
 """
 
+import decimal
 import itertools
 import json
 import logging
 import os
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
+
+
+class _DecimalEncoder(json.JSONEncoder):
+    """JSON encoder that converts Decimal to float."""
+    def default(self, obj):
+        if isinstance(obj, decimal.Decimal):
+            return float(obj)
+        return super().default(obj)
 
 from .correlation_engine import CorrelationEngine
 
@@ -554,8 +563,8 @@ class CorrelatedParlayBuilder:
                     )
                     """,
                     (
-                        json.dumps(p["legs"]),
-                        json.dumps(p["correlations"]),
+                        json.dumps(p["legs"], cls=_DecimalEncoder),
+                        json.dumps(p["correlations"], cls=_DecimalEncoder),
                         p["parlay_type"],
                         p["parlay_template"],
                         p["leg_count"],
