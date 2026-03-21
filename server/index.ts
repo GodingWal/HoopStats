@@ -7,6 +7,7 @@ import { injuryImpactService } from "./injury-impact-service";
 import { prizePicksLineTracker } from "./prizepicks-line-tracker";
 import { prizePicksStorage } from "./storage/prizepicks-storage";
 import { autoSettlementService } from "./services/auto-settle";
+import { startBacktestScheduler } from "./services/backtest-scheduler";
 import { serverLogger } from "./logger";
 
 // Warn about missing optional API keys at startup so developers know what features are disabled
@@ -169,6 +170,9 @@ app.use((req, res, next) => {
       // Start auto-settlement service (checks every 5 minutes)
       autoSettlementService.start(5 * 60 * 1000);
       serverLogger.info("Auto-settlement service started - settling picks every 5 minutes");
+
+      // Start backtest data scheduler (capture, actuals, validation on cron)
+      startBacktestScheduler();
     },
   );
 })();
