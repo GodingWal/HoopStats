@@ -433,20 +433,24 @@ class CorrelatedParlayBuilder:
                 """
                 SELECT
                     po.player_id,
-                    po.player_name,
+                    COALESCE(p.player_name, pdl.player_name, po.player_id::text) AS player_name,
                     po.prop_type        AS stat_type,
                     po.final_projection,
                     po.prizepicks_line  AS line,
                     po.edge_pct,
                     po.confidence_tier,
-                    po.direction,
+                    CASE
+                        WHEN po.final_projection > po.prizepicks_line THEN 'OVER'
+                        ELSE 'UNDER'
+                    END AS direction,
                     po.kelly_stake,
                     pdl.team,
                     pdl.opponent,
-                    pdl.game_id
+                    CONCAT(pdl.team, '_vs_', pdl.opponent) AS game_id
                 FROM projection_outputs po
+                LEFT JOIN players p ON p.player_id::text = po.player_id
                 LEFT JOIN prizepicks_daily_lines pdl
-                    ON LOWER(po.player_name) = LOWER(pdl.player_name)
+                    ON LOWER(COALESCE(p.player_name, '')) = LOWER(pdl.player_name)
                     AND pdl.game_date = po.game_date
                     AND pdl.stat_type = po.prop_type
                 WHERE po.game_date = %s
@@ -529,6 +533,11 @@ class CorrelatedParlayBuilder:
         written = 0
         try:
             cursor = conn.cursor()
+            # Clear existing results for this date to avoid duplicates on re-run
+            cursor.execute(
+                "DELETE FROM parlay_results WHERE game_date = %s AND outcome IS NULL",
+                (game_date,),
+            )
             for p in parlays:
                 cursor.execute(
                     """
