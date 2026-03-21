@@ -3197,6 +3197,251 @@ export async function registerRoutes(
     });
   });
 
+  // =============== XGBOOST BACKTEST ENDPOINTS ===============
+
+  // GET /api/backtest/xgboost-overview — training data stats + hit rates by stat type
+  app.get("/api/backtest/xgboost-overview", async (req, res) => {
+    try {
+      if (!pool) {
+        return res.json({ total: 0, labeled: 0, unlabeled: 0, hitRate: null, byStatType: {}, dailyAccuracy: [] });
+      }
+
+      // Overall stats
+      const overall = await pool.query(`
+        SELECT
+          COUNT(*) as total,
+          COUNT(actual_value) as labeled,
+          COUNT(*) - COUNT(actual_value) as unlabeled,
+          CASE WHEN COUNT(actual_value) > 0
+            THEN ROUND(AVG(CASE WHEN hit THEN 1.0 ELSE 0.0 END)::numeric, 4)
+            ELSE NULL END as hit_rate,
+          AVG(edge_total) as avg_edge_total,
+          AVG(signal_score) as avg_signal_score
+        FROM xgboost_training_log
+      `);
+
+      // By stat type
+      const byStatResult = await pool.query(`
+        SELECT
+          stat_type,
+          COUNT(*) as total,
+          COUNT(actual_value) as labeled,
+          COUNT(CASE WHEN hit = true THEN 1 END) as hits,
+          CASE WHEN COUNT(actual_value) > 0
+            THEN ROUND(COUNT(CASE WHEN hit = true THEN 1 END)::numeric / COUNT(actual_value), 4)
+            ELSE NULL END as hit_rate,
+          AVG(edge_total) as avg_edge
+        FROM xgboost_training_log
+        GROUP BY stat_type
+        ORDER BY COUNT(*) DESC
+      `);
+
+      // Daily accuracy trend (last 30 days, only settled)
+      const dailyResult = await pool.query(`
+        SELECT
+          game_date as date,
+          COUNT(*) as total,
+          COUNT(CASE WHEN hit = true THEN 1 END) as hits,
+          CASE WHEN COUNT(*) > 0
+            THEN ROUND(COUNT(CASE WHEN hit = true THEN 1 END)::numeric / COUNT(*), 4)
+            ELSE 0 END as accuracy
+        FROM xgboost_training_log
+        WHERE actual_value IS NOT NULL
+          AND game_date >= CURRENT_DATE - INTERVAL '30 days'
+        GROUP BY game_date
+        ORDER BY game_date
+      `);
+
+      // Confidence tier breakdown
+      const tierResult = await pool.query(`
+        SELECT
+          confidence_tier,
+          COUNT(*) as total,
+          COUNT(actual_value) as labeled,
+          COUNT(CASE WHEN hit = true THEN 1 END) as hits,
+          CASE WHEN COUNT(actual_value) > 0
+            THEN ROUND(COUNT(CASE WHEN hit = true THEN 1 END)::numeric / COUNT(actual_value), 4)
+            ELSE NULL END as hit_rate
+        FROM xgboost_training_log
+        WHERE confidence_tier IS NOT NULL
+        GROUP BY confidence_tier
+        ORDER BY COUNT(*) DESC
+      `);
+
+      const row = overall.rows[0];
+      res.json({
+        total: parseInt(row.total) || 0,
+        labeled: parseInt(row.labeled) || 0,
+        unlabeled: parseInt(row.unlabeled) || 0,
+        hitRate: row.hit_rate ? parseFloat(row.hit_rate) : null,
+        avgEdgeTotal: parseFloat(row.avg_edge_total) || 0,
+        avgSignalScore: parseFloat(row.avg_signal_score) || 0,
+        byStatType: Object.fromEntries(
+          byStatResult.rows.map(r => [r.stat_type, {
+            total: parseInt(r.total) || 0,
+            labeled: parseInt(r.labeled) || 0,
+            hits: parseInt(r.hits) || 0,
+            hitRate: r.hit_rate ? parseFloat(r.hit_rate) : null,
+            avgEdge: parseFloat(r.avg_edge) || 0,
+          }])
+        ),
+        dailyAccuracy: dailyResult.rows.map(r => ({
+          date: r.date,
+          total: parseInt(r.total),
+          hits: parseInt(r.hits),
+          accuracy: parseFloat(r.accuracy),
+        })),
+        byConfidenceTier: tierResult.rows.map(r => ({
+          tier: r.confidence_tier,
+          total: parseInt(r.total) || 0,
+          labeled: parseInt(r.labeled) || 0,
+          hits: parseInt(r.hits) || 0,
+          hitRate: r.hit_rate ? parseFloat(r.hit_rate) : null,
+        })),
+      });
+    } catch (error: any) {
+      if (error.code === '42P01') {
+        return res.json({ total: 0, labeled: 0, unlabeled: 0, hitRate: null, byStatType: {}, dailyAccuracy: [], byConfidenceTier: [], message: "Table not yet created." });
+      }
+      apiLogger.error("Error fetching XGBoost overview:", error);
+      res.status(500).json({ error: "Failed to fetch XGBoost overview" });
+    }
+  });
+
+  // GET /api/backtest/xgboost-predictions — recent predictions with outcomes
+  app.get("/api/backtest/xgboost-predictions", async (req, res) => {
+    try {
+      if (!pool) return res.json({ predictions: [] });
+
+      const statType = req.query.statType as string | undefined;
+      const limit = Math.min(parseInt(req.query.limit as string) || 50, 200);
+      const days = parseInt(req.query.days as string) || 14;
+
+      let query = `
+        SELECT
+          id, player_id, game_date, stat_type, line_value,
+          signal_score, edge_total, predicted_direction, confidence_tier,
+          actual_value, actual_minutes, hit,
+          closing_line, closing_line_value,
+          captured_at, settled_at
+        FROM xgboost_training_log
+        WHERE game_date >= CURRENT_DATE - INTERVAL '${days} days'
+      `;
+      const params: unknown[] = [];
+      if (statType) {
+        params.push(statType);
+        query += ` AND stat_type = $${params.length}`;
+      }
+      query += ` ORDER BY game_date DESC, captured_at DESC LIMIT ${limit}`;
+
+      const result = await pool.query(query, params);
+      res.json({
+        predictions: result.rows.map(r => ({
+          id: r.id,
+          playerId: r.player_id,
+          gameDate: r.game_date,
+          statType: r.stat_type,
+          lineValue: parseFloat(r.line_value),
+          signalScore: parseFloat(r.signal_score) || 0,
+          edgeTotal: parseFloat(r.edge_total) || 0,
+          predictedDirection: r.predicted_direction,
+          confidenceTier: r.confidence_tier,
+          actualValue: r.actual_value !== null ? parseFloat(r.actual_value) : null,
+          actualMinutes: r.actual_minutes !== null ? parseFloat(r.actual_minutes) : null,
+          hit: r.hit,
+          closingLine: r.closing_line !== null ? parseFloat(r.closing_line) : null,
+          closingLineValue: r.closing_line_value !== null ? parseFloat(r.closing_line_value) : null,
+          capturedAt: r.captured_at,
+          settledAt: r.settled_at,
+        })),
+      });
+    } catch (error: any) {
+      if (error.code === '42P01') {
+        return res.json({ predictions: [], message: "Table not yet created." });
+      }
+      apiLogger.error("Error fetching XGBoost predictions:", error);
+      res.status(500).json({ error: "Failed to fetch XGBoost predictions" });
+    }
+  });
+
+  // GET /api/backtest/xgboost-features — aggregate feature importance from logged data
+  app.get("/api/backtest/xgboost-features", async (req, res) => {
+    try {
+      if (!pool) return res.json({ features: [] });
+
+      const statType = req.query.statType as string | undefined;
+
+      // Get a sample of settled predictions with features to compute correlations
+      let query = `
+        SELECT features, hit
+        FROM xgboost_training_log
+        WHERE actual_value IS NOT NULL AND features IS NOT NULL
+      `;
+      const params: unknown[] = [];
+      if (statType) {
+        params.push(statType);
+        query += ` AND stat_type = $${params.length}`;
+      }
+      query += ` ORDER BY game_date DESC LIMIT 500`;
+
+      const result = await pool.query(query, params);
+
+      if (result.rows.length < 10) {
+        return res.json({ features: [], sampleSize: result.rows.length, message: "Insufficient data for feature analysis" });
+      }
+
+      // Compute mean feature values for hits vs misses
+      const hitFeatures: Record<string, number[]> = {};
+      const missFeatures: Record<string, number[]> = {};
+
+      for (const row of result.rows) {
+        const features = typeof row.features === 'string' ? JSON.parse(row.features) : row.features;
+        const bucket = row.hit ? hitFeatures : missFeatures;
+
+        for (const [key, val] of Object.entries(features)) {
+          if (typeof val === 'number' && !isNaN(val)) {
+            if (!bucket[key]) bucket[key] = [];
+            bucket[key].push(val);
+          }
+        }
+      }
+
+      // Compute feature importance as abs(mean_hit - mean_miss) normalized
+      const allKeys = new Set([...Object.keys(hitFeatures), ...Object.keys(missFeatures)]);
+      const featureImportance: Array<{ name: string; importance: number; hitMean: number; missMean: number; diff: number }> = [];
+
+      for (const key of allKeys) {
+        const hitVals = hitFeatures[key] || [];
+        const missVals = missFeatures[key] || [];
+        const hitMean = hitVals.length > 0 ? hitVals.reduce((a, b) => a + b, 0) / hitVals.length : 0;
+        const missMean = missVals.length > 0 ? missVals.reduce((a, b) => a + b, 0) / missVals.length : 0;
+        const diff = hitMean - missMean;
+
+        // Normalize importance by pooled std
+        const allVals = [...hitVals, ...missVals];
+        const mean = allVals.reduce((a, b) => a + b, 0) / allVals.length;
+        const std = Math.sqrt(allVals.reduce((s, v) => s + (v - mean) ** 2, 0) / allVals.length) || 1;
+        const importance = Math.abs(diff) / std;
+
+        featureImportance.push({ name: key, importance, hitMean, missMean, diff });
+      }
+
+      // Sort by importance
+      featureImportance.sort((a, b) => b.importance - a.importance);
+
+      res.json({
+        features: featureImportance.slice(0, 20),
+        sampleSize: result.rows.length,
+      });
+    } catch (error: any) {
+      if (error.code === '42P01') {
+        return res.json({ features: [], sampleSize: 0, message: "Table not yet created." });
+      }
+      apiLogger.error("Error fetching XGBoost features:", error);
+      res.status(500).json({ error: "Failed to fetch XGBoost features" });
+    }
+  });
+
   // Register ref foul signal routes
   apiLogger.info("DEBUG: About to register Ref Signal Routes in routes.ts");
   registerRefSignalRoutes(app);
