@@ -18,7 +18,6 @@ import TrackRecord from "@/pages/track-record";
 import TeamStatsPage from "@/pages/team-stats";
 import BacktestPage from "@/pages/backtest";
 import RefSignalPage from "@/pages/ref-signal";
-import DailyPicksPage from "@/pages/daily-picks";
 import ProjectionDashboardPage from "@/pages/projection-dashboard";
 import SignalWeightsPanelPage from "@/pages/signal-weights-panel";
 import BacktestViewPage from "@/pages/backtest-view";
@@ -39,7 +38,7 @@ import {
   SidebarFooter,
 } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
-import { Users, Target, TrendingUp, RefreshCw, CloudDownload, AlertCircle, Tv, History, LayoutDashboard, Award, BarChart3, Wallet, FlaskConical, Crosshair, Zap, Activity, LineChart, GitMerge } from "lucide-react";
+import { Users, Target, RefreshCw, CloudDownload, AlertCircle, Tv, History, LayoutDashboard, Award, BarChart3, Wallet, FlaskConical, Crosshair, Zap, Activity, LineChart, GitMerge } from "lucide-react";
 
 function Router() {
   return (
@@ -54,7 +53,6 @@ function Router() {
       <Route path="/team-stats" component={TeamStatsPage} />
       <Route path="/backtest" component={BacktestPage} />
       <Route path="/ref-signal" component={RefSignalPage} />
-      <Route path="/daily-picks" component={DailyPicksPage} />
       <Route path="/signal-engine" component={ProjectionDashboardPage} />
       <Route path="/signal-weights" component={SignalWeightsPanelPage} />
       <Route path="/backtest-signals" component={BacktestViewPage} />
@@ -114,11 +112,6 @@ const navItems = [
     title: "Ref Signal",
     url: "/ref-signal",
     icon: Crosshair,
-  },
-  {
-    title: "Daily Picks",
-    url: "/daily-picks",
-    icon: TrendingUp,
   },
   {
     title: "Signal Engine",
