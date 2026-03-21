@@ -1215,3 +1215,48 @@ export const prizePicksLineHistorySchema = z.object({
 });
 
 export type PrizePicksLineHistory = z.infer<typeof prizePicksLineHistorySchema>;
+
+// ============================================================================
+// XGBoost Training Log
+// ============================================================================
+
+export const xgboostTrainingLog = pgTable("xgboost_training_log", {
+  id: serial("id").primaryKey(),
+
+  // Identification
+  playerId: varchar("player_id", { length: 50 }).notNull(),
+  gameDate: date("game_date").notNull(),
+  statType: varchar("stat_type", { length: 50 }).notNull(),
+
+  // Market data
+  lineValue: real("line_value").notNull(),
+
+  // Full feature vector (JSONB — all 46 features from XGBoostFeatureBuilder)
+  features: jsonb("features").notNull().$type<Record<string, number>>(),
+
+  // Summary scores
+  signalScore: real("signal_score").default(0),
+  edgeTotal: real("edge_total").default(0),
+  predictedDirection: varchar("predicted_direction", { length: 10 }),
+  confidenceTier: varchar("confidence_tier", { length: 20 }),
+
+  // Extra metadata
+  metadata: jsonb("metadata").$type<Record<string, unknown>>(),
+
+  // Post-game actuals
+  actualValue: real("actual_value"),
+  actualMinutes: real("actual_minutes"),
+  hit: boolean("hit"),
+
+  // CLV data
+  closingLine: real("closing_line"),
+  closingLineValue: real("closing_line_value"),
+
+  // Timestamps
+  capturedAt: timestamp("captured_at").defaultNow().notNull(),
+  settledAt: timestamp("settled_at"),
+});
+
+export const insertXgboostTrainingLogSchema = createInsertSchema(xgboostTrainingLog).omit({ id: true, capturedAt: true });
+export type InsertXgboostTrainingLog = z.infer<typeof insertXgboostTrainingLogSchema>;
+export type DbXgboostTrainingLog = typeof xgboostTrainingLog.$inferSelect;
