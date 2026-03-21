@@ -1,8 +1,9 @@
 import type { InsertPlayer } from "@shared/schema";
 import { fetchAllTeams, fetchTeamRoster, fetchPlayerGamelog, type ESPNTeam, type ESPNAthlete, type PlayerGameStats } from "./espn-api";
+import { calculateHitRatesFromGameLogs, calculateHomAwaySplits } from "./utils/statistics";
 
-// Reusing mock stat generation for now as we don't have a bulk stats endpoint
-// and fetching 500+ player gamelogs individually would be too slow/rate-limited.
+// Uses real game logs for hit rates when available, mock data as fallback
+// when fetching 500+ player gamelogs individually would be too slow/rate-limited.
 
 interface PlayerStats {
   PTS: number;
@@ -121,19 +122,21 @@ function generateMockRecentGames(avgStats: { PTS: number; REB: number; AST: numb
 export async function buildPlayerFromESPN(athlete: ESPNAthlete, team: ESPNTeam): Promise<InsertPlayer | null> {
   const positionName = athlete.position?.name || 'Guard';
 
+  const parseMin = (minStr: string) => {
+    if (!minStr) return 0;
+    const parts = minStr.split(':');
+    return parseInt(parts[0]) + (parts[1] ? parseInt(parts[1]) / 60 : 0);
+  };
+
   // Try to fetch real gamelog data from ESPN
   let realStats: PlayerRealStats | null = null;
+  let gamelog: PlayerGameStats[] = [];
 
   try {
-    const gamelog = await fetchPlayerGamelog(athlete.id);
+    gamelog = await fetchPlayerGamelog(athlete.id);
 
     if (gamelog.length > 0) {
       // Calculate real stats from gamelog
-      const parseMin = (minStr: string) => {
-        if (!minStr) return 0;
-        const parts = minStr.split(':');
-        return parseInt(parts[0]) + (parts[1] ? parseInt(parts[1]) / 60 : 0);
-      };
 
       const calc = (arr: number[]) => arr.length > 0 ? Math.round((arr.reduce((a, b) => a + b, 0) / arr.length) * 10) / 10 : 0;
 
@@ -248,23 +251,61 @@ export async function buildPlayerFromESPN(athlete: ESPNAthlete, team: ESPNTeam):
   };
   const recentGames = realStats?.recentGames || generateMockRecentGames(seasonAverages);
 
-  const hitRates = {
-    PTS: generateMockHitRates(seasonAverages.PTS, 'PTS'),
-    REB: generateMockHitRates(seasonAverages.REB, 'REB'),
-    AST: generateMockHitRates(seasonAverages.AST, 'AST'),
-    FG3M: generateMockHitRates(seasonAverages.FG3M, 'FG3M'),
-    PRA: generateMockHitRates(seasonAverages.PRA, 'PRA'),
-    STOCKS: generateMockHitRates((seasonAverages.STL || 0) + (seasonAverages.BLK || 0), 'STOCKS'),
-  };
+  // Build full game logs with home/away data for real calculations
+  const fullGameLogs = realStats ? gamelog.map((g: PlayerGameStats) => ({
+    GAME_DATE: g.game.date ? new Date(g.game.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).toUpperCase() : '',
+    OPPONENT: g.game.opponent?.abbreviation || '?',
+    PTS: parseInt(g.stats.PTS || '0'),
+    REB: parseInt(g.stats.REB || '0'),
+    AST: parseInt(g.stats.AST || '0'),
+    FG3M: parseInt(g.stats['3PM'] || g.stats.FG3M || '0'),
+    STL: parseInt(g.stats.STL || '0'),
+    BLK: parseInt(g.stats.BLK || '0'),
+    TOV: parseInt(g.stats.TO || g.stats.TOV || '0'),
+    WL: g.game.result?.charAt(0) || '?',
+    MIN: Math.round(parseMin(g.stats.MIN || '0')),
+    IS_HOME: g.game.isHome ?? undefined,
+  })) : [];
 
-  const homeAvgs = {
+  // Calculate REAL hit rates from actual game logs (not mock formulas)
+  const hitRates: Record<string, any> = {};
+  const statTypes = ['PTS', 'REB', 'AST', 'FG3M', 'PRA'];
+
+  if (fullGameLogs.length >= 10) {
+    for (const statType of statTypes) {
+      const avg = seasonAverages[statType as keyof typeof seasonAverages] as number;
+      if (typeof avg === 'number' && avg > 0) {
+        const rates = calculateHitRatesFromGameLogs(fullGameLogs, statType, avg);
+        if (Object.keys(rates).length > 0) {
+          hitRates[statType] = rates;
+        }
+      }
+    }
+  }
+
+  // Fall back to mock hit rates only for stat types with insufficient game data
+  for (const statType of statTypes) {
+    if (!hitRates[statType]) {
+      const avg = seasonAverages[statType as keyof typeof seasonAverages] as number;
+      if (typeof avg === 'number') {
+        hitRates[statType] = generateMockHitRates(avg, statType);
+      }
+    }
+  }
+
+  // Calculate REAL home/away splits from game logs (not fixed multipliers)
+  const realSplits = fullGameLogs.length >= 16
+    ? calculateHomAwaySplits(fullGameLogs)
+    : null;
+
+  const homeAvgs = realSplits?.home || {
     PTS: Math.round(seasonAverages.PTS * 1.05 * 10) / 10,
     REB: Math.round(seasonAverages.REB * 1.02 * 10) / 10,
     AST: Math.round(seasonAverages.AST * 1.03 * 10) / 10,
     PRA: Math.round(seasonAverages.PRA * 1.04 * 10) / 10,
   };
 
-  const awayAvgs = {
+  const awayAvgs = realSplits?.away || {
     PTS: Math.round(seasonAverages.PTS * 0.95 * 10) / 10,
     REB: Math.round(seasonAverages.REB * 0.98 * 10) / 10,
     AST: Math.round(seasonAverages.AST * 0.97 * 10) / 10,
@@ -285,6 +326,7 @@ export async function buildPlayerFromESPN(athlete: ESPNAthlete, team: ESPNTeam):
     recent_games: recentGames,
     home_averages: homeAvgs,
     away_averages: awayAvgs,
+    game_logs: fullGameLogs.length > 0 ? fullGameLogs : undefined,
   };
 }
 

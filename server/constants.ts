@@ -26,8 +26,17 @@ export const BETTING_CONFIG = {
   EDGE_THRESHOLDS: {
     STRONG: 5,       // Strong edge score
     GOOD: 3,         // Good edge score
-    MIN_EDGE: 0.03,  // Minimum edge for recommendations (3%)
+    MIN_EDGE: 0.05,  // Minimum edge for recommendations (5% - must beat vig)
   },
+
+  /** Sample size requirements */
+  MIN_SAMPLE_SIZE: 15,        // Minimum games for hit rate to be used
+  MIN_SPLIT_SAMPLE_SIZE: 10,  // Minimum games per on/off split
+
+  /** Expected Value thresholds */
+  MIN_EV_THRESHOLD: 0.05,     // Only recommend if EV > 5%
+  KELLY_FRACTION: 0.25,       // Quarter Kelly for conservative sizing
+  DEFAULT_ODDS: -110,         // PrizePicks standard odds
 
   /** Hit rate thresholds for filtering */
   HIT_RATE_THRESHOLDS: {
@@ -77,7 +86,7 @@ export const API_CONFIG = {
   DEFAULT_TEAM_GAMES_LIMIT: 15,
 
   /** Minimum sample size for on/off splits */
-  MIN_SPLIT_SAMPLE_SIZE: 3,
+  MIN_SPLIT_SAMPLE_SIZE: 10,
 
   /** Top beneficiaries limit */
   TOP_BENEFICIARIES_LIMIT: 5,

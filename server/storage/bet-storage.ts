@@ -19,10 +19,17 @@ function dbBetToPotentialBet(dbBet: typeof potentialBets.$inferSelect): Potentia
     stat_type: dbBet.stat_type,
     line: dbBet.line,
     hit_rate: dbBet.hit_rate,
+    sample_size: dbBet.sample_size ?? undefined,
+    adjusted_hit_rate: dbBet.adjusted_hit_rate ?? undefined,
     season_avg: dbBet.season_avg,
     last_5_avg: dbBet.last_5_avg ?? undefined,
     recommendation: dbBet.recommendation as "OVER" | "UNDER",
     confidence: dbBet.confidence as "HIGH" | "MEDIUM" | "LOW",
+    edge_type: dbBet.edge_type ?? undefined,
+    edge_score: dbBet.edge_score ?? undefined,
+    edge_description: dbBet.edge_description ?? undefined,
+    expected_value: dbBet.expected_value ?? undefined,
+    kelly_size: dbBet.kelly_size ?? undefined,
   };
 }
 

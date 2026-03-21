@@ -6,8 +6,16 @@ import fs from "fs";
 
 import { storage } from "./storage";
 import { pool } from "./db";
-import type { Player } from "@shared/schema";
+import type { Player, HitRateEntry } from "@shared/schema";
 import { BETTING_CONFIG } from "./constants";
+import { adjustedHitRate } from "./utils/statistics";
+import { evaluateBetValue } from "./utils/ev-calculator";
+
+/** Extract numeric rate from HitRateEntry (handles legacy and new formats) */
+function parseHitRateEntry(entry: HitRateEntry): { rate: number; sampleSize: number } {
+  if (typeof entry === "number") return { rate: entry, sampleSize: 0 };
+  return { rate: entry.rate, sampleSize: entry.sampleSize };
+}
 import { apiLogger } from "./logger";
 import { fetchAndBuildAllPlayers } from "./nba-api";
 import { analyzeEdges } from "./edge-detection";
@@ -122,12 +130,14 @@ function generatePotentialBets(players: Player[]) {
       const hitRates = player.hit_rates[statType];
       if (!hitRates) continue;
 
-      for (const [line, rate] of Object.entries(hitRates)) {
+      for (const [line, entry] of Object.entries(hitRates)) {
         const lineNum = parseFloat(line);
+        const { rate, sampleSize } = parseHitRateEntry(entry as HitRateEntry);
         const seasonAvg = player.season_averages[statType as keyof typeof player.season_averages];
         const last5Avg = player.last_5_averages[statType as keyof typeof player.last_5_averages];
 
         if (typeof seasonAvg !== "number") continue;
+        if (sampleSize > 0 && sampleSize < BETTING_CONFIG.MIN_SAMPLE_SIZE) continue;
 
         let confidence: "HIGH" | "MEDIUM" | "LOW" = "LOW";
         let recommendation: "OVER" | "UNDER" = "OVER";
@@ -147,7 +157,6 @@ function generatePotentialBets(players: Player[]) {
         }
 
         if (confidence !== "LOW") {
-          // Analyze edges for this bet
           const edgeAnalysis = analyzeEdges(player, statType, recommendation, rate);
 
           bets.push({
@@ -244,26 +253,26 @@ async function generateBetsFromPrizePicks(players: Player[]) {
 
       // Find the closest line or exact match
       const lineStr = line.toString();
-      let hitRate = hitRates[lineStr];
+      let hitRateEntry = hitRates[lineStr] as HitRateEntry | undefined;
 
-      // If exact line not found, interpolate or find closest
-      if (hitRate === undefined) {
+      if (hitRateEntry === undefined) {
         const lines = Object.keys(hitRates).map(l => parseFloat(l)).sort((a, b) => a - b);
+        if (lines.length === 0) continue;
         const closestLine = lines.reduce((prev, curr) =>
           Math.abs(curr - line) < Math.abs(prev - line) ? curr : prev
         );
-        hitRate = hitRates[closestLine.toString()];
-        apiLogger.info(`Using closest line ${closestLine} for ${proj.playerName} ${statType} ${line} (hit rate: ${hitRate}%)`);
+        hitRateEntry = hitRates[closestLine.toString()] as HitRateEntry | undefined;
       }
 
-      if (hitRate === undefined) continue;
+      if (hitRateEntry === undefined) continue;
 
+      const { rate: hitRate, sampleSize } = parseHitRateEntry(hitRateEntry);
       const seasonAvg = player.season_averages[statType as keyof typeof player.season_averages];
       const last5Avg = player.last_5_averages[statType as keyof typeof player.last_5_averages];
 
       if (typeof seasonAvg !== "number") continue;
+      if (sampleSize > 0 && sampleSize < BETTING_CONFIG.MIN_SAMPLE_SIZE) continue;
 
-      // Determine confidence and recommendation based on hit rate
       let confidence: "HIGH" | "MEDIUM" | "LOW" = "LOW";
       let recommendation: "OVER" | "UNDER" = "OVER";
 
@@ -281,12 +290,9 @@ async function generateBetsFromPrizePicks(players: Player[]) {
         recommendation = "UNDER";
       }
 
-      // Only create bets with at least MEDIUM confidence
       if (confidence !== "LOW") {
-        // Analyze edges for this bet
         const edgeAnalysis = analyzeEdges(player, statType, recommendation, hitRate);
 
-        // Calculate signal-based score using learned weights from backtest
         const signalScore = calculateSignalScore(
           player,
           statType,

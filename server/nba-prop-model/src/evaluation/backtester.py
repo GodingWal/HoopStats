@@ -313,6 +313,117 @@ class Backtester:
         return max_drawdown, sharpe
 
 
+    def sweep_thresholds(
+        self,
+        predictions: pd.DataFrame,
+        actuals: pd.DataFrame,
+        threshold_ranges: Optional[Dict[str, List[float]]] = None,
+        validation_split: float = 0.2
+    ) -> Dict:
+        """
+        Sweep confidence thresholds to find optimal values using out-of-sample data.
+
+        Tests combinations of HIGH_OVER, MEDIUM_OVER, HIGH_UNDER, MEDIUM_UNDER
+        thresholds and returns the combination that maximizes ROI on the
+        validation set.
+
+        Args:
+            predictions: Full prediction dataset
+            actuals: Full actuals dataset
+            threshold_ranges: Override ranges, or use defaults
+            validation_split: Fraction of data reserved for validation (0.2 = last 20%)
+
+        Returns:
+            Dict with 'best_thresholds', 'best_roi', 'all_results'
+        """
+        if threshold_ranges is None:
+            threshold_ranges = {
+                'HIGH_OVER': [65.0, 68.0, 70.0, 72.0, 75.0],
+                'MEDIUM_OVER': [52.0, 55.0, 58.0, 60.0],
+                'HIGH_UNDER': [25.0, 28.0, 30.0, 32.0, 35.0],
+                'MEDIUM_UNDER': [40.0, 42.0, 45.0, 48.0],
+                'MIN_EDGE': [0.03, 0.05, 0.07, 0.10],
+            }
+
+        # Split data temporally (not randomly) to avoid lookahead bias
+        merged = pd.merge(predictions, actuals, on=['date', 'player_id', 'stat'])
+        merged = merged.sort_values('date')
+
+        split_idx = int(len(merged) * (1 - validation_split))
+        train_data = merged.iloc[:split_idx]
+        val_data = merged.iloc[split_idx:]
+
+        best_roi = -float('inf')
+        best_thresholds = {}
+        all_results = []
+
+        # Sweep combinations
+        for min_edge in threshold_ranges.get('MIN_EDGE', [0.05]):
+            for high_over in threshold_ranges.get('HIGH_OVER', [70.0]):
+                for med_over in threshold_ranges.get('MEDIUM_OVER', [55.0]):
+                    if med_over >= high_over:
+                        continue
+                    for high_under in threshold_ranges.get('HIGH_UNDER', [30.0]):
+                        for med_under in threshold_ranges.get('MEDIUM_UNDER', [45.0]):
+                            if med_under <= high_under:
+                                continue
+
+                            # Apply thresholds to validation data
+                            self.min_edge_threshold = min_edge
+
+                            # Filter validation bets by these thresholds
+                            val_bets = []
+                            for _, row in val_data.iterrows():
+                                prob_over = row['prob_over']
+                                hit_rate_pct = prob_over * 100
+
+                                # Apply confidence thresholds
+                                qualifies = False
+                                if hit_rate_pct >= high_over:
+                                    qualifies = True
+                                elif hit_rate_pct >= med_over:
+                                    qualifies = True
+                                elif hit_rate_pct <= high_under:
+                                    qualifies = True
+                                elif hit_rate_pct <= med_under:
+                                    qualifies = True
+
+                                if qualifies:
+                                    bet = self._evaluate_bet(row)
+                                    if bet is not None:
+                                        val_bets.append(bet)
+
+                            if len(val_bets) >= 10:  # Need minimum bets for reliability
+                                total_profit = sum(b.profit for b in val_bets)
+                                roi = total_profit / len(val_bets)
+                                hit_rate = sum(1 for b in val_bets if b.won) / len(val_bets)
+
+                                result = {
+                                    'HIGH_OVER': high_over,
+                                    'MEDIUM_OVER': med_over,
+                                    'HIGH_UNDER': high_under,
+                                    'MEDIUM_UNDER': med_under,
+                                    'MIN_EDGE': min_edge,
+                                    'roi': roi,
+                                    'hit_rate': hit_rate,
+                                    'num_bets': len(val_bets),
+                                    'profit': total_profit,
+                                }
+                                all_results.append(result)
+
+                                if roi > best_roi:
+                                    best_roi = roi
+                                    best_thresholds = result.copy()
+
+        return {
+            'best_thresholds': best_thresholds,
+            'best_roi': best_roi,
+            'all_results': sorted(all_results, key=lambda x: x['roi'], reverse=True)[:20],
+            'validation_size': len(val_data),
+            'train_size': len(train_data),
+        }
+
+
 def calculate_brier_score(
     probabilities: np.ndarray,
     outcomes: np.ndarray

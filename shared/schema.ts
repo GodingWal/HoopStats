@@ -16,6 +16,7 @@ export const gameLogSchema = z.object({
   PF: z.number().optional(),
   WL: z.string(),
   MIN: z.number(),
+  IS_HOME: z.boolean().optional(),
 });
 
 export type GameLog = z.infer<typeof gameLogSchema>;
@@ -36,9 +37,20 @@ export const seasonAveragesSchema = z.object({
 
 export type SeasonAverages = z.infer<typeof seasonAveragesSchema>;
 
-// Hit rates for betting lines
-export const hitRatesSchema = z.record(z.string(), z.record(z.string(), z.number()));
+// Hit rate entry with sample size for statistical confidence
+export const hitRateEntrySchema = z.union([
+  z.number(), // Legacy: raw percentage
+  z.object({  // New: with sample size
+    rate: z.number(),
+    sampleSize: z.number(),
+  }),
+]);
 
+// Hit rates for betting lines
+// Format: { [statType]: { [line]: number | { rate, sampleSize } } }
+export const hitRatesSchema = z.record(z.string(), z.record(z.string(), hitRateEntrySchema));
+
+export type HitRateEntry = z.infer<typeof hitRateEntrySchema>;
 export type HitRates = z.infer<typeof hitRatesSchema>;
 
 // Vs team stats
@@ -84,6 +96,18 @@ export const splitAveragesSchema = z.object({
 
 export type SplitAverages = z.infer<typeof splitAveragesSchema>;
 
+// On/off split entry for injury impact detection
+export const onOffSplitSchema = z.object({
+  without_player: z.string(),
+  stat: z.string(),
+  with_pct: z.number(),
+  without_pct: z.number(),
+  impact: z.number(),
+  sample_size: z.number(),
+});
+
+export type OnOffSplit = z.infer<typeof onOffSplitSchema>;
+
 // Complete player profile (Zod schema for validation)
 export const playerSchema = z.object({
   player_id: z.number(),
@@ -91,6 +115,7 @@ export const playerSchema = z.object({
   team: z.string(),
   team_id: z.number().optional(),
   games_played: z.number().optional(),
+  position: z.string().optional(),
   season_averages: seasonAveragesSchema,
   last_10_averages: seasonAveragesSchema.partial(),
   last_5_averages: seasonAveragesSchema.partial(),
@@ -99,6 +124,13 @@ export const playerSchema = z.object({
   recent_games: z.array(gameLogSchema),
   home_averages: splitAveragesSchema,
   away_averages: splitAveragesSchema,
+  // Extended fields for edge detection (populated when available)
+  game_logs: z.array(gameLogSchema).optional(),
+  team_pace: z.number().optional(),
+  on_off_splits: z.array(onOffSplitSchema).optional(),
+  next_game_location: z.enum(['home', 'away']).optional(),
+  next_opponent: z.string().optional(),
+  usage_rate: z.number().optional(),
 });
 
 export type Player = z.infer<typeof playerSchema>;
@@ -120,6 +152,13 @@ export const players = pgTable("players", {
   recent_games: jsonb("recent_games").notNull().$type<GameLog[]>(),
   home_averages: jsonb("home_averages").notNull().$type<SplitAverages>(),
   away_averages: jsonb("away_averages").notNull().$type<SplitAverages>(),
+  // Extended fields for edge detection
+  game_logs: jsonb("game_logs").$type<GameLog[]>(),
+  team_pace: real("team_pace"),
+  on_off_splits: jsonb("on_off_splits").$type<OnOffSplit[]>(),
+  next_game_location: text("next_game_location"),
+  next_opponent: text("next_opponent"),
+  usage_rate: real("usage_rate"),
 });
 
 export const insertPlayerSchema = createInsertSchema(players, {
@@ -131,6 +170,8 @@ export const insertPlayerSchema = createInsertSchema(players, {
   recent_games: z.array(gameLogSchema),
   home_averages: splitAveragesSchema,
   away_averages: splitAveragesSchema,
+  game_logs: z.array(gameLogSchema).optional(),
+  on_off_splits: z.array(onOffSplitSchema).optional(),
 }).omit({ id: true });
 export type InsertPlayer = z.infer<typeof insertPlayerSchema>;
 export type DbPlayer = typeof players.$inferSelect;
@@ -144,6 +185,8 @@ export const potentialBetSchema = z.object({
   stat_type: z.string(),
   line: z.number(),
   hit_rate: z.number(),
+  sample_size: z.number().optional(),
+  adjusted_hit_rate: z.number().optional(),
   season_avg: z.number(),
   last_5_avg: z.number().optional(),
   recommendation: z.enum(["OVER", "UNDER"]),
@@ -151,6 +194,8 @@ export const potentialBetSchema = z.object({
   edge_type: z.string().optional(),
   edge_score: z.number().optional(),
   edge_description: z.string().optional(),
+  expected_value: z.number().optional(),
+  kelly_size: z.number().optional(),
 });
 
 export type PotentialBet = z.infer<typeof potentialBetSchema>;
@@ -164,6 +209,8 @@ export const potentialBets = pgTable("potential_bets", {
   stat_type: text("stat_type").notNull(),
   line: real("line").notNull(),
   hit_rate: real("hit_rate").notNull(),
+  sample_size: integer("sample_size"),
+  adjusted_hit_rate: real("adjusted_hit_rate"),
   season_avg: real("season_avg").notNull(),
   last_5_avg: real("last_5_avg"),
   recommendation: text("recommendation").notNull(),
@@ -171,6 +218,8 @@ export const potentialBets = pgTable("potential_bets", {
   edge_type: text("edge_type"),
   edge_score: real("edge_score"),
   edge_description: text("edge_description"),
+  expected_value: real("expected_value"),
+  kelly_size: real("kelly_size"),
 });
 
 export const insertPotentialBetSchema = createInsertSchema(potentialBets).omit({ id: true });
@@ -275,6 +324,24 @@ export const teamDefense = pgTable("team_defense", {
 });
 
 export const insertTeamDefenseSchema = createInsertSchema(teamDefense).omit({ updatedAt: true });
+
+// Team defense by position (for position-specific matchup analysis)
+export const teamDefenseByPosition = pgTable("team_defense_by_position", {
+  id: serial("id").primaryKey(),
+  teamAbbr: varchar("team_abbr", { length: 3 }).notNull(),
+  season: varchar("season", { length: 10 }).notNull(),
+  position: varchar("position", { length: 5 }).notNull(), // 'G', 'F', 'C'
+  ptsAllowed: real("pts_allowed"),
+  rebAllowed: real("reb_allowed"),
+  astAllowed: real("ast_allowed"),
+  fg3PctAllowed: real("fg3_pct_allowed"),
+  leagueRank: integer("league_rank"), // 1=worst defense (allows most), 30=best
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertTeamDefenseByPositionSchema = createInsertSchema(teamDefenseByPosition).omit({ id: true, updatedAt: true });
+export type InsertTeamDefenseByPosition = z.infer<typeof insertTeamDefenseByPositionSchema>;
+export type DbTeamDefenseByPosition = typeof teamDefenseByPosition.$inferSelect;
 export type InsertTeamDefense = z.infer<typeof insertTeamDefenseSchema>;
 export type DbTeamDefense = typeof teamDefense.$inferSelect;
 
