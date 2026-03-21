@@ -60,7 +60,40 @@ class FeatureConfig:
         3: 1.03,   # 3+ days
     })
 
-@dataclass  
+@dataclass
+class XGBoostConfig:
+    """XGBoost model hyperparameters"""
+    # Training
+    n_estimators: int = 200
+    max_depth: int = 4
+    learning_rate: float = 0.05
+    min_child_weight: int = 5
+    subsample: float = 0.8
+    colsample_bytree: float = 0.8
+    reg_alpha: float = 0.1        # L1 regularization
+    reg_lambda: float = 1.0       # L2 regularization
+
+    # Data requirements
+    min_training_samples: int = 100   # Minimum to attempt training
+    recommended_samples: int = 500    # Recommended for reliable results
+    validation_split: float = 0.2     # Chronological hold-out
+
+    # Ensemble blending
+    xgb_prob_weight: float = 0.40     # Weight for XGBoost probability in blend
+    analytical_prob_weight: float = 0.60  # Weight for analytical probability
+
+    # Model persistence
+    model_dir: str = "models/xgboost"
+
+    # Feature groups to include (all True by default)
+    use_edge_scores: bool = True       # Group 1: existing edge scores
+    use_raw_numerics: bool = True      # Group 2: continuous numeric inputs
+    use_volatility: bool = True        # Group 3: stdev, CoV, IQR
+    use_line_movement: bool = True     # Group 4: line movement as numeric
+    use_clv: bool = True               # Group 5: CLV tracking
+    use_meta: bool = True              # Group 6: signal score, projections
+
+@dataclass
 class DatabaseConfig:
     """Database settings"""
     db_path: str = "data/nba_props.db"

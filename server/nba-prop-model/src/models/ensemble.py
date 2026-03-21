@@ -178,6 +178,10 @@ class SimpleGradientBoostedModel:
 class EnsembleProjector:
     """
     Ensemble projector combining analytical and ML models.
+
+    When XGBoost models are trained and available, uses them for
+    calibrated over/under probabilities. Falls back to the existing
+    analytical + simple GBM blend otherwise.
     """
 
     def __init__(
@@ -193,6 +197,64 @@ class EnsembleProjector:
         self.analytical_weight = analytical_weight
         self.ml_weight = ml_weight
         self.ml_models: Dict[str, SimpleGradientBoostedModel] = {}
+
+        # XGBoost integration (optional — used when trained models exist)
+        self._xgb_model = None
+        self._xgb_feature_builder = None
+        self._init_xgboost()
+
+    def _init_xgboost(self) -> None:
+        """Initialize XGBoost components if available."""
+        try:
+            from src.features.xgboost_features import XGBoostFeatureBuilder
+            from src.models.xgboost_model import XGBoostPropModel
+            self._xgb_feature_builder = XGBoostFeatureBuilder()
+            self._xgb_model = XGBoostPropModel()
+            # Try to load pre-trained models
+            for stat_type in ['Points', 'Rebounds', 'Assists', '3-Pointers Made', 'Pts+Rebs+Asts']:
+                self._xgb_model.load(stat_type)
+        except Exception:
+            self._xgb_model = None
+            self._xgb_feature_builder = None
+
+    def build_xgboost_features(self, context: Dict[str, Any]) -> Optional[Dict[str, float]]:
+        """
+        Build expanded XGBoost feature vector from context.
+
+        Returns None if XGBoost feature builder is not available.
+        This can be used to log features for training data collection.
+        """
+        if self._xgb_feature_builder is None:
+            return None
+        fv = self._xgb_feature_builder.build(context)
+        return fv.features
+
+    def get_xgboost_prediction(
+        self,
+        stat_type: str,
+        context: Dict[str, Any],
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Get XGBoost probability prediction if a trained model exists.
+
+        Returns:
+            Dict with prob_over, prob_under, confidence, feature_importances
+            or None if no trained model is available.
+        """
+        if self._xgb_model is None:
+            return None
+        if not self._xgb_model.is_fitted.get(stat_type, False):
+            return None
+
+        prediction = self._xgb_model.predict(context, stat_type)
+        return {
+            "prob_over": prediction.prob_over,
+            "prob_under": prediction.prob_under,
+            "confidence": prediction.confidence,
+            "predicted_hit": prediction.predicted_hit,
+            "feature_importances": prediction.feature_importances,
+            "model_type": prediction.model_type,
+        }
 
     def build_feature_vector(self, context: Dict[str, Any]) -> Tuple[np.ndarray, List[str]]:
         """
@@ -332,6 +394,16 @@ class EnsembleProjector:
                 from scipy.stats import norm
                 prob_over = 1 - norm.cdf(line, ensemble_projection, std)
                 prob_under = 1 - prob_over
+
+            # Blend with XGBoost probability if available
+            xgb_pred = self.get_xgboost_prediction(stat_type, context)
+            if xgb_pred is not None:
+                # Weighted blend: analytical probs + XGBoost probs
+                # XGBoost gets 40% weight when available (it captures interactions)
+                xgb_weight = 0.40
+                prob_over = (1 - xgb_weight) * prob_over + xgb_weight * xgb_pred["prob_over"]
+                prob_under = 1 - prob_over
+                feature_importances.update(xgb_pred.get("feature_importances", {}))
 
         # Confidence based on model agreement
         if analytical_projection > 0:
