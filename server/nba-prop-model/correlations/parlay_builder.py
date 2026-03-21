@@ -442,7 +442,7 @@ class CorrelatedParlayBuilder:
                 """
                 SELECT
                     po.player_id,
-                    COALESCE(p.player_name, pdl.player_name, po.player_id::text) AS player_name,
+                    COALESCE(pdl.player_name, po.player_id::text) AS player_name,
                     po.prop_type        AS stat_type,
                     po.final_projection,
                     po.prizepicks_line  AS line,
@@ -457,9 +457,8 @@ class CorrelatedParlayBuilder:
                     pdl.opponent,
                     CONCAT(pdl.team, '_vs_', pdl.opponent) AS game_id
                 FROM projection_outputs po
-                LEFT JOIN players p ON p.player_id::text = po.player_id
                 LEFT JOIN prizepicks_daily_lines pdl
-                    ON LOWER(COALESCE(p.player_name, '')) = LOWER(pdl.player_name)
+                    ON pdl.prizepicks_player_id::text = po.player_id
                     AND pdl.game_date = po.game_date
                     AND pdl.stat_type = po.prop_type
                 WHERE po.game_date = %s
