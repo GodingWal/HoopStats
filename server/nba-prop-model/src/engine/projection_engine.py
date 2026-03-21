@@ -88,24 +88,29 @@ def _compute_baseline(player_id: str, prop_type: str, conn) -> Optional[float]:
             return None
 
         # Try player_advanced_stats first (pace-adjusted)
-        cursor.execute(
-            f"""
-            SELECT AVG(pas.pace / NULLIF(t.pace, 0) * p.season_averages->>'{stat_key}')
-            FROM player_advanced_stats pas
-            JOIN players p ON pas.player_id = p.id
-            JOIN team_stats t ON t.team_id = (
-                SELECT team FROM players WHERE id = %s LIMIT 1
-            ) AND t.season = '2025-26'
-            WHERE pas.player_id = %s
-              AND pas.game_date >= NOW() - INTERVAL '30 days'
-            LIMIT 1
-            """,
-            (player_id, player_id),
-        )
-        row = cursor.fetchone()
-        if row and row[0]:
-            cursor.close()
-            return float(row[0])
+        try:
+            cursor.execute(
+                f"""
+                SELECT AVG(pas.pace / NULLIF(t.pace, 0) * p.season_averages->>'{stat_key}')
+                FROM player_advanced_stats pas
+                JOIN players p ON pas.player_id = p.id
+                JOIN team_stats t ON t.team_id = (
+                    SELECT team FROM players WHERE id = %s LIMIT 1
+                ) AND t.season = '2025-26'
+                WHERE pas.player_id = %s
+                  AND pas.game_date >= NOW() - INTERVAL '30 days'
+                LIMIT 1
+                """,
+                (player_id, player_id),
+            )
+            row = cursor.fetchone()
+            if row and row[0]:
+                cursor.close()
+                return float(row[0])
+        except Exception:
+            # Table may not exist — rollback and fall through to simpler lookup
+            conn.rollback()
+            cursor = conn.cursor()
 
         # Fallback: plain season average from players table
         cursor.execute(
