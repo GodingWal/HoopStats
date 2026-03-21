@@ -16,8 +16,15 @@ import {
   RefreshCw,
   ChevronDown,
   ChevronUp,
+  ChevronLeft,
+  ChevronRight,
   History,
   BarChart2,
+  Database,
+  Calendar,
+  Filter,
+  Users,
+  Hash,
 } from "lucide-react";
 import { format, formatDistanceToNow } from "date-fns";
 
@@ -93,11 +100,84 @@ interface BdlActiveResponse {
   nextCursor?: number;
 }
 
+interface LinesDbStats {
+  totalLines: number;
+  totalMovements: number;
+  totalDailyRecords: number;
+  uniquePlayers: number;
+  uniqueStatTypes: string[];
+  oldestLine: string | null;
+  newestLine: string | null;
+  gameDates: string[];
+}
+
+interface StoredLine {
+  id: number;
+  prizePicksId: string;
+  prizePicksPlayerId: string;
+  playerName: string;
+  team: string;
+  teamAbbr: string | null;
+  position: string | null;
+  statType: string;
+  statTypeAbbr: string | null;
+  line: number;
+  gameTime: string;
+  opponent: string | null;
+  imageUrl: string | null;
+  capturedAt: string;
+  isActive: boolean | null;
+}
+
+interface StoredLinesResponse {
+  lines: StoredLine[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+}
+
+interface DailyLineRecord {
+  id: number;
+  prizePicksPlayerId: string;
+  playerName: string;
+  team: string;
+  statType: string;
+  statTypeAbbr: string | null;
+  gameDate: string;
+  gameTime: string;
+  opponent: string | null;
+  openingLine: number;
+  closingLine: number | null;
+  totalMovement: number | null;
+  netMovement: number | null;
+  numMovements: number | null;
+  highLine: number | null;
+  lowLine: number | null;
+  actualValue: number | null;
+  hitOver: boolean | null;
+}
+
+interface DailyLinesResponse {
+  lines: DailyLineRecord[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+}
+
 export default function LineHistory() {
   const [searchQuery, setSearchQuery] = useState("");
   const [expandedPlayer, setExpandedPlayer] = useState<string | null>(null);
   const [bdlSearch, setBdlSearch] = useState("");
   const [bdlCursor, setBdlCursor] = useState<number | undefined>(undefined);
+
+  // Lines Database state
+  const [dbPage, setDbPage] = useState(1);
+  const [dbSearch, setDbSearch] = useState("");
+  const [dbStatType, setDbStatType] = useState("");
+  const [dbGameDate, setDbGameDate] = useState("");
+  const [dbView, setDbView] = useState<"snapshots" | "daily">("daily");
 
   // Fetch tracker status
   const { data: trackerStats, refetch: refetchStats } = useQuery<TrackerStats>({
@@ -147,6 +227,49 @@ export default function LineHistory() {
       fetch(`/api/players/bdl-stats?name=${encodeURIComponent(bdlSearch)}`).then((r) => r.json()),
     enabled: bdlSearch.trim().length >= 3,
     staleTime: 5 * 60 * 1000,
+  });
+
+  // Lines database stats
+  const { data: dbStats } = useQuery<LinesDbStats>({
+    queryKey: ["/api/prizepicks/lines/database/stats"],
+    refetchInterval: 120000,
+  });
+
+  // Lines database browse (snapshots)
+  const { data: storedLines, isLoading: storedLinesLoading } = useQuery<StoredLinesResponse>({
+    queryKey: ["/api/prizepicks/lines/database", dbPage, dbSearch, dbStatType, dbGameDate],
+    queryFn: () => {
+      const params = new URLSearchParams();
+      params.set("page", String(dbPage));
+      params.set("pageSize", "50");
+      if (dbSearch) params.set("search", dbSearch);
+      if (dbStatType) params.set("statType", dbStatType);
+      if (dbGameDate) params.set("gameDate", dbGameDate);
+      params.set("sortBy", "capturedAt");
+      params.set("sortDir", "desc");
+      return fetch(`/api/prizepicks/lines/database?${params}`).then(r => r.json());
+    },
+    enabled: dbView === "snapshots",
+    refetchInterval: 60000,
+  });
+
+  // Lines database browse (daily)
+  const { data: dailyHistory, isLoading: dailyHistoryLoading } = useQuery<DailyLinesResponse>({
+    queryKey: ["/api/prizepicks/lines/database/daily", dbPage, dbSearch, dbStatType, dbGameDate],
+    queryFn: () => {
+      const params = new URLSearchParams();
+      params.set("page", String(dbPage));
+      params.set("pageSize", "50");
+      if (dbSearch) params.set("search", dbSearch);
+      if (dbStatType) params.set("statType", dbStatType);
+      if (dbGameDate) {
+        params.set("startDate", dbGameDate);
+        params.set("endDate", dbGameDate);
+      }
+      return fetch(`/api/prizepicks/lines/database/daily?${params}`).then(r => r.json());
+    },
+    enabled: dbView === "daily",
+    refetchInterval: 60000,
   });
 
   // Group current lines by player
@@ -259,13 +382,342 @@ export default function LineHistory() {
         </Card>
       </div>
 
-      <Tabs defaultValue="player-stats" className="space-y-4">
-        <TabsList className="grid w-full grid-cols-4">
+      <Tabs defaultValue="lines-database" className="space-y-4">
+        <TabsList className="grid w-full grid-cols-5">
+          <TabsTrigger value="lines-database">Lines Database</TabsTrigger>
           <TabsTrigger value="player-stats">Player Stats</TabsTrigger>
           <TabsTrigger value="movements">Recent Movements</TabsTrigger>
           <TabsTrigger value="alerts">Significant Alerts</TabsTrigger>
           <TabsTrigger value="all-lines">All Lines</TabsTrigger>
         </TabsList>
+
+        {/* Lines Database Tab */}
+        <TabsContent value="lines-database" className="space-y-4">
+          {/* Database Stats */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <Card className="premium-card">
+              <CardContent className="p-3">
+                <div className="flex items-center gap-2">
+                  <Database className="w-4 h-4 text-primary" />
+                  <div>
+                    <div className="text-xl font-bold text-primary">{dbStats?.totalLines?.toLocaleString() || 0}</div>
+                    <div className="text-xs text-muted-foreground">Total Line Snapshots</div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            <Card className="premium-card">
+              <CardContent className="p-3">
+                <div className="flex items-center gap-2">
+                  <Users className="w-4 h-4 text-blue-500" />
+                  <div>
+                    <div className="text-xl font-bold text-blue-500">{dbStats?.uniquePlayers || 0}</div>
+                    <div className="text-xs text-muted-foreground">Unique Players</div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            <Card className="premium-card">
+              <CardContent className="p-3">
+                <div className="flex items-center gap-2">
+                  <Calendar className="w-4 h-4 text-green-500" />
+                  <div>
+                    <div className="text-xl font-bold text-green-500">{dbStats?.gameDates?.length || 0}</div>
+                    <div className="text-xs text-muted-foreground">Game Dates Tracked</div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            <Card className="premium-card">
+              <CardContent className="p-3">
+                <div className="flex items-center gap-2">
+                  <Hash className="w-4 h-4 text-amber-500" />
+                  <div>
+                    <div className="text-xl font-bold text-amber-500">{dbStats?.totalDailyRecords?.toLocaleString() || 0}</div>
+                    <div className="text-xs text-muted-foreground">Daily Records</div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          {dbStats?.oldestLine && dbStats?.newestLine && (
+            <div className="text-xs text-muted-foreground flex items-center gap-4">
+              <span>First captured: {format(new Date(dbStats.oldestLine), "MMM d, yyyy h:mm a")}</span>
+              <span>Latest: {format(new Date(dbStats.newestLine), "MMM d, yyyy h:mm a")}</span>
+            </div>
+          )}
+
+          {/* View Toggle + Filters */}
+          <div className="flex flex-col md:flex-row gap-3">
+            <div className="flex gap-1 bg-muted/50 p-1 rounded-lg">
+              <Button
+                size="sm"
+                variant={dbView === "daily" ? "default" : "ghost"}
+                onClick={() => { setDbView("daily"); setDbPage(1); }}
+                className="text-xs"
+              >
+                Daily Summary
+              </Button>
+              <Button
+                size="sm"
+                variant={dbView === "snapshots" ? "default" : "ghost"}
+                onClick={() => { setDbView("snapshots"); setDbPage(1); }}
+                className="text-xs"
+              >
+                All Snapshots
+              </Button>
+            </div>
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <Input
+                placeholder="Search player or team..."
+                value={dbSearch}
+                onChange={(e) => { setDbSearch(e.target.value); setDbPage(1); }}
+                className="pl-10"
+              />
+            </div>
+            {dbStats?.uniqueStatTypes && dbStats.uniqueStatTypes.length > 0 && (
+              <select
+                value={dbStatType}
+                onChange={(e) => { setDbStatType(e.target.value); setDbPage(1); }}
+                className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+              >
+                <option value="">All Stat Types</option>
+                {dbStats.uniqueStatTypes.sort().map(st => (
+                  <option key={st} value={st}>{st}</option>
+                ))}
+              </select>
+            )}
+            {dbStats?.gameDates && dbStats.gameDates.length > 0 && (
+              <select
+                value={dbGameDate}
+                onChange={(e) => { setDbGameDate(e.target.value); setDbPage(1); }}
+                className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+              >
+                <option value="">All Dates</option>
+                {dbStats.gameDates.map(d => (
+                  <option key={d} value={d}>{format(new Date(d + "T12:00:00"), "MMM d, yyyy")}</option>
+                ))}
+              </select>
+            )}
+          </div>
+
+          {/* Daily View */}
+          {dbView === "daily" && (
+            <>
+              {dailyHistoryLoading ? (
+                <div className="space-y-2">
+                  {[1, 2, 3, 4, 5].map(i => <Skeleton key={i} className="h-16 w-full" />)}
+                </div>
+              ) : !dailyHistory || dailyHistory.lines.length === 0 ? (
+                <Card>
+                  <CardContent className="py-12 text-center">
+                    <Database className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
+                    <h3 className="text-lg font-semibold">No Lines Stored Yet</h3>
+                    <p className="text-muted-foreground mt-2 text-sm">
+                      PrizePicks lines will be stored here as the tracker captures them.
+                      Make sure the tracker is running to start building your database.
+                    </p>
+                  </CardContent>
+                </Card>
+              ) : (
+                <>
+                  <div className="text-sm text-muted-foreground">
+                    Showing {((dailyHistory.page - 1) * dailyHistory.pageSize) + 1}-{Math.min(dailyHistory.page * dailyHistory.pageSize, dailyHistory.total)} of {dailyHistory.total.toLocaleString()} daily records
+                  </div>
+                  <div className="space-y-2">
+                    {dailyHistory.lines.map((record) => (
+                      <Card key={record.id} className="premium-card">
+                        <CardContent className="p-4">
+                          <div className="flex items-center justify-between">
+                            <div className="flex-1">
+                              <div className="flex items-center gap-2">
+                                <span className="font-medium">{record.playerName}</span>
+                                <Badge variant="outline" className="text-xs">{record.team}</Badge>
+                                <Badge variant="outline" className="text-xs bg-primary/10 text-primary border-primary/30">
+                                  {record.statType}
+                                </Badge>
+                              </div>
+                              <div className="text-xs text-muted-foreground mt-1">
+                                {format(new Date(record.gameDate + "T12:00:00"), "MMM d, yyyy")}
+                                {record.opponent && ` vs ${record.opponent}`}
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <div className="flex items-center gap-3">
+                                <div className="text-center">
+                                  <div className="text-xs text-muted-foreground">Open</div>
+                                  <div className="font-bold">{record.openingLine.toFixed(1)}</div>
+                                </div>
+                                <span className="text-muted-foreground">→</span>
+                                <div className="text-center">
+                                  <div className="text-xs text-muted-foreground">Close</div>
+                                  <div className="font-bold text-primary">
+                                    {(record.closingLine ?? record.openingLine).toFixed(1)}
+                                  </div>
+                                </div>
+                                {(record.netMovement ?? 0) !== 0 && (
+                                  <Badge
+                                    variant="outline"
+                                    className={`ml-1 ${
+                                      (record.netMovement ?? 0) > 0
+                                        ? "text-red-500 border-red-500/30"
+                                        : "text-green-500 border-green-500/30"
+                                    }`}
+                                  >
+                                    {(record.netMovement ?? 0) > 0 ? "+" : ""}
+                                    {(record.netMovement ?? 0).toFixed(1)}
+                                  </Badge>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-2 mt-1 justify-end">
+                                {(record.numMovements ?? 0) > 0 && (
+                                  <span className="text-xs text-muted-foreground">
+                                    {record.numMovements} move{record.numMovements !== 1 ? "s" : ""}
+                                  </span>
+                                )}
+                                {record.highLine !== null && record.lowLine !== null && record.highLine !== record.lowLine && (
+                                  <span className="text-xs text-muted-foreground">
+                                    Range: {record.lowLine.toFixed(1)}-{record.highLine.toFixed(1)}
+                                  </span>
+                                )}
+                                {record.actualValue !== null && (
+                                  <Badge
+                                    className={`text-xs ${
+                                      record.hitOver
+                                        ? "bg-green-500 text-white"
+                                        : "bg-red-500 text-white"
+                                    }`}
+                                  >
+                                    Actual: {record.actualValue.toFixed(1)} {record.hitOver ? "OVER" : "UNDER"}
+                                  </Badge>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                  {/* Pagination */}
+                  {dailyHistory.totalPages > 1 && (
+                    <div className="flex items-center justify-center gap-2 pt-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={dbPage <= 1}
+                        onClick={() => setDbPage(p => p - 1)}
+                      >
+                        <ChevronLeft className="w-4 h-4" />
+                      </Button>
+                      <span className="text-sm text-muted-foreground">
+                        Page {dailyHistory.page} of {dailyHistory.totalPages}
+                      </span>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={dbPage >= dailyHistory.totalPages}
+                        onClick={() => setDbPage(p => p + 1)}
+                      >
+                        <ChevronRight className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  )}
+                </>
+              )}
+            </>
+          )}
+
+          {/* Snapshots View */}
+          {dbView === "snapshots" && (
+            <>
+              {storedLinesLoading ? (
+                <div className="space-y-2">
+                  {[1, 2, 3, 4, 5].map(i => <Skeleton key={i} className="h-16 w-full" />)}
+                </div>
+              ) : !storedLines || storedLines.lines.length === 0 ? (
+                <Card>
+                  <CardContent className="py-12 text-center">
+                    <Database className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
+                    <h3 className="text-lg font-semibold">No Line Snapshots Found</h3>
+                    <p className="text-muted-foreground mt-2 text-sm">
+                      {dbSearch || dbStatType || dbGameDate
+                        ? "Try adjusting your filters"
+                        : "Line snapshots will appear here as the tracker captures them"}
+                    </p>
+                  </CardContent>
+                </Card>
+              ) : (
+                <>
+                  <div className="text-sm text-muted-foreground">
+                    Showing {((storedLines.page - 1) * storedLines.pageSize) + 1}-{Math.min(storedLines.page * storedLines.pageSize, storedLines.total)} of {storedLines.total.toLocaleString()} snapshots
+                  </div>
+                  <div className="space-y-1">
+                    {storedLines.lines.map((line) => (
+                      <Card key={line.id} className="premium-card">
+                        <CardContent className="p-3">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2 flex-1">
+                              <div>
+                                <span className="font-medium text-sm">{line.playerName}</span>
+                                <span className="text-xs text-muted-foreground ml-2">{line.team}</span>
+                              </div>
+                              <Badge variant="outline" className="text-xs">{line.statType}</Badge>
+                              {line.opponent && (
+                                <span className="text-xs text-muted-foreground">vs {line.opponent}</span>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-3">
+                              <span className="text-lg font-bold text-primary">{line.line.toFixed(1)}</span>
+                              <div className="text-right">
+                                <div className="text-xs text-muted-foreground">
+                                  {format(new Date(line.capturedAt), "MMM d, h:mm a")}
+                                </div>
+                                <div className="text-xs text-muted-foreground">
+                                  Game: {format(new Date(line.gameTime), "MMM d")}
+                                </div>
+                              </div>
+                              {line.isActive ? (
+                                <Badge variant="outline" className="text-xs bg-green-500/10 text-green-500 border-green-500/30">Active</Badge>
+                              ) : (
+                                <Badge variant="outline" className="text-xs bg-muted text-muted-foreground">Past</Badge>
+                              )}
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                  {/* Pagination */}
+                  {storedLines.totalPages > 1 && (
+                    <div className="flex items-center justify-center gap-2 pt-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={dbPage <= 1}
+                        onClick={() => setDbPage(p => p - 1)}
+                      >
+                        <ChevronLeft className="w-4 h-4" />
+                      </Button>
+                      <span className="text-sm text-muted-foreground">
+                        Page {storedLines.page} of {storedLines.totalPages}
+                      </span>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={dbPage >= storedLines.totalPages}
+                        onClick={() => setDbPage(p => p + 1)}
+                      >
+                        <ChevronRight className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  )}
+                </>
+              )}
+            </>
+          )}
+        </TabsContent>
 
         {/* Player Stats Tab (BallDontLie) */}
         <TabsContent value="player-stats" className="space-y-4">

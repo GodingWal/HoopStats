@@ -1880,6 +1880,54 @@ export async function registerRoutes(
     }
   });
 
+  // Get lines database stats (total counts, date ranges, etc.)
+  app.get("/api/prizepicks/lines/database/stats", async (_req, res) => {
+    try {
+      const stats = await prizePicksStorage.getLinesDbStats();
+      res.json(stats);
+    } catch (error) {
+      apiLogger.error("Error fetching lines database stats:", error);
+      res.status(500).json({ error: "Failed to fetch lines database stats" });
+    }
+  });
+
+  // Browse all stored lines with pagination and filters
+  app.get("/api/prizepicks/lines/database", async (req, res) => {
+    try {
+      const result = await prizePicksStorage.browseStoredLines({
+        page: parseInt(req.query.page as string) || 1,
+        pageSize: parseInt(req.query.pageSize as string) || 50,
+        playerSearch: req.query.search as string,
+        statType: req.query.statType as string,
+        gameDate: req.query.gameDate as string,
+        sortBy: (req.query.sortBy as string) as any,
+        sortDir: (req.query.sortDir as string) as any,
+      });
+      res.json(result);
+    } catch (error) {
+      apiLogger.error("Error browsing lines database:", error);
+      res.status(500).json({ error: "Failed to browse lines database" });
+    }
+  });
+
+  // Browse daily lines history with pagination and filters
+  app.get("/api/prizepicks/lines/database/daily", async (req, res) => {
+    try {
+      const result = await prizePicksStorage.getDailyLinesHistory({
+        page: parseInt(req.query.page as string) || 1,
+        pageSize: parseInt(req.query.pageSize as string) || 50,
+        playerSearch: req.query.search as string,
+        statType: req.query.statType as string,
+        startDate: req.query.startDate as string,
+        endDate: req.query.endDate as string,
+      });
+      res.json(result);
+    } catch (error) {
+      apiLogger.error("Error browsing daily lines history:", error);
+      res.status(500).json({ error: "Failed to browse daily lines history" });
+    }
+  });
+
   // =============== INJURY TRACKING ROUTES ===============
 
   // Get injury watcher status

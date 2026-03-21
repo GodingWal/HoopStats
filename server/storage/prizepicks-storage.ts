@@ -4,7 +4,7 @@
  */
 
 import { db } from "../db";
-import { eq, and, desc, gte, sql } from "drizzle-orm";
+import { eq, and, desc, gte, lte, sql, like, or, asc, count } from "drizzle-orm";
 import {
   prizePicksLines,
   prizePicksLineMovements,
@@ -569,6 +569,232 @@ export class PrizePicksStorageImpl implements PrizePicksLineStorage {
       actualValue: r.actualValue ?? undefined,
       hitOver: r.hitOver ?? undefined,
     }));
+  }
+  /**
+   * Get database stats for the lines database overview
+   */
+  async getLinesDbStats(): Promise<{
+    totalLines: number;
+    totalMovements: number;
+    totalDailyRecords: number;
+    uniquePlayers: number;
+    uniqueStatTypes: string[];
+    oldestLine: string | null;
+    newestLine: string | null;
+    gameDates: string[];
+  }> {
+    if (!db) {
+      return {
+        totalLines: 0, totalMovements: 0, totalDailyRecords: 0,
+        uniquePlayers: 0, uniqueStatTypes: [], oldestLine: null, newestLine: null, gameDates: [],
+      };
+    }
+
+    const [linesCount] = await db.select({ count: count() }).from(prizePicksLines);
+    const [movementsCount] = await db.select({ count: count() }).from(prizePicksLineMovements);
+    const [dailyCount] = await db.select({ count: count() }).from(prizePicksDailyLines);
+
+    const playersResult = await db
+      .selectDistinct({ playerName: prizePicksLines.playerName })
+      .from(prizePicksLines);
+
+    const statTypesResult = await db
+      .selectDistinct({ statType: prizePicksLines.statType })
+      .from(prizePicksLines);
+
+    const oldestResult = await db
+      .select({ capturedAt: prizePicksLines.capturedAt })
+      .from(prizePicksLines)
+      .orderBy(asc(prizePicksLines.capturedAt))
+      .limit(1);
+
+    const newestResult = await db
+      .select({ capturedAt: prizePicksLines.capturedAt })
+      .from(prizePicksLines)
+      .orderBy(desc(prizePicksLines.capturedAt))
+      .limit(1);
+
+    const gameDatesResult = await db
+      .selectDistinct({ gameDate: prizePicksDailyLines.gameDate })
+      .from(prizePicksDailyLines)
+      .orderBy(desc(prizePicksDailyLines.gameDate))
+      .limit(60);
+
+    return {
+      totalLines: linesCount.count,
+      totalMovements: movementsCount.count,
+      totalDailyRecords: dailyCount.count,
+      uniquePlayers: playersResult.length,
+      uniqueStatTypes: statTypesResult.map(r => r.statType),
+      oldestLine: oldestResult.length > 0 ? oldestResult[0].capturedAt.toISOString() : null,
+      newestLine: newestResult.length > 0 ? newestResult[0].capturedAt.toISOString() : null,
+      gameDates: gameDatesResult.map(r => r.gameDate),
+    };
+  }
+
+  /**
+   * Browse all stored lines with pagination and filters
+   */
+  async browseStoredLines(options: {
+    page?: number;
+    pageSize?: number;
+    playerSearch?: string;
+    statType?: string;
+    gameDate?: string;
+    sortBy?: 'capturedAt' | 'playerName' | 'line' | 'statType';
+    sortDir?: 'asc' | 'desc';
+  }): Promise<{
+    lines: Array<{
+      id: number;
+      prizePicksId: string;
+      prizePicksPlayerId: string;
+      playerName: string;
+      team: string;
+      teamAbbr: string | null;
+      position: string | null;
+      statType: string;
+      statTypeAbbr: string | null;
+      line: number;
+      gameTime: Date;
+      opponent: string | null;
+      imageUrl: string | null;
+      capturedAt: Date;
+      isActive: boolean | null;
+    }>;
+    total: number;
+    page: number;
+    pageSize: number;
+    totalPages: number;
+  }> {
+    if (!db) {
+      return { lines: [], total: 0, page: 1, pageSize: 50, totalPages: 0 };
+    }
+
+    const page = options.page || 1;
+    const pageSize = Math.min(options.pageSize || 50, 200);
+    const offset = (page - 1) * pageSize;
+    const sortDir = options.sortDir === 'asc' ? asc : desc;
+
+    // Build conditions
+    const conditions = [];
+    if (options.playerSearch) {
+      const search = `%${options.playerSearch}%`;
+      conditions.push(
+        or(
+          like(prizePicksLines.playerName, search),
+          like(prizePicksLines.team, search)
+        )!
+      );
+    }
+    if (options.statType) {
+      conditions.push(eq(prizePicksLines.statType, options.statType));
+    }
+    if (options.gameDate) {
+      conditions.push(sql`DATE(${prizePicksLines.gameTime}) = ${options.gameDate}`);
+    }
+
+    const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+
+    // Get total count
+    const [countResult] = await db
+      .select({ count: count() })
+      .from(prizePicksLines)
+      .where(whereClause);
+
+    // Determine sort column
+    let sortColumn;
+    switch (options.sortBy) {
+      case 'playerName': sortColumn = prizePicksLines.playerName; break;
+      case 'line': sortColumn = prizePicksLines.line; break;
+      case 'statType': sortColumn = prizePicksLines.statType; break;
+      default: sortColumn = prizePicksLines.capturedAt;
+    }
+
+    // Get paginated lines
+    const lines = await db
+      .select()
+      .from(prizePicksLines)
+      .where(whereClause)
+      .orderBy(sortDir(sortColumn))
+      .limit(pageSize)
+      .offset(offset);
+
+    return {
+      lines,
+      total: countResult.count,
+      page,
+      pageSize,
+      totalPages: Math.ceil(countResult.count / pageSize),
+    };
+  }
+
+  /**
+   * Get daily lines history across multiple dates
+   */
+  async getDailyLinesHistory(options: {
+    page?: number;
+    pageSize?: number;
+    playerSearch?: string;
+    statType?: string;
+    startDate?: string;
+    endDate?: string;
+  }): Promise<{
+    lines: DbPrizePicksDailyLine[];
+    total: number;
+    page: number;
+    pageSize: number;
+    totalPages: number;
+  }> {
+    if (!db) {
+      return { lines: [], total: 0, page: 1, pageSize: 50, totalPages: 0 };
+    }
+
+    const page = options.page || 1;
+    const pageSize = Math.min(options.pageSize || 50, 200);
+    const offset = (page - 1) * pageSize;
+
+    const conditions = [];
+    if (options.playerSearch) {
+      const search = `%${options.playerSearch}%`;
+      conditions.push(
+        or(
+          like(prizePicksDailyLines.playerName, search),
+          like(prizePicksDailyLines.team, search)
+        )!
+      );
+    }
+    if (options.statType) {
+      conditions.push(eq(prizePicksDailyLines.statType, options.statType));
+    }
+    if (options.startDate) {
+      conditions.push(gte(prizePicksDailyLines.gameDate, options.startDate));
+    }
+    if (options.endDate) {
+      conditions.push(lte(prizePicksDailyLines.gameDate, options.endDate));
+    }
+
+    const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+
+    const [countResult] = await db
+      .select({ count: count() })
+      .from(prizePicksDailyLines)
+      .where(whereClause);
+
+    const lines = await db
+      .select()
+      .from(prizePicksDailyLines)
+      .where(whereClause)
+      .orderBy(desc(prizePicksDailyLines.gameDate), prizePicksDailyLines.playerName)
+      .limit(pageSize)
+      .offset(offset);
+
+    return {
+      lines,
+      total: countResult.count,
+      page,
+      pageSize,
+      totalPages: Math.ceil(countResult.count / pageSize),
+    };
   }
 }
 
