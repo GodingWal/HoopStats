@@ -1,9 +1,17 @@
-import type { HitRates } from "@shared/schema";
+import type { HitRates, HitRateEntry } from "@shared/schema";
 import { Badge } from "@/components/ui/badge";
 
-interface HitRateGridProps {
-  hitRates: HitRates;
-  stat: string;
+/**
+ * Extract numeric rate from HitRateEntry (handles both legacy number and new { rate, sampleSize } formats)
+ */
+function extractRate(entry: HitRateEntry): number {
+  if (typeof entry === "number") return entry;
+  return entry.rate;
+}
+
+function extractSampleSize(entry: HitRateEntry): number | null {
+  if (typeof entry === "number") return null;
+  return entry.sampleSize;
 }
 
 function getHitRateColor(rate: number): string {
@@ -17,9 +25,14 @@ function getBarWidth(rate: number): string {
   return `${Math.min(rate, 100)}%`;
 }
 
+interface HitRateGridProps {
+  hitRates: HitRates;
+  stat: string;
+}
+
 export function HitRateGrid({ hitRates, stat }: HitRateGridProps) {
   const lines = hitRates[stat];
-  
+
   if (!lines) {
     return (
       <div className="text-xs text-muted-foreground text-center py-4">
@@ -34,34 +47,44 @@ export function HitRateGrid({ hitRates, stat }: HitRateGridProps) {
 
   return (
     <div className="space-y-2">
-      {sortedLines.map(([line, rate]) => (
-        <div key={line} className="flex items-center gap-3" data-testid={`hitrate-${stat}-${line}`}>
-          <div className="w-12 text-xs font-mono text-muted-foreground text-right">
-            O{line}
-          </div>
-          <div className="flex-1 h-6 bg-muted/30 rounded-sm overflow-hidden relative">
-            <div
-              className={`h-full transition-all duration-500 ease-out ${
-                rate >= 80 ? "bg-emerald-500/40" :
-                rate >= 60 ? "bg-yellow-500/40" :
-                rate >= 40 ? "bg-orange-500/40" :
-                "bg-red-500/40"
-              }`}
-              style={{ width: getBarWidth(rate) }}
-            />
-            <div className="absolute inset-0 flex items-center justify-end pr-2">
-              <span className={`text-xs font-mono font-semibold ${
-                rate >= 80 ? "text-emerald-400" :
-                rate >= 60 ? "text-yellow-400" :
-                rate >= 40 ? "text-orange-400" :
-                "text-red-400"
-              }`}>
-                {rate.toFixed(0)}%
-              </span>
+      {sortedLines.map(([line, entry]) => {
+        const rate = extractRate(entry);
+        const sampleSize = extractSampleSize(entry);
+
+        return (
+          <div key={line} className="flex items-center gap-3" data-testid={`hitrate-${stat}-${line}`}>
+            <div className="w-12 text-xs font-mono text-muted-foreground text-right">
+              O{line}
+            </div>
+            <div className="flex-1 h-6 bg-muted/30 rounded-sm overflow-hidden relative">
+              <div
+                className={`h-full transition-all duration-500 ease-out ${
+                  rate >= 80 ? "bg-emerald-500/40" :
+                  rate >= 60 ? "bg-yellow-500/40" :
+                  rate >= 40 ? "bg-orange-500/40" :
+                  "bg-red-500/40"
+                }`}
+                style={{ width: getBarWidth(rate) }}
+              />
+              <div className="absolute inset-0 flex items-center justify-end pr-2">
+                <span className={`text-xs font-mono font-semibold ${
+                  rate >= 80 ? "text-emerald-400" :
+                  rate >= 60 ? "text-yellow-400" :
+                  rate >= 40 ? "text-orange-400" :
+                  "text-red-400"
+                }`}>
+                  {rate.toFixed(0)}%
+                  {sampleSize !== null && (
+                    <span className="text-muted-foreground font-normal ml-1">
+                      ({sampleSize}g)
+                    </span>
+                  )}
+                </span>
+              </div>
             </div>
           </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
@@ -72,16 +95,16 @@ interface HitRateSummaryProps {
 
 export function HitRateSummary({ hitRates }: HitRateSummaryProps) {
   const stats = ["PTS", "REB", "AST", "PRA", "FG3M", "STL", "BLK", "TOV"];
-  
+
   return (
     <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
       {stats.map((stat) => {
         const lines = hitRates[stat];
         if (!lines) return null;
-        
+
         const entries = Object.entries(lines);
-        const bestLine = entries.find(([_, rate]) => rate >= 70);
-        
+        const bestLine = entries.find(([_, entry]) => extractRate(entry) >= 70);
+
         return (
           <div key={stat} className="bg-muted/20 rounded-md p-3 border border-border">
             <div className="text-xs text-muted-foreground uppercase tracking-wider mb-2">
@@ -90,11 +113,11 @@ export function HitRateSummary({ hitRates }: HitRateSummaryProps) {
             {bestLine ? (
               <>
                 <div className="text-lg font-mono font-semibold">O{bestLine[0]}</div>
-                <Badge 
-                  variant="secondary" 
-                  className={`mt-1 text-[10px] ${getHitRateColor(bestLine[1])}`}
+                <Badge
+                  variant="secondary"
+                  className={`mt-1 text-[10px] ${getHitRateColor(extractRate(bestLine[1]))}`}
                 >
-                  {bestLine[1].toFixed(0)}% hit
+                  {extractRate(bestLine[1]).toFixed(0)}% hit
                 </Badge>
               </>
             ) : (

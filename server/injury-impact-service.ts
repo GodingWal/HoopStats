@@ -64,7 +64,7 @@ class InjuryImpactService {
         const edgeAnalysis = analyzeEdges(
           player,
           bet.stat_type,
-          bet.recommendation,
+          bet.recommendation as "OVER" | "UNDER",
           bet.hit_rate
         );
 
@@ -128,7 +128,7 @@ class InjuryImpactService {
 
     // Find players who benefit from these injuries
     for (const player of teamPlayers) {
-      const onOffSplits: any[] = (player as any).on_off_splits || [];
+      const onOffSplits = player.on_off_splits || [];
 
       for (const split of onOffSplits) {
         // Check if any injured player matches this on/off split
@@ -137,7 +137,7 @@ class InjuryImpactService {
           split.without_player.toLowerCase().includes(injName.toLowerCase())
         );
 
-        if (matchingInjury && split.impact > 3.0) {
+        if (matchingInjury && split.impact > 3.0 && split.sample_size >= 10) {
           beneficiaries.push({
             playerName: player.player_name,
             stat: split.stat,
