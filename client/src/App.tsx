@@ -18,9 +18,6 @@ import TrackRecord from "@/pages/track-record";
 import TeamStatsPage from "@/pages/team-stats";
 import BacktestPage from "@/pages/backtest";
 import RefSignalPage from "@/pages/ref-signal";
-import ProjectionDashboardPage from "@/pages/projection-dashboard";
-import SignalWeightsPanelPage from "@/pages/signal-weights-panel";
-import BacktestViewPage from "@/pages/backtest-view";
 import ParlayCorrelationPage from "@/pages/parlay-correlation";
 import { ThemeToggle } from "@/components/theme-toggle";
 import {
@@ -38,7 +35,7 @@ import {
   SidebarFooter,
 } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
-import { Users, Target, RefreshCw, CloudDownload, AlertCircle, Tv, History, LayoutDashboard, Award, BarChart3, Wallet, FlaskConical, Crosshair, Zap, Activity, LineChart, GitMerge } from "lucide-react";
+import { Users, Target, RefreshCw, CloudDownload, AlertCircle, Tv, History, LayoutDashboard, Award, BarChart3, Wallet, FlaskConical, Crosshair, GitMerge } from "lucide-react";
 
 function Router() {
   return (
@@ -53,9 +50,6 @@ function Router() {
       <Route path="/team-stats" component={TeamStatsPage} />
       <Route path="/backtest" component={BacktestPage} />
       <Route path="/ref-signal" component={RefSignalPage} />
-      <Route path="/signal-engine" component={ProjectionDashboardPage} />
-      <Route path="/signal-weights" component={SignalWeightsPanelPage} />
-      <Route path="/backtest-signals" component={BacktestViewPage} />
       <Route path="/parlay-correlations" component={ParlayCorrelationPage} />
       <Route component={NotFound} />
     </Switch>
@@ -112,21 +106,6 @@ const navItems = [
     title: "Ref Signal",
     url: "/ref-signal",
     icon: Crosshair,
-  },
-  {
-    title: "Signal Engine",
-    url: "/signal-engine",
-    icon: Zap,
-  },
-  {
-    title: "Signal Weights",
-    url: "/signal-weights",
-    icon: Activity,
-  },
-  {
-    title: "Signal Backtest",
-    url: "/backtest-signals",
-    icon: LineChart,
   },
   {
     title: "Parlay Correlations",
