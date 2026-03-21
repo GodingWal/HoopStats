@@ -694,14 +694,16 @@ export default function Bets() {
   const [generatedSearch, setGeneratedSearch] = useState<string>("");
   const [showImportDialog, setShowImportDialog] = useState(false);
 
-  const { data: bets, isLoading: betsLoading } = useQuery<PotentialBet[]>({
+  const { data: bets, isLoading: betsLoading, error: betsError, isError: isBetsError } = useQuery<PotentialBet[]>({
     queryKey: ["/api/bets"],
     enabled: dataSource === "generated",
+    retry: 2,
   });
 
   const { data: games } = useQuery<LiveGame[]>({
     queryKey: ["/api/live-games"],
     enabled: dataSource === "generated",
+    retry: 2,
   });
 
   const refreshMutation = useMutation({
@@ -878,6 +880,26 @@ export default function Bets() {
             <PrizePicksView />
           ) : betsLoading ? (
             <BetsSkeleton />
+          ) : isBetsError ? (
+            <Card className="rounded-xl border-border/50">
+              <CardContent className="py-16 text-center">
+                <AlertCircle className="w-12 h-12 mx-auto mb-4 text-rose-400" />
+                <h3 className="text-xl font-bold mb-2">Failed to Load Analysis</h3>
+                <p className="text-muted-foreground mb-4">
+                  {betsError instanceof Error ? betsError.message : "Could not fetch betting opportunities. The server may be temporarily unavailable."}
+                </p>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    queryClient.invalidateQueries({ queryKey: ["/api/bets"] });
+                  }}
+                  className="gap-2"
+                >
+                  <RefreshCw className="w-4 h-4" />
+                  Try Again
+                </Button>
+              </CardContent>
+            </Card>
           ) : (
             <div className="space-y-4">
               {/* Player Search Bar for Generated Bets */}
@@ -953,7 +975,24 @@ export default function Bets() {
                       <Target className="w-10 h-10 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-primary/60" />
                     </div>
                     <h3 className="text-xl font-bold mb-2">No Games Found</h3>
-                    <p className="text-muted-foreground">Try refreshing to load betting opportunities</p>
+                    <p className="text-muted-foreground mb-4">
+                      {bets && bets.length === 0
+                        ? "No betting opportunities available right now. There may be no games scheduled today, or player data needs to be refreshed."
+                        : "Try refreshing to load betting opportunities"}
+                    </p>
+                    <Button
+                      variant="outline"
+                      onClick={() => refreshMutation.mutate()}
+                      disabled={refreshMutation.isPending}
+                      className="gap-2"
+                    >
+                      {refreshMutation.isPending ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <RefreshCw className="w-4 h-4" />
+                      )}
+                      {refreshMutation.isPending ? "Refreshing..." : "Refresh Analysis"}
+                    </Button>
                   </CardContent>
                 </Card>
               )}

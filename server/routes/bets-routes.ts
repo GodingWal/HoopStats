@@ -355,18 +355,21 @@ router.get("/", async (req, res) => {
 
     const { EDGE_THRESHOLDS, HIT_RATE_THRESHOLDS, MAX_BETS_DISPLAY } = BETTING_CONFIG;
 
-    // Filter to best bets - require positive EV when available
+    // Filter to best bets using confidence, edge, and hit rate signals
+    // EV acts as a bonus filter but does not override strong signals
     const filteredBets = bets.filter(bet => {
-      // If we have EV data, require positive EV above threshold
-      if (bet.expected_value !== null && bet.expected_value !== undefined) {
-        if (bet.expected_value < BETTING_CONFIG.MIN_EV_THRESHOLD) return false;
-      }
+      const hasPositiveEV = bet.expected_value === null || bet.expected_value === undefined || bet.expected_value >= BETTING_CONFIG.MIN_EV_THRESHOLD;
+
+      // HIGH confidence bets always pass (regardless of EV)
       if (bet.confidence === "HIGH") return true;
-      if (bet.edge_score && bet.edge_score >= EDGE_THRESHOLDS.STRONG) return true;
-      if (bet.edge_score && bet.edge_score >= EDGE_THRESHOLDS.GOOD) {
+      // Strong edge bets pass if EV is positive or unavailable
+      if (bet.edge_score && bet.edge_score >= EDGE_THRESHOLDS.STRONG && hasPositiveEV) return true;
+      // Good edge + strong hit rate
+      if (bet.edge_score && bet.edge_score >= EDGE_THRESHOLDS.GOOD && hasPositiveEV) {
         if (bet.hit_rate >= HIT_RATE_THRESHOLDS.STRONG_OVER || bet.hit_rate <= HIT_RATE_THRESHOLDS.STRONG_UNDER) return true;
       }
-      if (bet.hit_rate >= HIT_RATE_THRESHOLDS.EXTREME_OVER || bet.hit_rate <= HIT_RATE_THRESHOLDS.EXTREME_UNDER) return true;
+      // Extreme hit rates pass if EV is positive or unavailable
+      if ((bet.hit_rate >= HIT_RATE_THRESHOLDS.EXTREME_OVER || bet.hit_rate <= HIT_RATE_THRESHOLDS.EXTREME_UNDER) && hasPositiveEV) return true;
       return false;
     });
 
