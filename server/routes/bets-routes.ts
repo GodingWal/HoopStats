@@ -16,6 +16,7 @@ import { validateBody, betSchema } from "../validation";
 import type { Player, HitRateEntry } from "@shared/schema";
 import { adjustedHitRate } from "../utils/statistics";
 import { evaluateBetValue } from "../utils/ev-calculator";
+import { logXGBoostPrediction } from "../services/xgboost-logger";
 
 const router = Router();
 
@@ -136,6 +137,13 @@ function generatePotentialBets(players: Player[]) {
             expected_value: evResult.ev,
             kelly_size: evResult.quarterKelly,
           });
+
+          // Log prediction to XGBoost training table (fire-and-forget)
+          logXGBoostPrediction(
+            player, statType, lineNum, recommendation, confidence,
+            edgeAnalysis.edges,
+            { hitRate: rate, expectedValue: evResult.ev, edgeTotalScore: edgeAnalysis.totalScore },
+          );
         }
       }
     }
@@ -256,6 +264,13 @@ async function generateBetsFromPrizePicks(players: Player[]) {
           expected_value: evResult.ev,
           kelly_size: evResult.quarterKelly,
         });
+
+        // Log prediction to XGBoost training table (fire-and-forget)
+        logXGBoostPrediction(
+          player, statType, line, recommendation, confidence,
+          edgeAnalysis.edges,
+          { hitRate: rate, expectedValue: evResult.ev, edgeTotalScore: edgeAnalysis.totalScore },
+        );
       }
     }
 
@@ -536,6 +551,21 @@ router.patch("/user/:betId", async (req, res) => {
   } catch (error) {
     apiLogger.error("Error updating bet result", error);
     res.status(500).json({ error: "Failed to update bet result" });
+  }
+});
+
+/**
+ * GET /api/bets/xgboost-stats
+ * Get XGBoost training data statistics
+ */
+router.get("/xgboost-stats", async (req, res) => {
+  try {
+    const { getXGBoostTrainingStats } = await import("../services/xgboost-logger");
+    const stats = await getXGBoostTrainingStats();
+    res.json(stats);
+  } catch (error) {
+    apiLogger.error("Error fetching XGBoost stats", error);
+    res.status(500).json({ error: "Failed to fetch XGBoost training stats" });
   }
 });
 

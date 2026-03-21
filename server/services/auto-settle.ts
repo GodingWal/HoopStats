@@ -16,6 +16,7 @@ import { fetchLiveGames, fetchGameBoxScore, type LiveGame, type GameBoxScore } f
 import { storage } from "../storage";
 import { serverLogger } from "../logger";
 import type { DbParlay, DbParlayPick } from "@shared/schema";
+import { logXGBoostOutcome } from "./xgboost-logger";
 
 // Stat type mapping: our abbreviations -> ESPN box score stat labels
 const STAT_LABEL_MAP: Record<string, string[]> = {
@@ -284,6 +285,14 @@ export async function runSettlement(): Promise<{ settledPicks: number; settledPa
 
         const result = determineResult(actualValue, pick.line, pick.side);
         await storage.updateParlayPickResult(pick.id, result, actualValue);
+
+        // Log outcome to XGBoost training table (fire-and-forget)
+        const pickGameDate = pick.gameDate ?? toEspnDate(new Date());
+        const actualMinutes = parseStatNum(entry.stats["MIN"]);
+        logXGBoostOutcome(
+          pick.playerName, pickGameDate, pick.stat,
+          actualValue, actualMinutes ?? undefined,
+        );
 
         // Update in-memory pick for parlay settlement check
         pick.result = result;
