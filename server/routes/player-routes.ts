@@ -50,8 +50,16 @@ router.get("/", async (req, res) => {
     const playersWithInjuries = enrichWithInjuries(players);
     res.json(playersWithInjuries);
   } catch (error) {
-    apiLogger.error("Error fetching players", error);
-    res.status(500).json({ error: "Failed to fetch players" });
+    apiLogger.error("Error fetching players from storage, falling back to sample data", error);
+    // Fall back to sample data if database is unavailable
+    try {
+      const { SAMPLE_PLAYERS } = await import("../data/sample-players-loader");
+      const playersWithInjuries = enrichWithInjuries(SAMPLE_PLAYERS);
+      res.json(playersWithInjuries);
+    } catch (fallbackError) {
+      apiLogger.error("Fallback to sample data also failed", fallbackError);
+      res.status(500).json({ error: "Failed to fetch players" });
+    }
   }
 });
 

@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Player } from "@shared/schema";
 import { PlayerCard } from "@/components/player-card";
 import { PlayerDetail } from "@/components/player-detail";
@@ -33,7 +33,7 @@ export default function Home() {
 
   const { favorites, toggleFavorite, isFavorite, count: favCount } = useFavorites();
 
-  const { data: players, isLoading, error } = useQuery<Player[]>({
+  const { data: players, isLoading, error, refetch } = useQuery<Player[]>({
     queryKey: ["/api/players"],
   });
 
@@ -192,6 +192,14 @@ export default function Home() {
               <div className="text-center py-8 text-muted-foreground">
                 <p className="text-sm">Failed to load players</p>
                 <p className="text-xs mt-1">Please try again later</p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="mt-3"
+                  onClick={() => refetch()}
+                >
+                  Retry
+                </Button>
               </div>
             )}
 
