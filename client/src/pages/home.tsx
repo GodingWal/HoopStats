@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import type { Player } from "@shared/schema";
 import { PlayerCard } from "@/components/player-card";
 import { PlayerDetail } from "@/components/player-detail";
