@@ -286,39 +286,51 @@ async function generateBetsFromPrizePicks(players: Player[]) {
     // For each PrizePicks projection, find the player and calculate hit rate
     for (const proj of projections) {
       const player = playerMap.get(proj.playerName.toLowerCase());
-      if (!player) {
-        apiLogger.info(`Player not found in DB: ${proj.playerName}`);
-        continue;
-      }
 
       const statType = proj.statTypeAbbr;
       const line = proj.line;
 
-      // Get hit rates for this stat type
-      const hitRates = player.hit_rates[statType];
-      if (!hitRates) continue;
+      let hitRate = 50; // Default: coin flip when no data
+      let seasonAvg: number = line; // Default to line if no season avg
+      let last5Avg: number | null = null;
+      let sampleSize = 0;
+      let hasPlayerData = false;
 
-      // Find the closest line or exact match
-      const lineStr = line.toString();
-      let hitRateEntry = hitRates[lineStr] as HitRateEntry | undefined;
+      if (player) {
+        hasPlayerData = true;
+        const hitRates = player.hit_rates[statType];
 
-      if (hitRateEntry === undefined) {
-        const lines = Object.keys(hitRates).map(l => parseFloat(l)).sort((a, b) => a - b);
-        if (lines.length === 0) continue;
-        const closestLine = lines.reduce((prev, curr) =>
-          Math.abs(curr - line) < Math.abs(prev - line) ? curr : prev
-        );
-        hitRateEntry = hitRates[closestLine.toString()] as HitRateEntry | undefined;
+        if (hitRates) {
+          // Find the closest line or exact match
+          const lineStr = line.toString();
+          let hitRateEntry = hitRates[lineStr] as HitRateEntry | undefined;
+
+          if (hitRateEntry === undefined) {
+            const lines = Object.keys(hitRates).map(l => parseFloat(l)).sort((a, b) => a - b);
+            if (lines.length > 0) {
+              const closestLine = lines.reduce((prev, curr) =>
+                Math.abs(curr - line) < Math.abs(prev - line) ? curr : prev
+              );
+              hitRateEntry = hitRates[closestLine.toString()] as HitRateEntry | undefined;
+            }
+          }
+
+          if (hitRateEntry !== undefined) {
+            const parsed = parseHitRateEntry(hitRateEntry);
+            hitRate = parsed.rate;
+            sampleSize = parsed.sampleSize;
+          }
+        }
+
+        const sa = player.season_averages[statType as keyof typeof player.season_averages];
+        if (typeof sa === "number") seasonAvg = sa;
+        const l5 = player.last_5_averages[statType as keyof typeof player.last_5_averages];
+        if (typeof l5 === "number") last5Avg = l5;
+
+        if (sampleSize > 0 && sampleSize < BETTING_CONFIG.MIN_SAMPLE_SIZE) {
+          hitRate = 50; // Not enough data, treat as unknown
+        }
       }
-
-      if (hitRateEntry === undefined) continue;
-
-      const { rate: hitRate, sampleSize } = parseHitRateEntry(hitRateEntry);
-      const seasonAvg = player.season_averages[statType as keyof typeof player.season_averages];
-      const last5Avg = player.last_5_averages[statType as keyof typeof player.last_5_averages];
-
-      if (typeof seasonAvg !== "number") continue;
-      if (sampleSize > 0 && sampleSize < BETTING_CONFIG.MIN_SAMPLE_SIZE) continue;
 
       let confidence: "HIGH" | "MEDIUM" | "LOW" = "LOW";
       let recommendation: "OVER" | "UNDER" = "OVER";
@@ -337,37 +349,53 @@ async function generateBetsFromPrizePicks(players: Player[]) {
         recommendation = "UNDER";
       }
 
-      if (confidence !== "LOW") {
-        const edgeAnalysis = analyzeEdges(player, statType, recommendation, hitRate);
-
-        const signalScore = calculateSignalScore(
-          player,
-          statType,
-          recommendation,
-          hitRate,
-          edgeAnalysis.edges
-        );
-
-        bets.push({
-          player_id: player.player_id,
-          player_name: player.player_name,
-          team: player.team,
-          stat_type: statType,
-          line: line,
-          hit_rate: hitRate,
-          season_avg: seasonAvg,
-          last_5_avg: typeof last5Avg === "number" ? last5Avg : null,
-          recommendation,
-          confidence,
-          edge_type: edgeAnalysis.bestEdge?.type || null,
-          edge_score: edgeAnalysis.totalScore || null,
-          edge_description: edgeAnalysis.bestEdge?.description || null,
-          signal_score: signalScore.signalScore || null,
-          signal_confidence: signalScore.signalConfidence || null,
-          active_signals: signalScore.signals.length > 0 ? signalScore.signals : null,
-          signal_description: getSignalDescription(signalScore) || null,
-        });
+      // For LOW confidence, infer recommendation from season avg vs line
+      if (confidence === "LOW") {
+        recommendation = (typeof seasonAvg === "number" && seasonAvg > line) ? "OVER" : "UNDER";
       }
+
+      let edgeType: string | null = null;
+      let edgeScore: number | null = null;
+      let edgeDescription: string | null = null;
+      let signalScoreVal: number | null = null;
+      let signalConfidence: string | null = null;
+      let activeSignals: string[] | null = null;
+      let signalDesc: string | null = null;
+
+      if (player) {
+        const edgeAnalysis = analyzeEdges(player, statType, recommendation, hitRate);
+        edgeType = edgeAnalysis.bestEdge?.type || null;
+        edgeScore = edgeAnalysis.totalScore || null;
+        edgeDescription = edgeAnalysis.bestEdge?.description || null;
+
+        const signalResult = calculateSignalScore(
+          player, statType, recommendation, hitRate, edgeAnalysis.edges
+        );
+        signalScoreVal = signalResult.signalScore || null;
+        signalConfidence = signalResult.signalConfidence || null;
+        activeSignals = signalResult.signals.length > 0 ? signalResult.signals : null;
+        signalDesc = getSignalDescription(signalResult) || null;
+      }
+
+      bets.push({
+        player_id: player?.player_id || 0,
+        player_name: proj.playerName,
+        team: proj.teamAbbr || player?.team || "",
+        stat_type: statType,
+        line: line,
+        hit_rate: hitRate,
+        season_avg: seasonAvg,
+        last_5_avg: last5Avg,
+        recommendation,
+        confidence,
+        edge_type: edgeType,
+        edge_score: edgeScore,
+        edge_description: edgeDescription,
+        signal_score: signalScoreVal,
+        signal_confidence: signalConfidence,
+        active_signals: activeSignals,
+        signal_description: signalDesc,
+      });
     }
 
     // Sort by signal score first (backtest-backed), then edge score, then hit rate
@@ -644,35 +672,9 @@ export async function registerRoutes(
         };
       });
 
-      // Filter to only show the BEST bets - those with meaningful edges or high confidence
-      // Criteria for "best bets":
-      // 1. HIGH confidence (hit rate >= 80% or <= 25%)
-      // 2. Edge score >= 5 (meaningful edge detected)
-      // 3. Hit rate >= 75% (OVER) or <= 30% (UNDER) with any edge
-      // 4. HIGH signal confidence from backtest
-      const filteredBets = enrichedBets.filter(bet => {
-        // Always include HIGH confidence bets
-        if (bet.confidence === "HIGH") return true;
-
-        // Include bets with strong edges (score >= 5)
-        if (bet.edge_score && bet.edge_score >= 5) return true;
-
-        // Include bets with good edges (score >= 3) AND strong hit rates
-        if (bet.edge_score && bet.edge_score >= 3) {
-          if (bet.hit_rate >= 75 || bet.hit_rate <= 30) return true;
-        }
-
-        // Include extreme hit rates even without edges
-        if (bet.hit_rate >= 78 || bet.hit_rate <= 22) return true;
-
-        // Include bets with HIGH signal confidence
-        if ((bet as any).signal_confidence === "HIGH") return true;
-
-        return false;
-      });
-
+      // Show all PrizePicks props with our analysis — sorted by quality
       // Sort by signal score first (backtest-backed), then edge score, then hit rate
-      const sortedBets = filteredBets.sort((a, b) => {
+      const sortedBets = enrichedBets.sort((a, b) => {
         // Priority 1: Signal score (backtest-proven signals)
         const aSignal = (a as any).signal_score || 0;
         const bSignal = (b as any).signal_score || 0;
@@ -699,8 +701,8 @@ export async function registerRoutes(
         return bDeviation - aDeviation;
       });
 
-      // Limit to top 50 bets to avoid overwhelming the UI
-      const limitedBets = sortedBets.slice(0, 50);
+      // Return all bets (sorted best-first) — frontend groups by game
+      const limitedBets = sortedBets.slice(0, 200);
 
       res.json(limitedBets);
     } catch (error) {
