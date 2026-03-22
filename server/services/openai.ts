@@ -55,16 +55,29 @@ export async function generateBetExplanation(
     }
 }
 
+export interface ParsedBetSlip {
+    entryAmount: number | null;
+    potentialPayout: number | null;
+    parlayType: "flex" | "power";
+    numPicks: number;
+    bets: Array<{
+        playerName: string;
+        line: number;
+        stat: string;
+        side: "over" | "under";
+    }>;
+}
+
 export async function parseBetScreenshot(
     base64Image: string,
     mediaType: "image/jpeg" | "image/png" | "image/gif" | "image/webp" = "image/jpeg"
-): Promise<any[]> {
+): Promise<ParsedBetSlip> {
     try {
         const client = getClient();
         const response = await client.messages.create({
             model: "claude-haiku-4-5",
-            max_tokens: 1000,
-            system: "You are an expert at extracting data from images. Return ONLY valid JSON with no markdown formatting or code blocks.",
+            max_tokens: 1500,
+            system: "You are an expert at extracting data from betting slip images. Return ONLY valid JSON with no markdown formatting or code blocks.",
             messages: [
                 {
                     role: "user",
@@ -79,7 +92,20 @@ export async function parseBetScreenshot(
                         },
                         {
                             type: "text",
-                            text: "Extract the bets from this PrizePicks (or similar) betting slip image. Return a JSON object with a 'bets' array where each object has: 'playerName' (string), 'line' (number), 'stat' (string - e.g. 'Points', 'Rebs+Asts'), 'side' ('over' or 'under'). If the side is not explicit, assume 'over' (More) if the arrow is green or pointing up, and 'under' (Less) if red or pointing down. If you cannot determine, default to 'over'.",
+                            text: `Extract ALL information from this PrizePicks (or similar) betting slip image.
+
+Return a JSON object with these fields:
+- "entryAmount": the dollar amount wagered (e.g. if it says "$5 to pay $12,000" the entry is 5). null if not visible.
+- "potentialPayout": the potential payout amount in dollars (e.g. if "$5 to pay $12,000" the payout is 12000). null if not visible.
+- "parlayType": "flex" if it says "Flex Play" or "FLEX", "power" if it says "Power Play" or "POWER". Default to "flex".
+- "numPicks": the number of picks (e.g. "6-Pick Flex Play" means 6). Count the individual player bets if not stated.
+- "bets": an array where each object has:
+  - "playerName" (string): full player name
+  - "line" (number): the betting line number (e.g. 13.5)
+  - "stat" (string): the stat type exactly as shown (e.g. "Points", "Rebs+Asts", "Rebounds", "3-Pointers Made")
+  - "side" ("over" or "under"): "over" if arrow points up or is green/orange, "under" if arrow points down or is red. Default to "over".
+
+IMPORTANT: Read the header of the slip carefully for entry amount and payout. For example "$5 to pay $12,000" means entryAmount=5 and potentialPayout=12000. Do NOT confuse the multiplier label (like "25x") with the actual payout ratio.`,
                         },
                     ],
                 },
@@ -87,12 +113,21 @@ export async function parseBetScreenshot(
         });
 
         const text = (response.content[0] as Anthropic.TextBlock).text;
-        if (!text) return [];
+        if (!text) return { entryAmount: null, potentialPayout: null, parlayType: "flex", numPicks: 0, bets: [] };
 
         // Strip markdown code blocks if present
         const cleaned = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
         const result = JSON.parse(cleaned);
-        return result.bets || result.picks || result;
+
+        // Normalize the result
+        const bets = result.bets || result.picks || [];
+        return {
+            entryAmount: result.entryAmount ?? null,
+            potentialPayout: result.potentialPayout ?? null,
+            parlayType: (result.parlayType || "flex").toLowerCase() === "power" ? "power" : "flex",
+            numPicks: result.numPicks || bets.length,
+            bets,
+        };
     } catch (error) {
         console.error("Anthropic Vision Error:", error);
         throw new Error("Failed to parse screenshot. Please ensure Anthropic API key is configured.");

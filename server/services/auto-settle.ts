@@ -38,12 +38,37 @@ const STAT_LABEL_MAP: Record<string, string[]> = {
 // Combo stats that require summing multiple ESPN labels
 const COMBO_STATS = new Set(["PRA", "PR", "PA", "RA", "FPTS"]);
 
+// Normalize stat abbreviations from various input formats to our canonical keys
+const STAT_ALIAS: Record<string, string> = {
+  "POINTS": "PTS",
+  "REBOUNDS": "REB",
+  "ASSISTS": "AST",
+  "REBS+ASTS": "RA",
+  "PTS+REBS+ASTS": "PRA",
+  "PTS+REBS": "PR",
+  "PTS+ASTS": "PA",
+  "3-POINTERSMADE": "FG3M",
+  "3-POINTERS": "FG3M",
+  "3-PTMADE": "FG3M",
+  "3PM": "FG3M",
+  "STEALS": "STL",
+  "BLOCKS": "BLK",
+  "TURNOVERS": "TO",
+  "FANTASYSCORE": "FPTS",
+  "MINUTES": "MIN",
+};
+
+function normalizeStatKey(statAbbr: string): string {
+  const upper = statAbbr.toUpperCase().replace(/\s+/g, "");
+  return STAT_ALIAS[upper] || upper;
+}
+
 /**
  * Extract the actual numeric stat value for a player from their ESPN stats map.
  * Returns null if the stat can't be determined.
  */
 function extractStatValue(playerStats: Record<string, string>, statAbbr: string): number | null {
-  const upper = statAbbr.toUpperCase();
+  const upper = normalizeStatKey(statAbbr);
   const labels = STAT_LABEL_MAP[upper];
   if (!labels) return null;
 

@@ -68,26 +68,23 @@ export function ImportBetsDialog({ open, onOpenChange }: ImportBetsDialogProps) 
           const res = await apiRequest("POST", "/api/bets/upload-screenshot", { image: base64String });
           const data = await res.json();
 
-          if (Array.isArray(data)) {
-            // Map the API result to our internal format
-            // API returns: { playerName, line, stat, side }
-            const picks = data.map((bet: any) => ({
-              playerName: bet.playerName,
-              line: bet.line,
-              stat: bet.stat,
-              statAbbr: bet.stat.toUpperCase(),
-              side: (bet.side || "over").toLowerCase() as "over" | "under",
-            }));
+          // Handle new format (object with bets array + metadata) and legacy (plain array)
+          const betsArray = Array.isArray(data) ? data : (data.bets || []);
 
-            if (picks.length === 0) {
-              setError("No bets could be identified in the image.");
-            } else {
-              // Auto-import: add directly to parlay cart without manual review
-              importPicks(picks);
-              return; // dialog closed inside importPicks
-            }
+          const picks = betsArray.map((bet: any) => ({
+            playerName: bet.playerName,
+            line: bet.line,
+            stat: bet.stat,
+            statAbbr: bet.stat.toUpperCase(),
+            side: (bet.side || "over").toLowerCase() as "over" | "under",
+          }));
+
+          if (picks.length === 0) {
+            setError("No bets could be identified in the image.");
           } else {
-            setError("Unexpected response format from server.");
+            // Auto-import: add directly to parlay cart without manual review
+            importPicks(picks);
+            return; // dialog closed inside importPicks
           }
         } catch (err) {
           console.error(err);

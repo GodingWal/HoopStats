@@ -493,8 +493,8 @@ router.post("/upload-screenshot", async (req, res) => {
     const mediaType = (mediaTypeMatch?.[1] || "image/jpeg") as "image/jpeg" | "image/png" | "image/gif" | "image/webp";
     const base64Image = image.replace(/^data:image\/\w+;base64,/, "");
 
-    const bets = await parseBetScreenshot(base64Image, mediaType);
-    res.json(bets);
+    const parsedSlip = await parseBetScreenshot(base64Image, mediaType);
+    res.json(parsedSlip);
   } catch (error) {
     apiLogger.error("Error parsing screenshot", error);
     res.status(500).json({ error: "Failed to parse screenshot" });
