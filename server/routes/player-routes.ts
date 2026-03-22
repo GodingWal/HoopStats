@@ -40,26 +40,22 @@ router.get("/", async (req, res) => {
   try {
     let players = await storage.getPlayers();
 
-    // Seed sample players if none exist
+    // If no players in storage, trigger a real ESPN data fetch
     if (players.length === 0) {
-      const { SAMPLE_PLAYERS } = await import("../data/sample-players-loader");
-      await storage.seedPlayers(SAMPLE_PLAYERS);
-      players = await storage.getPlayers();
+      const { fetchAndBuildAllPlayers } = await import("../nba-api");
+      apiLogger.info("No players in storage, fetching from ESPN...");
+      const builtPlayers = await fetchAndBuildAllPlayers();
+      if (builtPlayers.length > 0) {
+        await storage.syncPlayers(builtPlayers);
+        players = await storage.getPlayers();
+      }
     }
 
     const playersWithInjuries = enrichWithInjuries(players);
     res.json(playersWithInjuries);
   } catch (error) {
-    apiLogger.error("Error fetching players from storage, falling back to sample data", error);
-    // Fall back to sample data if database is unavailable
-    try {
-      const { SAMPLE_PLAYERS } = await import("../data/sample-players-loader");
-      const playersWithInjuries = enrichWithInjuries(SAMPLE_PLAYERS);
-      res.json(playersWithInjuries);
-    } catch (fallbackError) {
-      apiLogger.error("Fallback to sample data also failed", fallbackError);
-      res.status(500).json({ error: "Failed to fetch players" });
-    }
+    apiLogger.error("Error fetching players", error);
+    res.status(500).json({ error: "Failed to fetch players" });
   }
 });
 

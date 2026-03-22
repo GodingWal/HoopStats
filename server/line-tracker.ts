@@ -12,6 +12,9 @@
 import { storage } from "./storage";
 import type { InsertPlayerPropLine, InsertLineMovement, DbPlayerPropLine } from "@shared/schema";
 import { EventEmitter } from "events";
+import { fetchNbaEvents, isOddsApiConfigured, type OddsEvent } from "./odds-api";
+import { apiCache } from "./cache";
+import { apiLogger } from "./logger";
 
 // Helper: Convert American odds to implied probability
 function americanToProb(odds: number): number {
@@ -101,8 +104,19 @@ export class LineTracker extends EventEmitter {
     }
   }
 
+  // Map TheOddsAPI market keys to our stat type labels
+  private static MARKET_TO_STAT: Record<string, string> = {
+    player_points: "PTS",
+    player_rebounds: "REB",
+    player_assists: "AST",
+    player_threes: "FG3M",
+    player_blocks: "BLK",
+    player_steals: "STL",
+    player_points_rebounds_assists: "PRA",
+  };
+
   /**
-   * Fetch lines from TheOddsAPI or other odds providers
+   * Fetch lines from TheOddsAPI player props endpoints
    */
   private async fetchLinesFromOddsAPI(): Promise<Array<{
     playerId: number;
@@ -118,18 +132,129 @@ export class LineTracker extends EventEmitter {
     overOdds: number;
     underOdds: number;
   }>> {
-    // TODO: Implement actual odds API fetching
-    // This would call your existing odds-api.ts functions
-    // and transform the data into the format needed
+    if (!isOddsApiConfigured()) {
+      apiLogger.debug("LineTracker: Odds API not configured, skipping");
+      return [];
+    }
 
-    // For now, return empty array
-    // In production, this would fetch from:
-    // - TheOddsAPI player props endpoint
-    // - DraftKings/FanDuel APIs
-    // - PrizePicks data
-    // etc.
+    const results: Array<{
+      playerId: number;
+      playerName: string;
+      team: string;
+      gameId: string;
+      gameDate: string;
+      opponent: string;
+      stat: string;
+      sportsbookKey: string;
+      sportsbookName: string;
+      line: number;
+      overOdds: number;
+      underOdds: number;
+    }> = [];
 
-    return [];
+    try {
+      const events = await fetchNbaEvents();
+      if (events.length === 0) return [];
+
+      // Build a player name → id/team lookup from storage
+      const players = await storage.getPlayers();
+      const playerLookup = new Map<string, { id: number; team: string }>();
+      for (const p of players) {
+        playerLookup.set(p.player_name.toLowerCase(), { id: p.player_id, team: p.team });
+      }
+
+      const apiKey = process.env.THE_ODDS_API_KEY;
+      if (!apiKey) return [];
+
+      const PLAYER_PROP_MARKETS = [
+        "player_points", "player_rebounds", "player_assists",
+        "player_threes", "player_blocks", "player_steals",
+        "player_points_rebounds_assists",
+      ].join(",");
+
+      const BOOKMAKERS = ["draftkings", "fanduel", "betmgm", "caesars", "pointsbetus"].join(",");
+
+      // Fetch player props for each event (limit to conserve API credits)
+      for (const event of events.slice(0, 8)) {
+        const cacheKey = `line-tracker-props-${event.id}`;
+        let rawData = apiCache.get<any>(cacheKey);
+
+        if (!rawData) {
+          try {
+            const url = `https://api.the-odds-api.com/v4/sports/basketball_nba/events/${event.id}/odds?apiKey=${apiKey}&regions=us&markets=${PLAYER_PROP_MARKETS}&oddsFormat=american&bookmakers=${BOOKMAKERS}`;
+            const response = await fetch(url);
+            if (!response.ok) {
+              if (response.status === 404) continue;
+              apiLogger.warn(`LineTracker: Failed to fetch props for event ${event.id}: ${response.status}`);
+              continue;
+            }
+            rawData = await response.json();
+            apiCache.set(cacheKey, rawData, 5 * 60 * 1000);
+          } catch (err) {
+            apiLogger.error(`LineTracker: Error fetching event ${event.id}`, err);
+            continue;
+          }
+        }
+
+        const gameDate = event.commence_time.split("T")[0];
+        const homeTeam = event.home_team;
+        const awayTeam = event.away_team;
+
+        for (const bookmaker of rawData.bookmakers || []) {
+          for (const market of bookmaker.markets || []) {
+            const stat = LineTracker.MARKET_TO_STAT[market.key];
+            if (!stat) continue;
+
+            // Group outcomes by player name (description field)
+            const playerOutcomes = new Map<string, { over?: { price: number; point: number }; under?: { price: number; point: number } }>();
+
+            for (const outcome of market.outcomes || []) {
+              const playerName = outcome.description;
+              if (!playerName) continue;
+
+              if (!playerOutcomes.has(playerName)) {
+                playerOutcomes.set(playerName, {});
+              }
+              const entry = playerOutcomes.get(playerName)!;
+              const side = outcome.name?.toLowerCase();
+              if (side === "over") {
+                entry.over = { price: outcome.price, point: outcome.point ?? 0 };
+              } else if (side === "under") {
+                entry.under = { price: outcome.price, point: outcome.point ?? 0 };
+              }
+            }
+
+            for (const [playerName, sides] of playerOutcomes) {
+              if (!sides.over || !sides.under) continue;
+
+              const lookup = playerLookup.get(playerName.toLowerCase());
+              // Determine opponent based on which team the player is on
+              const playerTeam = lookup?.team || "";
+              const opponent = playerTeam === homeTeam ? awayTeam : homeTeam;
+
+              results.push({
+                playerId: lookup?.id || 0,
+                playerName,
+                team: playerTeam,
+                gameId: event.id,
+                gameDate,
+                opponent,
+                stat,
+                sportsbookKey: bookmaker.key,
+                sportsbookName: bookmaker.title,
+                line: sides.over.point,
+                overOdds: sides.over.price,
+                underOdds: sides.under.price,
+              });
+            }
+          }
+        }
+      }
+    } catch (error) {
+      apiLogger.error("LineTracker: Error in fetchLinesFromOddsAPI", error);
+    }
+
+    return results;
   }
 
   /**

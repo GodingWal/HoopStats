@@ -38,7 +38,6 @@ import {
   getAllTeamsInfo,
 } from "../team-stats-api";
 import { generateBetsFromPrizePicks } from "./bets-routes";
-import { SAMPLE_PLAYERS } from "../data/sample-players-loader";
 
 // Get Python command based on platform
 function getPythonCommand(): string {
