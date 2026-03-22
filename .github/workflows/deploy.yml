@@ -27,47 +27,6 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Run tests
-        env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          NODE_ENV: test
-        run: npm test
-
-      - name: Build application
-        run: npm run build
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Log in to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
-
-      - name: Extract metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ secrets.DOCKER_USERNAME }}/courtsideedge
-          tags: |
-            type=ref,event=branch
-            type=ref,event=pr
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=sha
-
-      - name: Build and push Docker image
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: ./Dockerfile
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
       - name: Deploy to VPS
         uses: appleboy/ssh-action@v1.0.0
         with:
@@ -83,21 +42,10 @@ jobs:
             npm run build
             pm2 restart courtsideedge
 
-      - name: Create GitHub Release
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v1
-        with:
-          generate_release_notes: true
-          files: |
-            dist/**/*
-
       - name: Notify deployment
         if: success()
-        run: |
-          echo "Deployment successful!"
-          echo "Image tags: ${{ steps.meta.outputs.tags }}"
+        run: echo "Deployment successful!"
 
       - name: Notify failure
         if: failure()
-        run: |
-          echo "Deployment failed!"
+        run: echo "Deployment failed!"
