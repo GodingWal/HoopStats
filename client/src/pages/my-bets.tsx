@@ -44,6 +44,44 @@ interface Parlay {
   picks: ParlayPick[];
 }
 
+// Map common stat names from screenshots/text to standard abbreviations used by settlement
+const STAT_NORMALIZE: Record<string, string> = {
+  "points": "PTS",
+  "rebounds": "REB",
+  "assists": "AST",
+  "pts+rebs+asts": "PRA",
+  "pts+rebs": "PR",
+  "pts+asts": "PA",
+  "rebs+asts": "RA",
+  "3-pointers made": "FG3M",
+  "3-pointers": "FG3M",
+  "3-pt made": "FG3M",
+  "steals": "STL",
+  "blocks": "BLK",
+  "turnovers": "TO",
+  "fantasy score": "FPTS",
+  "minutes": "MIN",
+  // Also handle already-abbreviated forms
+  "PTS": "PTS",
+  "REB": "REB",
+  "AST": "AST",
+  "PRA": "PRA",
+  "PR": "PR",
+  "PA": "PA",
+  "RA": "RA",
+  "FG3M": "FG3M",
+  "STL": "STL",
+  "BLK": "BLK",
+  "TO": "TO",
+  "FPTS": "FPTS",
+  "MIN": "MIN",
+};
+
+function normalizeStatAbbr(stat: string): string {
+  const lower = stat.toLowerCase().trim();
+  return STAT_NORMALIZE[lower] || STAT_NORMALIZE[stat] || stat.toUpperCase().replace(/\s+/g, "");
+}
+
 // Parse PrizePicks transaction log text format
 function parsePrizePicksLog(text: string): Array<{
   playerName: string;
@@ -61,22 +99,6 @@ function parsePrizePicksLog(text: string): Array<{
     side: "over" | "under";
   }> = [];
 
-  const statMapping: Record<string, string> = {
-    "points": "PTS",
-    "rebounds": "REB",
-    "assists": "AST",
-    "pts+rebs+asts": "PRA",
-    "pts+rebs": "PR",
-    "pts+asts": "PA",
-    "rebs+asts": "RA",
-    "3-pointers made": "FG3M",
-    "3-pointers": "FG3M",
-    "steals": "STL",
-    "blocks": "BLK",
-    "turnovers": "TO",
-    "fantasy score": "FPTS",
-  };
-
   for (let i = 0; i < lines.length - 1; i += 2) {
     const playerName = lines[i].trim();
     const betLine = lines[i + 1]?.trim().toLowerCase() || "";
@@ -89,7 +111,7 @@ function parsePrizePicksLog(text: string): Array<{
       const lineValue = parseFloat(match[1]);
       const statText = match[2].trim();
       const side: "over" | "under" = moreMatch ? "over" : "under";
-      const statAbbr = statMapping[statText] || statText.toUpperCase().replace(/\s+/g, "");
+      const statAbbr = normalizeStatAbbr(statText);
 
       picks.push({
         playerName,
@@ -105,6 +127,14 @@ function parsePrizePicksLog(text: string): Array<{
 }
 
 // Import dialog component
+interface ImportedSlip {
+  picks: Array<{ playerName: string; line: number; stat: string; statAbbr: string; side: "over" | "under" }>;
+  entryAmount?: number;
+  potentialPayout?: number;
+  parlayType?: "flex" | "power";
+  numPicks?: number;
+}
+
 function ImportBetsDialog({
   open,
   onOpenChange,
@@ -112,7 +142,7 @@ function ImportBetsDialog({
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onImport: (picks: Array<{ playerName: string; line: number; stat: string; statAbbr: string; side: "over" | "under" }>) => void;
+  onImport: (slip: ImportedSlip) => void;
 }) {
   const [activeTab, setActiveTab] = useState<"text" | "image">("text");
   const [logText, setLogText] = useState("");
@@ -121,8 +151,8 @@ function ImportBetsDialog({
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const doImport = (picks: ReturnType<typeof parsePrizePicksLog>) => {
-    onImport(picks);
+  const doImport = (slip: ImportedSlip) => {
+    onImport(slip);
     setLogText("");
     setParsedPicks([]);
     setActiveTab("text");
@@ -161,23 +191,29 @@ function ImportBetsDialog({
         const res = await apiRequest("POST", "/api/bets/upload-screenshot", { image: base64String });
         const data = await res.json();
 
-        if (Array.isArray(data)) {
-          const picks = data.map((bet: any) => ({
+        // Handle new format (object with bets array + metadata) and legacy (plain array)
+        const betsArray = Array.isArray(data) ? data : (data.bets || []);
+        const slipMeta = Array.isArray(data) ? {} : data;
+
+        if (betsArray.length > 0) {
+          const picks = betsArray.map((bet: any) => ({
             playerName: bet.playerName,
             line: bet.line,
             stat: bet.stat,
-            statAbbr: bet.stat.toUpperCase(),
+            statAbbr: normalizeStatAbbr(bet.stat),
             side: (bet.side || "over").toLowerCase() as "over" | "under",
           }));
 
-          if (picks.length === 0) {
-            setError("No bets could be identified in the image.");
-          } else {
-            doImport(picks);
-            return;
-          }
+          doImport({
+            picks,
+            entryAmount: slipMeta.entryAmount ?? undefined,
+            potentialPayout: slipMeta.potentialPayout ?? undefined,
+            parlayType: slipMeta.parlayType ?? undefined,
+            numPicks: slipMeta.numPicks ?? undefined,
+          });
+          return;
         } else {
-          setError("Unexpected response format from server.");
+          setError("No bets could be identified in the image.");
         }
       } catch (err) {
         setError("Failed to process image. Please try again.");
@@ -295,7 +331,7 @@ function ImportBetsDialog({
             Cancel
           </Button>
           {parsedPicks.length > 0 && (
-            <Button onClick={() => doImport(parsedPicks)}>
+            <Button onClick={() => doImport({ picks: parsedPicks })}>
               <Plus className="w-4 h-4 mr-2" />
               Create Parlay ({parsedPicks.length} picks)
             </Button>
@@ -514,11 +550,12 @@ export default function MyBets() {
     },
   });
 
-  const handleImportPicks = async (picks: Array<{ playerName: string; line: number; stat: string; statAbbr: string; side: "over" | "under" }>) => {
+  const handleImportPicks = async (slip: ImportedSlip) => {
     const today = new Date().toISOString().split('T')[0];
+    const { picks, entryAmount: slipEntry, potentialPayout, parlayType: slipType } = slip;
 
-    // Calculate payout multiplier based on number of picks (typical PrizePicks payouts)
-    const payoutMultipliers: Record<number, number> = {
+    // Default PrizePicks flex multipliers (fallback if not extracted from screenshot)
+    const defaultFlexMultipliers: Record<number, number> = {
       2: 3,
       3: 5,
       4: 10,
@@ -527,12 +564,22 @@ export default function MyBets() {
     };
 
     const numPicks = picks.length;
-    const payoutMultiplier = payoutMultipliers[numPicks] || numPicks * 3;
+    const parlayType = slipType || "flex";
+    const entryAmount = slipEntry || 10;
+
+    // Calculate multiplier: prefer actual payout from screenshot, fallback to defaults
+    let payoutMultiplier: number;
+    if (potentialPayout && entryAmount > 0) {
+      // Use actual payout ratio from the screenshot (e.g. $5 to pay $12,000 = 2400x)
+      payoutMultiplier = Math.round(potentialPayout / entryAmount);
+    } else {
+      payoutMultiplier = defaultFlexMultipliers[numPicks] || numPicks * 3;
+    }
 
     const parlayData = {
-      parlayType: "flex" as const,
+      parlayType,
       numPicks,
-      entryAmount: 10, // Default entry amount
+      entryAmount,
       payoutMultiplier,
       picks: picks.map(pick => ({
         playerName: pick.playerName,
