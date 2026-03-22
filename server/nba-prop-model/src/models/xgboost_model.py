@@ -326,7 +326,6 @@ class XGBoostPropModel:
             reg_lambda=self.params["reg_lambda"],
             objective="binary:logistic",
             eval_metric="logloss",
-            use_label_encoder=False,
             random_state=42,
         )
 

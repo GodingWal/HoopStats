@@ -51,6 +51,9 @@ import {
 import { generateBetExplanation, parseBetScreenshot } from "./services/openai";
 import { getPlayerStatsByName, getActivePlayersWithStats } from "./services/balldontlie";
 import { lineWatcher } from "./services/line-watcher";
+import { SAMPLE_PLAYERS } from "./data/sample-players-loader";
+import { batchXGBoostPredict, getAvailableModels, type XGBoostPrediction } from "./xgboost-service";
+
 // Helper: ensure players are loaded in storage, fetching from ESPN if needed
 async function ensurePlayersLoaded(): Promise<Player[]> {
   let players = await storage.getPlayers();
@@ -117,7 +120,7 @@ function probToAmericanOdds(prob: number): string {
   }
 }
 
-function generatePotentialBets(players: Player[]) {
+function generatePotentialBets(players: Player[], xgbPredictions?: Map<string, XGBoostPrediction>) {
   const bets: Array<{
     player_id: number;
     player_name: string;
@@ -132,6 +135,9 @@ function generatePotentialBets(players: Player[]) {
     edge_type: string | null;
     edge_score: number | null;
     edge_description: string | null;
+    xgb_prob_over: number | null;
+    xgb_confidence: number | null;
+    xgb_model_type: string | null;
   }> = [];
 
   const statTypes = ["PTS", "REB", "AST", "PRA", "FG3M"];
@@ -150,25 +156,50 @@ function generatePotentialBets(players: Player[]) {
         if (typeof seasonAvg !== "number") continue;
         if (sampleSize > 0 && sampleSize < BETTING_CONFIG.MIN_SAMPLE_SIZE) continue;
 
+        // Get XGBoost prediction if available
+        const xgbKey = `${player.player_name}_${statType}_${lineNum}`;
+        const xgbPred = xgbPredictions?.get(xgbKey) || null;
+
+        // Blend hit rate with XGBoost probability (40% XGB, 60% analytical)
+        let blendedRate = rate;
+        if (xgbPred) {
+          const xgbRate = xgbPred.predicted_hit ? xgbPred.prob_over * 100 : (1 - xgbPred.prob_over) * 100;
+          // For over: use prob_over; for under: use prob_under
+          const analyticalProb = rate; // Already 0-100
+          const xgbProb = xgbPred.prob_over * 100;
+          blendedRate = 0.6 * analyticalProb + 0.4 * xgbProb;
+        }
+
         let confidence: "HIGH" | "MEDIUM" | "LOW" = "LOW";
         let recommendation: "OVER" | "UNDER" = "OVER";
 
-        if (rate >= BETTING_CONFIG.CONFIDENCE_THRESHOLDS.HIGH_OVER) {
+        if (blendedRate >= BETTING_CONFIG.CONFIDENCE_THRESHOLDS.HIGH_OVER) {
           confidence = "HIGH";
           recommendation = "OVER";
-        } else if (rate >= BETTING_CONFIG.CONFIDENCE_THRESHOLDS.MEDIUM_OVER) {
+        } else if (blendedRate >= BETTING_CONFIG.CONFIDENCE_THRESHOLDS.MEDIUM_OVER) {
           confidence = "MEDIUM";
           recommendation = "OVER";
-        } else if (rate <= BETTING_CONFIG.CONFIDENCE_THRESHOLDS.HIGH_UNDER) {
+        } else if (blendedRate <= BETTING_CONFIG.CONFIDENCE_THRESHOLDS.HIGH_UNDER) {
           confidence = "HIGH";
           recommendation = "UNDER";
-        } else if (rate <= BETTING_CONFIG.CONFIDENCE_THRESHOLDS.MEDIUM_UNDER) {
+        } else if (blendedRate <= BETTING_CONFIG.CONFIDENCE_THRESHOLDS.MEDIUM_UNDER) {
           confidence = "MEDIUM";
           recommendation = "UNDER";
         }
 
         if (confidence !== "LOW") {
           const edgeAnalysis = analyzeEdges(player, statType, recommendation, rate);
+
+          // XGBoost agreement bonus: if XGB strongly agrees, boost edge score
+          let xgbEdgeBonus = 0;
+          if (xgbPred && xgbPred.confidence > 0.3) {
+            const xgbAgrees =
+              (recommendation === "OVER" && xgbPred.prob_over > 0.6) ||
+              (recommendation === "UNDER" && xgbPred.prob_under > 0.6);
+            if (xgbAgrees) {
+              xgbEdgeBonus = Math.round(xgbPred.confidence * 8); // Up to +8 edge score
+            }
+          }
 
           bets.push({
             player_id: player.player_id,
@@ -181,9 +212,14 @@ function generatePotentialBets(players: Player[]) {
             last_5_avg: typeof last5Avg === "number" ? last5Avg : null,
             recommendation,
             confidence,
-            edge_type: edgeAnalysis.bestEdge?.type || null,
-            edge_score: edgeAnalysis.totalScore || null,
-            edge_description: edgeAnalysis.bestEdge?.description || null,
+            edge_type: edgeAnalysis.bestEdge?.type || (xgbEdgeBonus > 0 ? "ML_MODEL" : null),
+            edge_score: (edgeAnalysis.totalScore || 0) + xgbEdgeBonus,
+            edge_description: xgbEdgeBonus > 0
+              ? `${edgeAnalysis.bestEdge?.description || ""} | XGBoost: ${((xgbPred?.prob_over || 0) * 100).toFixed(0)}% over (conf: ${((xgbPred?.confidence || 0) * 100).toFixed(0)}%)`.trim()
+              : edgeAnalysis.bestEdge?.description || null,
+            xgb_prob_over: xgbPred?.prob_over || null,
+            xgb_confidence: xgbPred?.confidence || null,
+            xgb_model_type: xgbPred?.model_type || null,
           });
         }
       }
@@ -673,19 +709,42 @@ export async function registerRoutes(
     }
   });
 
-  // Get top 10 best picks based on edge analysis
+  // Get top 10 best picks based on edge analysis + XGBoost ML
   app.get("/api/bets/top-picks", async (req, res) => {
     try {
-      let bets = await storage.getPotentialBets();
-      if (bets.length === 0) {
-        let players = await ensurePlayersLoaded();
-        const generatedBets = generatePotentialBets(players);
-        await storage.clearPotentialBets();
-        for (const bet of generatedBets) {
-          await storage.createPotentialBet(bet);
+      const players = await ensurePlayersLoaded();
+
+      // Run XGBoost predictions for all player-stat-line combinations
+      const availableModels = getAvailableModels();
+      let xgbPredictions: Map<string, XGBoostPrediction> | undefined;
+
+      if (availableModels.length > 0) {
+        apiLogger.info(`XGBoost models available: ${availableModels.join(", ")}`);
+        const requests: Array<{ player: Player; statType: string; line: number }> = [];
+
+        for (const player of players) {
+          for (const statType of ["PTS", "REB", "AST", "FG3M"]) {
+            const hitRates = player.hit_rates[statType];
+            if (!hitRates) continue;
+            for (const lineStr of Object.keys(hitRates)) {
+              requests.push({ player, statType, line: parseFloat(lineStr) });
+            }
+          }
         }
-        bets = await storage.getPotentialBets();
+
+        if (requests.length > 0) {
+          xgbPredictions = await batchXGBoostPredict(requests);
+          apiLogger.info(`XGBoost returned ${xgbPredictions.size} predictions for ${requests.length} props`);
+        }
       }
+
+      // Generate bets with XGBoost blend
+      const generatedBets = generatePotentialBets(players, xgbPredictions);
+      await storage.clearPotentialBets();
+      for (const bet of generatedBets) {
+        await storage.createPotentialBet(bet);
+      }
+      const bets = await storage.getPotentialBets();
 
       // Filter for bets with edges and get top 10
       const betsWithEdges = bets.filter(b => b.edge_score && b.edge_score > 0);
@@ -4148,6 +4207,17 @@ print(json.dumps(result.to_dict()))
       apiLogger.error("[Parlays] Error settling parlay:", error);
       res.status(500).json({ error: error.message });
     }
+  });
+
+  // XGBoost model status endpoint
+  app.get("/api/ml/status", async (_req, res) => {
+    const models = getAvailableModels();
+    res.json({
+      xgboost_available: models.length > 0,
+      trained_models: models,
+      model_count: models.length,
+      blend_weights: { xgboost: 0.4, analytical: 0.6 },
+    });
   });
 
   return httpServer;

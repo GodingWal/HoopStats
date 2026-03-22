@@ -25,6 +25,7 @@ jobs:
             git fetch --all
             git reset --hard origin/main
             npm install
+            pip3 install -r server/nba-prop-model/requirements.txt --quiet
             npx drizzle-kit push
             npm run build
             pm2 restart courtsideedge

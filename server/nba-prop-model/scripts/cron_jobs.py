@@ -42,6 +42,9 @@ from src.models.signal_projection_engine import (
     BlendedProjection,
     build_context_from_player_data,
 )
+from src.models.xgboost_model import XGBoostPropModel
+from src.evaluation.outcome_logger import OutcomeLogger
+from config.settings import XGBoostConfig
 
 # Configure logging
 logging.basicConfig(
@@ -494,6 +497,100 @@ def run_validation(days: int = 30) -> Dict[str, Any]:
         return {}
 
 
+def train_xgboost(stat_types: Optional[List[str]] = None) -> Dict[str, Any]:
+    """
+    Train XGBoost models per stat type using labeled data from xgboost_training_log.
+
+    Run after populate_actuals to ensure training data is up to date.
+    Integrated into the daily pipeline at 3:15 AM.
+
+    Args:
+        stat_types: Stat types to train (None = Points, Rebounds, Assists).
+
+    Returns:
+        Dict with training metrics per stat type.
+    """
+    logger.info("Starting XGBoost training...")
+
+    if stat_types is None:
+        stat_types = SUPPORTED_STAT_TYPES[:3]  # Points, Rebounds, Assists
+
+    conn = get_db_connection()
+    if conn is None:
+        logger.error("No database connection for XGBoost training")
+        return {}
+
+    config = XGBoostConfig()
+    outcome_logger = OutcomeLogger(conn)
+    results = {}
+
+    # Resolve model directory to absolute path
+    model_dir = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        config.model_dir,
+    )
+
+    model = XGBoostPropModel(
+        n_estimators=config.n_estimators,
+        max_depth=config.max_depth,
+        learning_rate=config.learning_rate,
+        min_child_weight=config.min_child_weight,
+        subsample=config.subsample,
+        colsample_bytree=config.colsample_bytree,
+        reg_alpha=config.reg_alpha,
+        reg_lambda=config.reg_lambda,
+        model_dir=model_dir,
+    )
+
+    try:
+        for stat_type in stat_types:
+            training_data = outcome_logger.get_training_data(
+                stat_type=stat_type,
+                limit=10000,
+            )
+
+            n_samples = len(training_data)
+            if n_samples < 30:
+                logger.info(f"Skipping {stat_type}: only {n_samples} labeled samples (need 30+)")
+                results[stat_type] = {'status': 'skipped', 'n_samples': n_samples}
+                continue
+
+            if n_samples < config.min_training_samples:
+                logger.warning(f"{stat_type}: {n_samples} samples (below {config.recommended_samples} recommended)")
+
+            metrics = model.train(training_data, stat_type, validation_split=config.validation_split)
+
+            if 'error' in metrics:
+                logger.error(f"{stat_type} training failed: {metrics['error']}")
+                results[stat_type] = metrics
+                continue
+
+            model.save(stat_type)
+            metrics['status'] = 'trained'
+            results[stat_type] = metrics
+
+            logger.info(
+                f"Trained {stat_type}: "
+                f"val_accuracy={metrics.get('val_accuracy', 0):.4f}, "
+                f"val_logloss={metrics.get('val_logloss', 0):.4f}, "
+                f"n={metrics.get('n_train', 0)+metrics.get('n_val', 0)}, "
+                f"model={metrics.get('model_type', '?')}"
+            )
+
+        conn.close()
+
+    except Exception as e:
+        logger.error(f"XGBoost training error: {e}")
+        try:
+            conn.close()
+        except:
+            pass
+
+    trained = sum(1 for r in results.values() if r.get('status') == 'trained')
+    logger.info(f"XGBoost training complete: {trained}/{len(stat_types)} models trained")
+    return results
+
+
 def update_weights(days: int = 60) -> Dict[str, Any]:
     """
     Update signal weights based on historical performance.
@@ -751,13 +848,16 @@ def run_full_pipeline() -> Dict[str, Any]:
     # Step 2: Run validation
     results['validation'] = run_validation()
 
-    # Step 3: Update weights (only on Sunday)
+    # Step 3: Train XGBoost models
+    results['xgboost_training'] = train_xgboost()
+
+    # Step 4: Update weights (only on Sunday)
     if datetime.now().weekday() == 6:  # Sunday
         results['weights'] = update_weights()
     else:
         results['weights'] = "Skipped (not Sunday)"
 
-    # Step 4: Capture today's projections
+    # Step 5: Capture today's projections
     results['projections_captured'] = capture_projections()
 
     logger.info("Full pipeline complete")
@@ -775,7 +875,7 @@ def main():
     parser.add_argument(
         'command',
         choices=[
-            'capture', 'actuals', 'validate', 'weights', 'backfill', 'all',
+            'capture', 'actuals', 'validate', 'train', 'weights', 'backfill', 'all',
             'injuries', 'projections', 'bayesian', 'positional-defense', 'snapshot',
             'correlations', 'parlays',
         ],
@@ -819,6 +919,10 @@ def main():
     elif args.command == 'validate':
         result = run_validation(args.days)
         print(json.dumps(result, indent=2))
+
+    elif args.command == 'train':
+        result = train_xgboost()
+        print(json.dumps(result, indent=2, default=str))
 
     elif args.command == 'weights':
         result = update_weights(args.days)
@@ -895,6 +999,8 @@ def start_scheduler():
                       id='populate_actuals', replace_existing=True)
     scheduler.add_job(run_validation, 'cron', hour=3, minute=0,
                       id='run_validation', replace_existing=True)
+    scheduler.add_job(train_xgboost, 'cron', hour=3, minute=15,
+                      id='train_xgboost', replace_existing=True)
     scheduler.add_job(update_weights, 'cron', day_of_week='sun', hour=3, minute=30,
                       id='update_weights_legacy', replace_existing=True)
 
