@@ -51,7 +51,19 @@ import {
 import { generateBetExplanation, parseBetScreenshot } from "./services/openai";
 import { getPlayerStatsByName, getActivePlayersWithStats } from "./services/balldontlie";
 import { lineWatcher } from "./services/line-watcher";
-import { SAMPLE_PLAYERS } from "./data/sample-players-loader";
+// Helper: ensure players are loaded in storage, fetching from ESPN if needed
+async function ensurePlayersLoaded(): Promise<Player[]> {
+  let players = await storage.getPlayers();
+  if (players.length === 0) {
+    apiLogger.info("No players in storage, fetching from ESPN...");
+    const builtPlayers = await fetchAndBuildAllPlayers();
+    if (builtPlayers.length > 0) {
+      await storage.syncPlayers(builtPlayers);
+      players = await storage.getPlayers();
+    }
+  }
+  return players;
+}
 
 // Get the Python command - use venv on Linux (production), system python on Windows (dev)
 function getPythonCommand(): string {
@@ -361,11 +373,7 @@ export async function registerRoutes(
 
   app.get("/api/players", async (req, res) => {
     try {
-      let players = await storage.getPlayers();
-      if (players.length === 0) {
-        await storage.seedPlayers(SAMPLE_PLAYERS);
-        players = await storage.getPlayers();
-      }
+      let players = await ensurePlayersLoaded();
 
       // Enrich players with injury status
       const allInjuries = injuryWatcher.getKnownInjuries();
@@ -508,11 +516,7 @@ export async function registerRoutes(
     try {
       apiLogger.info("Refreshing bets from PrizePicks...");
 
-      let players = await storage.getPlayers();
-      if (players.length === 0) {
-        await storage.seedPlayers(SAMPLE_PLAYERS);
-        players = await storage.getPlayers();
-      }
+      let players = await ensurePlayersLoaded();
 
       const generatedBets = await generateBetsFromPrizePicks(players);
 
@@ -564,11 +568,7 @@ export async function registerRoutes(
 
       let bets = await storage.getPotentialBets();
       if (bets.length === 0) {
-        let players = await storage.getPlayers();
-        if (players.length === 0) {
-          await storage.seedPlayers(SAMPLE_PLAYERS);
-          players = await storage.getPlayers();
-        }
+        let players = await ensurePlayersLoaded();
         const generatedBets = await generateBetsFromPrizePicks(players);
         await storage.clearPotentialBets();
         for (const bet of generatedBets) {
@@ -678,11 +678,7 @@ export async function registerRoutes(
     try {
       let bets = await storage.getPotentialBets();
       if (bets.length === 0) {
-        let players = await storage.getPlayers();
-        if (players.length === 0) {
-          await storage.seedPlayers(SAMPLE_PLAYERS);
-          players = await storage.getPlayers();
-        }
+        let players = await ensurePlayersLoaded();
         const generatedBets = generatePotentialBets(players);
         await storage.clearPotentialBets();
         for (const bet of generatedBets) {

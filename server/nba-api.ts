@@ -2,9 +2,6 @@ import type { InsertPlayer } from "@shared/schema";
 import { fetchAllTeams, fetchTeamRoster, fetchPlayerGamelog, type ESPNTeam, type ESPNAthlete, type PlayerGameStats } from "./espn-api";
 import { calculateHitRatesFromGameLogs, calculateHomAwaySplits } from "./utils/statistics";
 
-// Uses real game logs for hit rates when available, mock data as fallback
-// when fetching 500+ player gamelogs individually would be too slow/rate-limited.
-
 interface PlayerStats {
   PTS: number;
   REB: number;
@@ -24,99 +21,6 @@ interface PlayerRealStats {
   last10Averages: PlayerStats;
   last5Averages: PlayerStats;
   vsTeamStats?: Record<string, { games: number; PTS: number; REB: number; AST: number; FG3M: number; PRA: number }>;
-}
-
-function generateMockStats(position: string): {
-  seasonAverages: { PTS: number; REB: number; AST: number; FG3M: number; PRA: number; MIN: number; STL: number; BLK: number; TOV: number };
-  gamesPlayed: number;
-} {
-  const isGuard = position.includes('Guard') || position.includes('G');
-  const isCenter = position.includes('Center') || position.includes('C');
-  const isForward = position.includes('Forward') || position.includes('F');
-
-  const baseMultiplier = 0.7 + Math.random() * 0.6;
-
-  let pts = 8 + Math.random() * 12;
-  let reb = isCenter ? 6 + Math.random() * 5 : (isForward ? 4 + Math.random() * 4 : 2 + Math.random() * 3);
-  let ast = isGuard ? 3 + Math.random() * 4 : 1 + Math.random() * 2;
-  let fg3m = isGuard ? 1 + Math.random() * 2 : 0.5 + Math.random() * 1.5;
-  let stl = 0.5 + Math.random() * 1;
-  let blk = isCenter ? 0.8 + Math.random() * 1.2 : 0.2 + Math.random() * 0.5;
-  let tov = 1 + Math.random() * 2;
-  let min = 20 + Math.random() * 15;
-
-  pts *= baseMultiplier;
-  reb *= baseMultiplier;
-  ast *= baseMultiplier;
-
-  const round = (n: number) => Math.round(n * 10) / 10;
-
-  return {
-    seasonAverages: {
-      PTS: round(pts),
-      REB: round(reb),
-      AST: round(ast),
-      FG3M: round(fg3m),
-      PRA: round(pts + reb + ast),
-      MIN: round(min),
-      STL: round(stl),
-      BLK: round(blk),
-      TOV: round(tov),
-    },
-    gamesPlayed: 20 + Math.floor(Math.random() * 25),
-  };
-}
-
-function generateMockHitRates(avg: number, statType: string): Record<string, number> {
-  const rates: Record<string, number> = {};
-  const lines = [
-    Math.max(0.5, Math.floor(avg - 3) + 0.5),
-    Math.max(0.5, Math.floor(avg) + 0.5),
-    Math.floor(avg + 3) + 0.5,
-  ];
-
-  for (const line of lines) {
-    const diff = avg - line;
-    let baseRate = 50 + (diff * 8);
-    baseRate = Math.max(10, Math.min(95, baseRate + (Math.random() - 0.5) * 15));
-    rates[line.toString()] = Math.round(baseRate * 10) / 10;
-  }
-
-  return rates;
-}
-
-function generateMockRecentGames(avgStats: { PTS: number; REB: number; AST: number; FG3M: number }): Array<{
-  WL: string;
-  PTS: number;
-  REB: number;
-  AST: number;
-  FG3M: number;
-  MIN: number;
-  OPPONENT: string;
-  GAME_DATE: string;
-}> {
-  const teams = ['LAL', 'BOS', 'MIA', 'GSW', 'PHX', 'DEN', 'MIL', 'PHI', 'NYK', 'BKN', 'ATL', 'CHI', 'CLE', 'DAL', 'HOU'];
-  const games = [];
-
-  const today = new Date();
-  for (let i = 0; i < 5; i++) {
-    const gameDate = new Date(today);
-    gameDate.setDate(gameDate.getDate() - (i * 2 + 1));
-    const dateStr = gameDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).toUpperCase();
-
-    games.push({
-      WL: Math.random() > 0.5 ? 'W' : 'L',
-      PTS: Math.round(avgStats.PTS * (0.7 + Math.random() * 0.6)),
-      REB: Math.round(avgStats.REB * (0.7 + Math.random() * 0.6)),
-      AST: Math.round(avgStats.AST * (0.7 + Math.random() * 0.6)),
-      FG3M: Math.round(avgStats.FG3M * (0.7 + Math.random() * 0.6)),
-      MIN: Math.round(25 + Math.random() * 15),
-      OPPONENT: teams[Math.floor(Math.random() * teams.length)],
-      GAME_DATE: dateStr,
-    });
-  }
-
-  return games;
 }
 
 export async function buildPlayerFromESPN(athlete: ESPNAthlete, team: ESPNTeam): Promise<InsertPlayer | null> {
@@ -227,29 +131,18 @@ export async function buildPlayerFromESPN(athlete: ESPNAthlete, team: ESPNTeam):
       realStats = { seasonAverages, gamesPlayed: gamelog.length, recentGames, last10Averages, last5Averages, vsTeamStats };
     }
   } catch (e) {
-    // Fall back to mock data if ESPN fetch fails
-    console.warn(`Failed to fetch gamelog for ${athlete.displayName}, using mock data`);
+    console.warn(`Failed to fetch gamelog for ${athlete.displayName}, skipping player`);
   }
 
-  // Use real stats if available, otherwise fall back to mock
-  const { seasonAverages, gamesPlayed } = realStats || generateMockStats(positionName);
-  const last10Averages = realStats?.last10Averages || {
-    PTS: Math.round(seasonAverages.PTS * (0.9 + Math.random() * 0.2) * 10) / 10,
-    REB: Math.round(seasonAverages.REB * (0.9 + Math.random() * 0.2) * 10) / 10,
-    AST: Math.round(seasonAverages.AST * (0.9 + Math.random() * 0.2) * 10) / 10,
-    FG3M: Math.round(seasonAverages.FG3M * (0.9 + Math.random() * 0.2) * 10) / 10,
-    PRA: Math.round((seasonAverages.PTS + seasonAverages.REB + seasonAverages.AST) * (0.9 + Math.random() * 0.2) * 10) / 10,
-    MIN: Math.round(seasonAverages.MIN * (0.9 + Math.random() * 0.2) * 10) / 10,
-  };
-  const last5Averages = realStats?.last5Averages || {
-    PTS: Math.round(seasonAverages.PTS * (0.85 + Math.random() * 0.3) * 10) / 10,
-    REB: Math.round(seasonAverages.REB * (0.85 + Math.random() * 0.3) * 10) / 10,
-    AST: Math.round(seasonAverages.AST * (0.85 + Math.random() * 0.3) * 10) / 10,
-    FG3M: Math.round(seasonAverages.FG3M * (0.85 + Math.random() * 0.3) * 10) / 10,
-    PRA: Math.round((seasonAverages.PTS + seasonAverages.REB + seasonAverages.AST) * (0.85 + Math.random() * 0.3) * 10) / 10,
-    MIN: Math.round(seasonAverages.MIN * (0.85 + Math.random() * 0.3) * 10) / 10,
-  };
-  const recentGames = realStats?.recentGames || generateMockRecentGames(seasonAverages);
+  // Skip players without real stats — never use fabricated data
+  if (!realStats) {
+    return null;
+  }
+
+  const { seasonAverages, gamesPlayed } = realStats;
+  const last10Averages = realStats.last10Averages;
+  const last5Averages = realStats.last5Averages;
+  const recentGames = realStats.recentGames;
 
   // Build full game logs with home/away data for real calculations
   const fullGameLogs = realStats ? gamelog.map((g: PlayerGameStats) => ({
@@ -283,33 +176,26 @@ export async function buildPlayerFromESPN(athlete: ESPNAthlete, team: ESPNTeam):
     }
   }
 
-  // Fall back to mock hit rates only for stat types with insufficient game data
-  for (const statType of statTypes) {
-    if (!hitRates[statType]) {
-      const avg = seasonAverages[statType as keyof typeof seasonAverages] as number;
-      if (typeof avg === 'number') {
-        hitRates[statType] = generateMockHitRates(avg, statType);
-      }
-    }
-  }
+  // Stat types without enough game data simply won't have hit rates
+  // — no fabricated rates are generated
 
   // Calculate REAL home/away splits from game logs (not fixed multipliers)
   const realSplits = fullGameLogs.length >= 16
     ? calculateHomAwaySplits(fullGameLogs)
     : null;
 
+  // Use real splits when available, otherwise use season averages as neutral default
   const homeAvgs = realSplits?.home || {
-    PTS: Math.round(seasonAverages.PTS * 1.05 * 10) / 10,
-    REB: Math.round(seasonAverages.REB * 1.02 * 10) / 10,
-    AST: Math.round(seasonAverages.AST * 1.03 * 10) / 10,
-    PRA: Math.round(seasonAverages.PRA * 1.04 * 10) / 10,
+    PTS: seasonAverages.PTS,
+    REB: seasonAverages.REB,
+    AST: seasonAverages.AST,
+    PRA: seasonAverages.PRA,
   };
-
   const awayAvgs = realSplits?.away || {
-    PTS: Math.round(seasonAverages.PTS * 0.95 * 10) / 10,
-    REB: Math.round(seasonAverages.REB * 0.98 * 10) / 10,
-    AST: Math.round(seasonAverages.AST * 0.97 * 10) / 10,
-    PRA: Math.round(seasonAverages.PRA * 0.96 * 10) / 10,
+    PTS: seasonAverages.PTS,
+    REB: seasonAverages.REB,
+    AST: seasonAverages.AST,
+    PRA: seasonAverages.PRA,
   };
 
   return {
