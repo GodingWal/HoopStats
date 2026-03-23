@@ -1123,6 +1123,13 @@ def main():
     )
 
     parser.add_argument(
+        '--size',
+        type=int,
+        default=2,
+        help='Parlay leg count (2-6) for parlays command'
+    )
+
+    parser.add_argument(
         '--verbose',
         '-v',
         action='store_true',
