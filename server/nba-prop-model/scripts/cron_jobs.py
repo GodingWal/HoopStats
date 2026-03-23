@@ -708,6 +708,227 @@ def run_bayesian_optimizer() -> Dict[str, Any]:
         return {}
 
 
+def refresh_team_stats(season: str = '2024-25') -> int:
+    """
+    Refresh team_defense table with current team stats from NBA API.
+
+    Populates pace, def_rating, and opponent allowed stats needed by:
+    - Pace Matchup signal (opponent_pace)
+    - Def vs Position signal (opponent_def_vs_position)
+    - Blowout Risk signal (spread estimation from def ratings)
+
+    Run daily at 1:30 AM (after populate_actuals).
+
+    Args:
+        season: NBA season string (e.g., '2024-25')
+
+    Returns:
+        Number of teams updated.
+    """
+    logger.info(f"Refreshing team stats for {season}...")
+
+    conn = get_db_connection()
+    if conn is None:
+        logger.error("No database connection")
+        return 0
+
+    try:
+        from nba_api.stats.endpoints import leaguedashteamstats
+        from nba_api.stats.static import teams as nba_teams_static
+        import time
+
+        # 1. Fetch advanced stats (pace, def_rating)
+        time.sleep(1)
+        df_adv = leaguedashteamstats.LeagueDashTeamStats(
+            season=season,
+            measure_type_detailed_defense='Advanced',
+            per_mode_detailed='PerGame'
+        ).get_data_frames()[0]
+
+        # 2. Fetch opponent stats (points/rebounds/assists allowed)
+        time.sleep(1)
+        df_opp = leaguedashteamstats.LeagueDashTeamStats(
+            season=season,
+            measure_type_detailed_defense='Opponent',
+            per_mode_detailed='PerGame'
+        ).get_data_frames()[0]
+
+        # Merge on TEAM_ID
+        df = df_adv.merge(
+            df_opp[['TEAM_ID', 'OPP_PTS', 'OPP_REB', 'OPP_AST', 'OPP_FG3_PCT']],
+            on='TEAM_ID',
+            how='left'
+        )
+
+        # Build team abbreviation map
+        all_teams = nba_teams_static.get_teams()
+        id_to_abbr = {t['id']: t['abbreviation'] for t in all_teams}
+
+        cursor = conn.cursor()
+        updated = 0
+
+        for _, row in df.iterrows():
+            team_id = int(row['TEAM_ID'])
+            abbr = id_to_abbr.get(team_id, str(row.get('TEAM_NAME', 'UNK'))[:3].upper())
+            pace = float(row.get('PACE', row.get('E_PACE', 100.0)))
+            def_rtg = float(row.get('DEF_RATING', row.get('E_DEF_RATING', 110.0)))
+            opp_pts = float(row.get('OPP_PTS', 110.0))
+            opp_reb = float(row.get('OPP_REB', 44.0))
+            opp_ast = float(row.get('OPP_AST', 25.0))
+            opp_3pt = float(row.get('OPP_FG3_PCT', 0.36))
+
+            cursor.execute("""
+                INSERT INTO team_defense (
+                    team_id, team_abbr, season, def_rating, pace,
+                    opp_pts_allowed, opp_reb_allowed, opp_ast_allowed,
+                    opp_3pt_pct_allowed, updated_at
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                ON CONFLICT (team_id) DO UPDATE SET
+                    def_rating = EXCLUDED.def_rating,
+                    pace = EXCLUDED.pace,
+                    opp_pts_allowed = EXCLUDED.opp_pts_allowed,
+                    opp_reb_allowed = EXCLUDED.opp_reb_allowed,
+                    opp_ast_allowed = EXCLUDED.opp_ast_allowed,
+                    opp_3pt_pct_allowed = EXCLUDED.opp_3pt_pct_allowed,
+                    updated_at = NOW()
+            """, (team_id, abbr, season, def_rtg, pace, opp_pts, opp_reb, opp_ast, opp_3pt))
+            updated += 1
+
+        conn.commit()
+        cursor.close()
+        conn.close()
+        logger.info(f"Updated team_defense for {updated} teams")
+        return updated
+
+    except Exception as e:
+        logger.error(f"refresh_team_stats failed: {e}")
+        try:
+            conn.close()
+        except:
+            pass
+        return 0
+
+
+def populate_game_referees(target_date: Optional[str] = None) -> int:
+    """
+    Populate games and game_referees tables for completed games.
+
+    Fetches referee assignments from NBA API BoxScoreSummary for each game.
+    This data feeds the Referee signal during backtesting.
+
+    Run daily at 2:30 AM (after populate_actuals).
+
+    Args:
+        target_date: Date to populate (YYYY-MM-DD), defaults to yesterday.
+
+    Returns:
+        Number of games with referee data populated.
+    """
+    logger.info("Populating game referees...")
+
+    if target_date is None:
+        yesterday = datetime.now() - timedelta(days=1)
+        target_date = yesterday.strftime('%Y-%m-%d')
+
+    conn = get_db_connection()
+    if conn is None:
+        logger.error("No database connection")
+        return 0
+
+    try:
+        from nba_api.stats.endpoints import scoreboardv2
+        import time
+
+        time.sleep(1)
+        scoreboard = scoreboardv2.ScoreboardV2(game_date=target_date)
+        games_df = scoreboard.get_data_frames()[0]
+
+        if games_df.empty:
+            logger.info(f"No games found for {target_date}")
+            conn.close()
+            return 0
+
+        cursor = conn.cursor()
+        populated = 0
+
+        for _, game in games_df.iterrows():
+            game_id = str(game.get('GAME_ID', ''))
+            if not game_id:
+                continue
+
+            home_team = str(game.get('HOME_TEAM_ID', ''))
+            visitor_team = str(game.get('VISITOR_TEAM_ID', ''))
+
+            # Get team abbreviations
+            home_abbr = str(game.get('HOME_ABBREV', game.get('HOME_TEAM_ABBREV', '')))
+            away_abbr = str(game.get('AWAY_ABBREV', game.get('VISITOR_TEAM_ABBREV', '')))
+
+            # Insert into games table
+            try:
+                cursor.execute("""
+                    INSERT INTO games (game_id, game_date, home_team, visitor_team)
+                    VALUES (%s, %s, %s, %s)
+                    ON CONFLICT (game_id) DO NOTHING
+                """, (game_id, target_date, home_abbr or home_team, away_abbr or visitor_team))
+            except Exception:
+                pass  # games table may not exist yet
+
+            # Fetch officials for this game
+            try:
+                time.sleep(0.8)
+                from nba_api.stats.endpoints import boxscoresummaryv2
+                summary = boxscoresummaryv2.BoxScoreSummaryV2(game_id=game_id)
+                officials_df = summary.officials.get_data_frame()
+
+                if officials_df.empty:
+                    continue
+
+                for _, ref in officials_df.iterrows():
+                    ref_id = int(ref.get('OFFICIAL_ID', 0))
+                    first_name = str(ref.get('FIRST_NAME', ''))
+                    last_name = str(ref.get('LAST_NAME', ''))
+                    jersey = str(ref.get('JERSEY_NUM', ''))
+
+                    if not ref_id:
+                        continue
+
+                    # Upsert referee
+                    cursor.execute("""
+                        INSERT INTO referees (id, first_name, last_name, jersey_number)
+                        VALUES (%s, %s, %s, %s)
+                        ON CONFLICT (id) DO UPDATE SET
+                            first_name = EXCLUDED.first_name,
+                            last_name = EXCLUDED.last_name,
+                            jersey_number = EXCLUDED.jersey_number
+                    """, (ref_id, first_name, last_name, jersey))
+
+                    # Link to game
+                    cursor.execute("""
+                        INSERT INTO game_referees (game_id, referee_id, game_date)
+                        VALUES (%s, %s, %s)
+                        ON CONFLICT (game_id, referee_id) DO NOTHING
+                    """, (game_id, ref_id, target_date))
+
+                populated += 1
+            except Exception as e:
+                logger.debug(f"Could not fetch officials for game {game_id}: {e}")
+                continue
+
+        conn.commit()
+        cursor.close()
+        conn.close()
+        logger.info(f"Populated referee data for {populated} games on {target_date}")
+        return populated
+
+    except Exception as e:
+        logger.error(f"populate_game_referees failed: {e}")
+        try:
+            conn.close()
+        except:
+            pass
+        return 0
+
+
 def run_positional_defense_update() -> int:
     """
     Weekly job: refresh positional defense data in team_stats table.
@@ -842,6 +1063,12 @@ def run_full_pipeline() -> Dict[str, Any]:
     logger.info("Running full pipeline...")
     results = {}
 
+    # Step 0: Refresh team stats (needed by pace, defense, blowout signals)
+    results['team_stats_refreshed'] = refresh_team_stats()
+
+    # Step 0.5: Populate referee data for yesterday's games
+    results['referees_populated'] = populate_game_referees()
+
     # Step 1: Populate yesterday's actuals
     results['actuals_updated'] = populate_actuals()
 
@@ -877,7 +1104,7 @@ def main():
         choices=[
             'capture', 'actuals', 'validate', 'train', 'weights', 'backfill', 'all',
             'injuries', 'projections', 'bayesian', 'positional-defense', 'snapshot',
-            'correlations', 'parlays',
+            'correlations', 'parlays', 'refresh-stats', 'referees',
         ],
         help='Command to run'
     )
@@ -964,6 +1191,14 @@ def main():
         result = run_parlay_builder(args.date, parlay_size=size)
         print(f"Generated {result} parlay recommendations")
 
+    elif args.command == 'refresh-stats':
+        result = refresh_team_stats()
+        print(f"Updated {result} teams in team_defense")
+
+    elif args.command == 'referees':
+        result = populate_game_referees(args.date)
+        print(f"Populated referee data for {result} games")
+
 
 # ---------------------------------------------------------------------------
 # APScheduler integration (used when running as a long-lived process)
@@ -1003,6 +1238,14 @@ def start_scheduler():
                       id='train_xgboost', replace_existing=True)
     scheduler.add_job(update_weights, 'cron', day_of_week='sun', hour=3, minute=30,
                       id='update_weights_legacy', replace_existing=True)
+
+    # Team stats refresh daily at 1:30 AM (before validation at 3 AM)
+    scheduler.add_job(refresh_team_stats, 'cron', hour=1, minute=30,
+                      id='refresh_team_stats', replace_existing=True)
+
+    # Referee data daily at 2:30 AM (after actuals at 2 AM)
+    scheduler.add_job(populate_game_referees, 'cron', hour=2, minute=30,
+                      id='populate_game_referees', replace_existing=True)
 
     # New Signal Engine jobs
     scheduler.add_job(
