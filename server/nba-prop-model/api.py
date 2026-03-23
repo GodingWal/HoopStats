@@ -4,7 +4,7 @@ import sys
 import json
 import pandas as pd
 from typing import List, Dict, Optional, Union
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # Ensure src is in path
 import os
@@ -82,19 +82,61 @@ def get_team_defensive_rating(client: NBADataClient, team_abbr: str) -> tuple:
     
     return float(def_rating), float(pace)
 
-def create_dynamic_context(client: NBADataClient, team_abbr: str, teammate_injuries: Dict[str, float] = None) -> tuple:
+def detect_back_to_back(client: NBADataClient, team_abbr: str) -> bool:
+    """Detect if team played yesterday (back-to-back game)."""
+    try:
+        yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+        games = client.get_games_on_date(yesterday)
+        if games.empty:
+            return False
+        for _, game in games.iterrows():
+            home = game.get('HOME_ABBREV', '') or game.get('HOME_TEAM_ABBREV', '')
+            away = game.get('AWAY_ABBREV', '') or game.get('VISITOR_TEAM_ABBREV', '')
+            if team_abbr.upper() in (str(home).upper(), str(away).upper()):
+                return True
+    except Exception:
+        pass
+    return False
+
+
+def estimate_spread_from_ratings(client: NBADataClient, team_abbr: str, opponent: str, is_home: bool) -> float:
+    """Estimate spread from defensive ratings. Negative = favorite."""
+    team_stats = get_team_stats(client)
+    if team_stats.empty:
+        return -3.5 if is_home else 3.5
+
+    def get_rating(abbr):
+        row = team_stats[team_stats['TEAM_ABBREVIATION'] == abbr.upper()]
+        if row.empty:
+            return 112.0
+        return float(row['DEF_RATING'].values[0]) if 'DEF_RATING' in row.columns else 112.0
+
+    team_def = get_rating(team_abbr)
+    opp_def = get_rating(opponent)
+    spread = (team_def - opp_def) * 0.5
+    if is_home:
+        spread -= 3.0
+    else:
+        spread += 3.0
+    return spread
+
+
+def create_dynamic_context(client: NBADataClient, team_abbr: str, teammate_injuries: Dict[str, float] = None, player_info: Dict = None) -> tuple:
     """Create a real game context based on today's schedule.
 
     Args:
         client: NBA data client
         team_abbr: Team abbreviation (e.g., 'LAL')
         teammate_injuries: Dict of teammate names who are OUT mapped to minutes
+        player_info: Dict with player position, age, etc.
 
     Returns:
         Tuple of (GameContext, is_real_data)
     """
     if teammate_injuries is None:
         teammate_injuries = {}
+    if player_info is None:
+        player_info = {}
 
     game_info = find_player_game(client, team_abbr)
 
@@ -103,12 +145,18 @@ def create_dynamic_context(client: NBADataClient, team_abbr: str, teammate_injur
         is_home = game_info['is_home']
         def_rating, pace = get_team_defensive_rating(client, opponent)
 
+        # Detect back-to-back
+        is_b2b = detect_back_to_back(client, team_abbr)
+
+        # Estimate spread from ratings
+        spread = estimate_spread_from_ratings(client, team_abbr, opponent, is_home)
+
         context = GameContext(
             opponent=opponent,
             is_home=is_home,
-            is_b2b=False,  # Would need yesterday's schedule to detect
-            rest_days=1,
-            spread=-3.5 if is_home else 3.5,
+            is_b2b=is_b2b,
+            rest_days=0 if is_b2b else 1,
+            spread=spread,
             total=225.5,
             opponent_def_rating=def_rating,
             opponent_pace=pace,
@@ -228,7 +276,9 @@ def get_projections(players: List[str], teammate_injuries: Dict[str, float] = No
                 # Include teammate injuries in the context
                 team_abbr = player_info.get('team', '')
                 if team_abbr:
-                    context, is_real_context = create_dynamic_context(client, team_abbr, teammate_injuries)
+                    context, is_real_context = create_dynamic_context(
+                        client, team_abbr, teammate_injuries, player_info
+                    )
                 else:
                     context = create_sample_context()
                     context.teammate_injuries = teammate_injuries
@@ -264,10 +314,12 @@ def get_projections(players: List[str], teammate_injuries: Dict[str, float] = No
                         "isHome": context.is_home,
                         "isB2B": context.is_b2b,
                         "restDays": context.rest_days,
+                        "spread": context.spread,
                         "opponentDefRating": context.opponent_def_rating,
                         "opponentPace": context.opponent_pace,
                         "isRealData": is_real_context,  # True if using real opponent data
                         "teammateInjuries": context.teammate_injuries,  # Injuries factored in
+                        "playerPosition": player_info.get('position', ''),
                     },
 
                     # Context for external use
