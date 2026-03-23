@@ -4119,6 +4119,8 @@ print(json.dumps(result.to_dict()))
         "parlays",
         "--date",
         targetDate,
+        "--size",
+        String(size),
       ]);
 
       let stdout = "";
