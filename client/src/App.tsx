@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { Switch, Route, useLocation, Link } from "wouter";
 import { queryClient, apiRequest } from "./lib/queryClient";
 import { QueryClientProvider, useQuery, useMutation } from "@tanstack/react-query";
@@ -35,6 +35,13 @@ import {
 } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
 import {
+  Drawer,
+  DrawerContent,
+  DrawerHeader,
+  DrawerTitle,
+  DrawerClose,
+} from "@/components/ui/drawer";
+import {
   Users,
   Target,
   RefreshCw,
@@ -49,6 +56,8 @@ import {
   FlaskConical,
   GitMerge,
   Zap,
+  MoreHorizontal,
+  X,
 } from "lucide-react";
 
 function Router() {
@@ -82,13 +91,22 @@ const navItems = [
   { title: "Parlay Correlations", url: "/parlay-correlations",  icon: GitMerge },
 ];
 
-/* Bottom nav shows the 5 most used routes on mobile */
+/* Bottom nav shows the 5 most used routes + More on mobile */
 const mobileNavItems = [
   { title: "Home",    url: "/dashboard",  icon: LayoutDashboard },
   { title: "Players", url: "/",           icon: Users },
   { title: "Bets",    url: "/bets",       icon: Target },
   { title: "My Bets", url: "/my-bets",    icon: Wallet },
   { title: "Live",    url: "/live",       icon: Tv },
+];
+
+/* Items shown in the "More" drawer */
+const moreNavItems = [
+  { title: "Team Stats",          url: "/team-stats",           icon: BarChart3 },
+  { title: "Track Record",        url: "/track-record",         icon: Award },
+  { title: "Line History",        url: "/line-history",         icon: History },
+  { title: "Backtest Lab",        url: "/backtest",             icon: FlaskConical },
+  { title: "Parlay Correlations", url: "/parlay-correlations",  icon: GitMerge },
 ];
 
 function AppSidebar() {
@@ -204,34 +222,96 @@ function AppSidebar() {
   );
 }
 
-/** Mobile bottom tab bar */
+/** Mobile bottom tab bar with More drawer */
 function MobileBottomNav() {
-  const [location] = useLocation();
+  const [location, setLocation] = useLocation();
+  const [moreOpen, setMoreOpen] = useState(false);
+
+  // Check if current location matches a "more" item
+  const isMoreActive = moreNavItems.some((item) => location === item.url);
+
+  const handleMoreNavClick = useCallback((url: string) => {
+    setMoreOpen(false);
+    setLocation(url);
+  }, [setLocation]);
+
   return (
-    <nav className="bottom-nav-mobile">
-      {mobileNavItems.map((item) => {
-        const isActive = location === item.url;
-        return (
-          <Link
-            key={item.url}
-            href={item.url}
-            className={`flex flex-col items-center gap-0.5 px-3 py-1 rounded-xl transition-all ${
-              isActive ? "text-primary" : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            <div className={`relative p-1.5 rounded-xl transition-all ${isActive ? "bg-primary/15" : ""}`}>
-              <item.icon className="w-5 h-5" />
-              {item.url === "/live" && (
-                <span className="absolute top-0.5 right-0.5 w-2 h-2 rounded-full bg-green-500 border border-card animate-pulse" />
-              )}
+    <>
+      <nav className="bottom-nav-mobile">
+        {mobileNavItems.map((item) => {
+          const isActive = location === item.url;
+          return (
+            <Link
+              key={item.url}
+              href={item.url}
+              className={`flex flex-col items-center gap-0.5 px-2 py-1 rounded-xl transition-all ${
+                isActive ? "text-primary" : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <div className={`relative p-1.5 rounded-xl transition-all ${isActive ? "bg-primary/15" : ""}`}>
+                <item.icon className="w-5 h-5" />
+                {item.url === "/live" && (
+                  <span className="absolute top-0.5 right-0.5 w-2 h-2 rounded-full bg-green-500 border border-card animate-pulse" />
+                )}
+              </div>
+              <span className={`text-[10px] font-medium leading-none ${isActive ? "text-primary" : ""}`}>
+                {item.title}
+              </span>
+            </Link>
+          );
+        })}
+
+        {/* More button */}
+        <button
+          onClick={() => setMoreOpen(true)}
+          className={`flex flex-col items-center gap-0.5 px-2 py-1 rounded-xl transition-all ${
+            isMoreActive ? "text-primary" : "text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          <div className={`relative p-1.5 rounded-xl transition-all ${isMoreActive ? "bg-primary/15" : ""}`}>
+            <MoreHorizontal className="w-5 h-5" />
+          </div>
+          <span className={`text-[10px] font-medium leading-none ${isMoreActive ? "text-primary" : ""}`}>
+            More
+          </span>
+        </button>
+      </nav>
+
+      {/* More drawer */}
+      <Drawer open={moreOpen} onOpenChange={setMoreOpen}>
+        <DrawerContent className="pb-8">
+          <DrawerHeader className="flex flex-row items-center justify-between px-6 pt-4 pb-2">
+            <DrawerTitle className="text-lg font-semibold">More</DrawerTitle>
+            <DrawerClose asChild>
+              <button className="p-2 rounded-full bg-muted/50 hover:bg-muted transition-colors">
+                <X className="w-4 h-4" />
+              </button>
+            </DrawerClose>
+          </DrawerHeader>
+          <div className="px-6 pb-6">
+            <div className="grid grid-cols-3 gap-3">
+              {moreNavItems.map((item) => {
+                const isActive = location === item.url;
+                return (
+                  <button
+                    key={item.url}
+                    onClick={() => handleMoreNavClick(item.url)}
+                    className={`flex flex-col items-center gap-2 p-4 rounded-xl border transition-all ${
+                      isActive
+                        ? "border-primary/40 bg-primary/10 text-primary"
+                        : "border-border/60 bg-card hover:border-primary/30 hover:bg-card/80 text-foreground"
+                    }`}
+                  >
+                    <item.icon className={`w-6 h-6 ${isActive ? "text-primary" : "text-muted-foreground"}`} />
+                    <span className="text-xs font-medium text-center leading-tight">{item.title}</span>
+                  </button>
+                );
+              })}
             </div>
-            <span className={`text-[10px] font-medium leading-none ${isActive ? "text-primary" : ""}`}>
-              {item.title}
-            </span>
-          </Link>
-        );
-      })}
-    </nav>
+          </div>
+        </DrawerContent>
+      </Drawer>
+    </>
   );
 }
 
