@@ -14,8 +14,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Search, TrendingUp, BarChart3, X, Star, Filter } from "lucide-react";
+import { Search, TrendingUp, BarChart3, X, Star, Filter, ArrowLeft } from "lucide-react";
 import { useFavorites } from "@/hooks/use-favorites";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 function normalizeString(str: string): string {
   return str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
@@ -88,6 +89,170 @@ export default function Home() {
     return players.find((p) => p.player_id === selectedPlayerId) ?? null;
   }, [players, selectedPlayerId]);
 
+  const isMobile = useIsMobile();
+
+  // Mobile: show player detail as full screen overlay
+  if (isMobile) {
+    // If a player is selected on mobile, show detail view
+    if (selectedPlayer) {
+      return (
+        <div className="flex flex-col h-full bg-background">
+          <div className="flex items-center gap-2 p-3 border-b border-border/60 sticky top-0 bg-background/95 backdrop-blur-sm z-10">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
+              onClick={() => setSelectedPlayerId(null)}
+            >
+              <ArrowLeft className="w-4 h-4" />
+            </Button>
+            <h2 className="font-semibold text-sm truncate">{selectedPlayer.player_name}</h2>
+          </div>
+          <div className="flex-1 overflow-auto p-4">
+            <PlayerDetail player={selectedPlayer} />
+          </div>
+        </div>
+      );
+    }
+
+    // Mobile player list view
+    return (
+      <div className="flex flex-col h-full bg-background">
+        <div className="p-4 space-y-3">
+          <div className="flex items-center gap-2">
+            <BarChart3 className="w-6 h-6 text-primary" />
+            <h1 className="text-xl font-bold">NBA Analytics</h1>
+          </div>
+
+          {/* Search */}
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <Input
+              type="search"
+              placeholder="Search players..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-9 bg-card border-border/60"
+              data-testid="input-search"
+            />
+            {searchQuery && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7"
+                onClick={() => setSearchQuery("")}
+                data-testid="button-clear-search"
+              >
+                <X className="w-3 h-3" />
+              </Button>
+            )}
+          </div>
+
+          {/* Filters Row */}
+          <div className="flex gap-2">
+            <Select value={filterMode} onValueChange={(v) => setFilterMode(v as FilterMode)}>
+              <SelectTrigger className="flex-1 h-9 text-xs" data-testid="select-filter-mode">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Players</SelectItem>
+                <SelectItem value="favorites">
+                  <div className="flex items-center gap-1">
+                    <Star className="w-3 h-3 text-yellow-400 fill-yellow-400" />
+                    Favorites ({favCount})
+                  </div>
+                </SelectItem>
+              </SelectContent>
+            </Select>
+
+            <Select value={positionFilter} onValueChange={(v) => setPositionFilter(v as PositionFilter)}>
+              <SelectTrigger className="w-24 h-9 text-xs" data-testid="select-position">
+                <SelectValue placeholder="Pos" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All</SelectItem>
+                <SelectItem value="G">Guard</SelectItem>
+                <SelectItem value="F">Forward</SelectItem>
+                <SelectItem value="C">Center</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Min PTS filter */}
+          <div className="flex items-center gap-2">
+            <Filter className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+            <Input
+              type="number"
+              placeholder="Min PTS"
+              value={minPts}
+              onChange={(e) => setMinPts(e.target.value)}
+              className="h-9 text-xs flex-1"
+              data-testid="input-min-pts"
+            />
+            {minPts && (
+              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setMinPts("")}>
+                <X className="w-3 h-3" />
+              </Button>
+            )}
+          </div>
+        </div>
+
+        {/* Player list */}
+        <div className="flex-1 overflow-auto px-4 pb-4">
+          {isLoading && (
+            <div className="space-y-3">
+              {[1, 2, 3, 4, 5].map((i) => (
+                <div key={i} className="p-3 rounded-lg bg-card border border-border/50">
+                  <div className="flex items-start gap-3">
+                    <div className="w-12 h-12 rounded-full shimmer" />
+                    <div className="flex-1 space-y-2">
+                      <div className="h-4 w-28 rounded shimmer" />
+                      <div className="h-3 w-36 rounded shimmer" />
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {error && (
+            <div className="text-center py-8 text-muted-foreground">
+              <p className="text-sm">Failed to load players</p>
+              <p className="text-xs mt-1">Please try again later</p>
+              <Button variant="outline" size="sm" className="mt-3" onClick={() => refetch()}>
+                Retry
+              </Button>
+            </div>
+          )}
+
+          {!isLoading && !error && filteredPlayers.length === 0 && (
+            <div className="text-center py-8 text-muted-foreground">
+              <Search className="w-8 h-8 mx-auto mb-2 opacity-50" />
+              <p className="text-sm">No players found</p>
+              {(searchQuery || filterMode === "favorites" || positionFilter !== "all" || minPts) && (
+                <p className="text-xs mt-1">Try adjusting your filters</p>
+              )}
+            </div>
+          )}
+
+          <div className="stagger-fade space-y-2">
+            {filteredPlayers.map((player) => (
+              <PlayerCard
+                key={player.player_id}
+                player={player}
+                isSelected={selectedPlayerId === player.player_id}
+                isFavorite={isFavorite(player.player_id)}
+                onToggleFavorite={toggleFavorite}
+                onClick={() => setSelectedPlayerId(player.player_id)}
+              />
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Desktop layout (unchanged)
   return (
     <div className="flex h-screen bg-background">
       <aside className="w-80 border-r border-border flex flex-col bg-sidebar">
