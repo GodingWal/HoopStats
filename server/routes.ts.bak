@@ -748,9 +748,13 @@ export async function registerRoutes(
       }
       const bets = await storage.getPotentialBets();
 
-      // Filter for bets with edges and get top 10
-      const betsWithEdges = bets.filter(b => b.edge_score && b.edge_score > 0);
-      const topPicks = betsWithEdges.slice(0, 10);
+      // Sort by highest probability of the recommended pick hitting, take top 10
+      const sortedByProb = [...bets].sort((a, b) => {
+        const probA = a.recommendation === "OVER" ? a.hit_rate : (100 - a.hit_rate);
+        const probB = b.recommendation === "OVER" ? b.hit_rate : (100 - b.hit_rate);
+        return probB - probA;
+      });
+      const topPicks = sortedByProb.slice(0, 10);
 
       res.json(topPicks);
     } catch (error) {
@@ -3613,9 +3617,9 @@ export async function registerRoutes(
       }
 
       const result = await pool.query(
-        `SELECT po.*, p.player_name
+        `SELECT po.*, COALESCE(p.player_name, po.player_name) as player_name
          FROM projection_outputs po
-         LEFT JOIN players p ON po.player_id = CAST(p.player_id AS text)
+         LEFT JOIN players p ON CAST(po.player_id AS text) = CAST(p.player_id AS text)
          WHERE po.game_date = $1
          ORDER BY ABS(po.edge_pct) DESC`,
         [gameDate]
@@ -3645,9 +3649,9 @@ export async function registerRoutes(
         return res.status(503).json({ error: "Database not available" });
       }
       const result = await pool.query(
-        `SELECT po.*, p.player_name
+        `SELECT po.*, COALESCE(p.player_name, po.player_name) as player_name
          FROM projection_outputs po
-         LEFT JOIN players p ON po.player_id = CAST(p.player_id AS text)
+         LEFT JOIN players p ON CAST(po.player_id AS text) = CAST(p.player_id AS text)
          WHERE po.id = $1`,
         [id]
       );

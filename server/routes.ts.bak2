@@ -1455,31 +1455,13 @@ export async function registerRoutes(
   app.post("/api/parlays", async (req, res) => {
     try {
       const { parlayType, numPicks, entryAmount, payoutMultiplier, picks } = req.body;
-
-      // Resolve missing team abbreviations from the players table
-      // so auto-settle can match picks to the correct game
-      const enrichedPicks = await Promise.all(
-        (picks as Array<{ playerName: string; team: string; stat: string; line: number; side: string; gameDate: string }>).map(async (pick) => {
-          if (pick.team && pick.team.trim() !== "") return pick;
-          try {
-            const player = await storage.getPlayerByName(pick.playerName);
-            if (player?.team) {
-              return { ...pick, team: player.team };
-            }
-          } catch {
-            // Lookup failed — proceed with empty team
-          }
-          return pick;
-        })
-      );
-
       const savedParlay = await storage.saveParlay({
         parlayType,
         numPicks,
         entryAmount,
         payoutMultiplier,
         result: 'pending',
-      }, enrichedPicks);
+      }, picks);
       res.json(savedParlay);
     } catch (error) {
       apiLogger.error("Error saving parlay:", error);
@@ -3098,7 +3080,7 @@ export async function registerRoutes(
       const hits = parseInt(stats.hits) || 0;
 
       // Data is stale if: no projections exist yet, there are pending actuals, OR validation hasn't run recently
-      const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+      const today = new Date().toISOString().split('T')[0];
       const validationStale = !lastValidationDate || lastValidationDate < today;
       const needsRefresh = total === 0 || pendingActuals > 0 || validationStale;
 
@@ -3596,7 +3578,7 @@ export async function registerRoutes(
     try {
       const gameDate =
         (req.query.date as string) ||
-        new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+        new Date().toISOString().split("T")[0];
 
       const cacheKey = `projections_today_${gameDate}`;
       const cached = getCached(cacheKey);
@@ -3615,7 +3597,7 @@ export async function registerRoutes(
       const result = await pool.query(
         `SELECT po.*, p.player_name
          FROM projection_outputs po
-         LEFT JOIN players p ON po.player_id = CAST(p.player_id AS text)
+         LEFT JOIN players p ON po.player_id = p.id
          WHERE po.game_date = $1
          ORDER BY ABS(po.edge_pct) DESC`,
         [gameDate]
@@ -3647,7 +3629,7 @@ export async function registerRoutes(
       const result = await pool.query(
         `SELECT po.*, p.player_name
          FROM projection_outputs po
-         LEFT JOIN players p ON po.player_id = CAST(p.player_id AS text)
+         LEFT JOIN players p ON po.player_id = p.id
          WHERE po.id = $1`,
         [id]
       );
@@ -3755,7 +3737,7 @@ export async function registerRoutes(
         });
       }
 
-      const targetDate = game_date || new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+      const targetDate = game_date || new Date().toISOString().split("T")[0];
 
       // Spawn Python to run signal engine
       const contextArg = JSON.stringify({
@@ -4116,12 +4098,73 @@ print(json.dumps(result.to_dict()))
    */
   app.post("/api/parlays/generate", async (req, res) => {
     try {
-      const { date, parlay_size } = req.body as {
+      const { date, parlay_size, size: reqSize }: {
         date?: string;
         parlay_size?: number;
-      };
+        size?: number;
+      } = req.body;
       const targetDate = date || new Date().toISOString().slice(0, 10);
-      const size = parlay_size || 2;
+      const size = parlay_size || reqSize || 2;
+
+      if (!pool) {
+        return res.status(503).json({ error: "Database not available" });
+      }
+
+      // First check if we already have results for this date/size
+      const existing = await pool.query(
+        `SELECT id, legs, correlations, parlay_type, parlay_template,
+                leg_count, base_hit_prob, true_hit_prob, payout,
+                combined_ev, recommendation, avoid_reason, game_date
+         FROM parlay_results
+         WHERE game_date = $1
+           AND leg_count = $2
+         ORDER BY combined_ev DESC
+         LIMIT 20`,
+        [targetDate, size]
+      );
+
+      if (existing.rows.length > 0) {
+        apiLogger.info(`[Parlays] Returning ${existing.rows.length} cached results for ${targetDate} size ${size}`);
+        return res.json({
+          date: targetDate,
+          parlay_size: size,
+          parlays: existing.rows,
+          count: existing.rows.length,
+          cached: true,
+        });
+      }
+
+//       No cached results - try to return 2-leg results as fallback, or spawn generator with strict timeout
+    apiLogger.info(`[Parlays] No cached results for ${targetDate} size ${size}`);
+    
+    // If requesting size > 2, first check if we have 2-leg results as a fallback
+    if (size > 2) {
+      const fallback = await pool.query(
+        `SELECT id, legs, correlations, parlay_type, parlay_template,
+                leg_count, base_hit_prob, true_hit_prob, payout,
+                combined_ev, recommendation, avoid_reason, game_date
+         FROM parlay_results
+         WHERE game_date = $1
+           AND leg_count = 2
+         ORDER BY combined_ev DESC
+         LIMIT 20`,
+        [targetDate]
+      );
+      if (fallback.rows.length > 0) {
+        apiLogger.info(`[Parlays] Returning ${fallback.rows.length} 2-leg fallback results while ${size}-leg results are being generated`);
+        return res.json({
+          date: targetDate,
+          parlay_size: size,
+          parlays: fallback.rows,
+          count: fallback.rows.length,
+          cached: true,
+          fallback: true,
+          message: `${size}-leg parlays are still being generated. Showing 2-leg parlays in the meantime.`
+        });
+      }
+    }
+    
+    apiLogger.info(`[Parlays] Spawning generator for ${targetDate} size ${size}...`);
 
       const pythonCmd = getPythonCommand();
       const scriptPath = path.join(
@@ -4132,66 +4175,74 @@ print(json.dumps(result.to_dict()))
         "cron_jobs.py"
       );
 
-      const child = spawn(pythonCmd, [
-        scriptPath,
-        "parlays",
-        "--date",
-        targetDate,
-        "--size",
-        String(size),
-      ]);
+      const TIMEOUT_MS = 120000; // 2 minute timeout
 
-      let stdout = "";
-      let stderr = "";
-      child.stdout?.on("data", (d: Buffer) => { stdout += d.toString(); });
-      child.stderr?.on("data", (d: Buffer) => { stderr += d.toString(); });
+      const { code, stdout, stderr } = await new Promise<{code: number; stdout: string; stderr: string}>((resolve, reject) => {
+        const child = spawn(pythonCmd, [
+          scriptPath,
+          "parlays",
+          "--date",
+          targetDate,
+          "--size",
+          String(size),
+        ]);
 
-      child.on("close", async (code: number) => {
-        try {
-          if (code !== 0) {
-            apiLogger.error(`[Parlays] generate script exited ${code}: ${stderr}`);
-            return res.status(500).json({
-              error: "Parlay generation failed",
-              stderr: stderr.slice(0, 500),
-            });
-          }
+        let stdoutBuf = "";
+        let stderrBuf = "";
+        child.stdout?.on("data", (d: Buffer) => { stdoutBuf += d.toString(); });
+        child.stderr?.on("data", (d: Buffer) => { stderrBuf += d.toString(); });
 
-          // Return the freshly generated parlays
-          if (!pool) {
-            return res.status(503).json({ error: "Database not available" });
-          }
-          const result = await pool.query(
-            `SELECT id, legs, correlations, parlay_type, parlay_template,
-                    leg_count, base_hit_prob, true_hit_prob, payout,
-                    combined_ev, recommendation, avoid_reason, game_date
-             FROM parlay_results
-             WHERE game_date = $1
-               AND leg_count = $2
-             ORDER BY combined_ev DESC
-             LIMIT 20`,
-            [targetDate, size]
-          );
+        const timer = setTimeout(() => {
+          child.kill("SIGKILL");
+          reject(new Error(`Parlay generation timed out after ${TIMEOUT_MS / 1000}s`));
+        }, TIMEOUT_MS);
 
-          res.json({
-            date: targetDate,
-            parlay_size: size,
-            parlays: result.rows,
-            count: result.rows.length,
-            stdout: stdout.trim(),
-          });
-        } catch (err: any) {
-          apiLogger.error("[Parlays] Error after script completion:", err);
-          if (!res.headersSent) {
-            res.status(500).json({ error: err.message });
-          }
-        }
+        child.on("close", (exitCode: number) => {
+          clearTimeout(timer);
+          resolve({ code: exitCode ?? 1, stdout: stdoutBuf, stderr: stderrBuf });
+        });
+
+        child.on("error", (err: Error) => {
+          clearTimeout(timer);
+          reject(err);
+        });
+      });
+
+      if (code !== 0) {
+        apiLogger.error(`[Parlays] generate script exited ${code}: ${stderr}`);
+        return res.status(500).json({
+          error: "Parlay generation failed",
+          stderr: stderr.slice(0, 500),
+        });
+      }
+
+      // Return the freshly generated parlays
+      const result = await pool.query(
+        `SELECT id, legs, correlations, parlay_type, parlay_template,
+                leg_count, base_hit_prob, true_hit_prob, payout,
+                combined_ev, recommendation, avoid_reason, game_date
+         FROM parlay_results
+         WHERE game_date = $1
+           AND leg_count = $2
+         ORDER BY combined_ev DESC
+         LIMIT 20`,
+        [targetDate, size]
+      );
+
+      res.json({
+        date: targetDate,
+        parlay_size: size,
+        parlays: result.rows,
+        count: result.rows.length,
+        stdout: stdout.trim(),
       });
     } catch (error: any) {
       apiLogger.error("[Parlays] Error triggering generation:", error);
-      res.status(500).json({ error: error.message });
+      if (!res.headersSent) {
+        res.status(500).json({ error: error.message });
+      }
     }
   });
-
   /**
    * PATCH /api/parlays/:id/outcome
    * Settle a parlay once games complete.

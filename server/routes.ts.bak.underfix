@@ -627,84 +627,86 @@ export async function registerRoutes(
 
   app.get("/api/bets", async (req, res) => {
     try {
-      // Load signal weights for enrichment
-      await loadSignalWeights(pool);
+      // Primary: serve projection-based picks using real PrizePicks lines
+      if (pool) {
+        const today = new Date().toISOString().split("T")[0];
+        const result = await pool.query(`
+          SELECT DISTINCT ON (po.player_name, po.prop_type)
+            po.id, po.player_id, po.player_name, po.prop_type,
+            po.final_projection, po.signals_fired, po.direction,
+            COALESCE(pdl.closing_line, po.prizepicks_line) as current_line,
+            pdl.team,
+            CASE WHEN COALESCE(pdl.closing_line, po.prizepicks_line) > 0
+              THEN ROUND(((po.final_projection - COALESCE(pdl.closing_line, po.prizepicks_line)) / COALESCE(pdl.closing_line, po.prizepicks_line) * 100)::numeric, 2)
+              ELSE 0 END as live_edge_pct
+          FROM projection_outputs po
+          INNER JOIN prizepicks_daily_lines pdl
+            ON po.player_id = pdl.prizepicks_player_id
+            AND po.prop_type = pdl.stat_type
+            AND po.game_date = pdl.game_date
+          WHERE po.game_date = $1
+            AND pdl.closing_line IS NOT NULL
+            AND pdl.closing_line >= 1.5
+            AND po.final_projection > 0
+          ORDER BY po.player_name, po.prop_type, po.created_at DESC
+        `, [today]);
 
-      let bets = await storage.getPotentialBets();
-      if (bets.length === 0) {
-        let players = await ensurePlayersLoaded();
-        const generatedBets = await generateBetsFromPrizePicks(players);
-        await storage.clearPotentialBets();
-        for (const bet of generatedBets) {
-          await storage.createPotentialBet(bet);
+        if (result.rows.length > 0) {
+          const withEdge = result.rows
+            .filter((r: any) => {
+              const edge = Math.abs(parseFloat(r.live_edge_pct));
+              return edge > 2 && edge < 30;
+            })
+            .sort((a: any, b: any) => Math.abs(parseFloat(b.live_edge_pct)) - Math.abs(parseFloat(a.live_edge_pct)));
+          const limited = withEdge.slice(0, 50);
+
+          const picks = limited.map((row: any) => {
+            const rawEdge = parseFloat(row.live_edge_pct);
+            const edgePct = Math.abs(rawEdge);
+            const line = parseFloat(row.current_line);
+            const proj = parseFloat(row.final_projection);
+            const recommendation = proj > line ? "OVER" : "UNDER";
+            return {
+              id: row.id,
+              player_id: parseInt(row.player_id) || 0,
+              player_name: row.player_name || "Unknown",
+              team: row.team || "",
+              stat_type: row.prop_type,
+              line: line,
+              hit_rate: Math.min(edgePct + 52.4, 85),
+              season_avg: proj,
+              last_5_avg: proj,
+              recommendation: recommendation,
+              confidence: edgePct >= 8 ? "HIGH" as const : edgePct >= 4 ? "MEDIUM" as const : "LOW" as const,
+              edge_type: "PROJECTION",
+              edge_score: Math.round(edgePct * 2),
+              edge_description: `Model projects ${proj.toFixed(1)} vs line ${line.toFixed(1)} (${edgePct.toFixed(1)}% ${recommendation} edge)`,
+            };
+          });
+
+          return res.json(picks);
         }
-        bets = await storage.getPotentialBets();
       }
 
-      // Enrich bets with signal scores if not already present
-      const enrichedBets = bets.map(bet => {
-        // If bet already has signal_score, return as-is
-        if ((bet as any).signal_score !== undefined && (bet as any).signal_score !== null) {
-          return bet;
-        }
-
-        // Compute signal score based on edge type
-        const edges: Array<{ type: string; score: number }> = [];
-        if (bet.edge_type) {
-          edges.push({ type: bet.edge_type, score: bet.edge_score || 5 });
-        }
-
-        const recommendation = bet.recommendation as 'OVER' | 'UNDER';
-        const signalScore = calculateSignalScore(
-          {} as any, // Player not needed for edge-based scoring
-          bet.stat_type || '',
-          recommendation,
-          bet.hit_rate || 50,
-          edges
-        );
-
-        return {
-          ...bet,
-          signal_score: signalScore.signalScore,
-          signal_confidence: signalScore.signalConfidence,
-          active_signals: signalScore.signals.length > 0 ? signalScore.signals : null,
-          signal_description: getSignalDescription(signalScore),
-        };
-      });
-
-      // Show all PrizePicks props with our analysis — sorted by quality
-      // Sort by signal score first (backtest-backed), then edge score, then hit rate
-      const sortedBets = enrichedBets.sort((a, b) => {
-        // Priority 1: Signal score (backtest-proven signals)
-        const aSignal = (a as any).signal_score || 0;
-        const bSignal = (b as any).signal_score || 0;
-        if (Math.abs(aSignal - bSignal) > 0.1) return bSignal - aSignal;
-
-        // Priority 2: Signal confidence level
-        if ((a as any).signal_confidence === "HIGH" && (b as any).signal_confidence !== "HIGH") return -1;
-        if ((b as any).signal_confidence === "HIGH" && (a as any).signal_confidence !== "HIGH") return 1;
-
-        // Priority 3: Edge score
+      // Fallback: use legacy potential_bets
+      const players = await ensurePlayersLoaded();
+      const generatedBets = generatePotentialBets(players);
+      await storage.clearPotentialBets();
+      for (const bet of generatedBets) {
+        await storage.createPotentialBet(bet);
+      }
+      const bets = await storage.getPotentialBets();
+      const sortedBets = [...bets].sort((a, b) => {
         if (a.edge_score && !b.edge_score) return -1;
         if (!a.edge_score && b.edge_score) return 1;
-        if (a.edge_score && b.edge_score) {
-          if (a.edge_score !== b.edge_score) return b.edge_score - a.edge_score;
-        }
-
-        // Priority 4: Basic confidence
+        if (a.edge_score && b.edge_score && a.edge_score !== b.edge_score) return b.edge_score - a.edge_score;
         if (a.confidence === "HIGH" && b.confidence !== "HIGH") return -1;
         if (b.confidence === "HIGH" && a.confidence !== "HIGH") return 1;
-
-        // For hit rate, sort by distance from 50% (more extreme = better)
         const aDeviation = Math.abs(a.hit_rate - 50);
         const bDeviation = Math.abs(b.hit_rate - 50);
         return bDeviation - aDeviation;
       });
-
-      // Return all bets (sorted best-first) — frontend groups by game
-      const limitedBets = sortedBets.slice(0, 200);
-
-      res.json(limitedBets);
+      res.json(sortedBets.slice(0, 200));
     } catch (error) {
       apiLogger.error("Error fetching bets:", error);
       res.status(500).json({ error: "Failed to fetch bets" });
@@ -714,44 +716,82 @@ export async function registerRoutes(
   // Get top 10 best picks based on edge analysis + XGBoost ML
   app.get("/api/bets/top-picks", async (req, res) => {
     try {
-      const players = await ensurePlayersLoaded();
+      // Primary: serve picks from projection_outputs (real PrizePicks lines)
+      if (pool) {
+        const today = new Date().toISOString().split("T")[0];
+        const result = await pool.query(`
+          SELECT DISTINCT ON (po.player_name, po.prop_type)
+            po.id, po.player_id, po.player_name, po.prop_type,
+            po.final_projection, po.signals_fired, po.direction,
+            COALESCE(pdl.closing_line, po.prizepicks_line) as current_line,
+            pdl.team,
+            CASE WHEN COALESCE(pdl.closing_line, po.prizepicks_line) > 0
+              THEN ROUND(((po.final_projection - COALESCE(pdl.closing_line, po.prizepicks_line)) / COALESCE(pdl.closing_line, po.prizepicks_line) * 100)::numeric, 2)
+              ELSE 0 END as live_edge_pct
+          FROM projection_outputs po
+          INNER JOIN prizepicks_daily_lines pdl
+            ON po.player_id = pdl.prizepicks_player_id
+            AND po.prop_type = pdl.stat_type
+            AND po.game_date = pdl.game_date
+          WHERE po.game_date = $1
+            AND pdl.closing_line IS NOT NULL
+            AND pdl.closing_line >= 1.5
+            AND po.final_projection > 0
+          ORDER BY po.player_name, po.prop_type, po.created_at DESC
+        `, [today]);
 
-      // Run XGBoost predictions for all player-stat-line combinations
-      const availableModels = getAvailableModels();
-      let xgbPredictions: Map<string, XGBoostPrediction> | undefined;
+        if (result.rows.length > 0) {
+          // Filter for meaningful edges and sort
+          const withEdge = result.rows
+            .filter((r: any) => {
+              const edge = Math.abs(parseFloat(r.live_edge_pct));
+              return edge > 2 && edge < 30;
+            })
+            .sort((a: any, b: any) => Math.abs(parseFloat(b.live_edge_pct)) - Math.abs(parseFloat(a.live_edge_pct)));
+          const top10 = withEdge.slice(0, 10);
 
-      if (availableModels.length > 0) {
-        apiLogger.info(`XGBoost models available: ${availableModels.join(", ")}`);
-        const requests: Array<{ player: Player; statType: string; line: number }> = [];
+          const picks = top10.map((row: any) => {
+            const rawEdge = parseFloat(row.live_edge_pct);
+            const edgePct = Math.abs(rawEdge);
+            const line = parseFloat(row.current_line);
+            const proj = parseFloat(row.final_projection);
+            const recommendation = proj > line ? "OVER" : "UNDER";
+            return {
+              id: row.id,
+              player_id: parseInt(row.player_id) || 0,
+              player_name: row.player_name || "Unknown",
+              team: row.team || "",
+              stat_type: row.prop_type,
+              line: line,
+              hit_rate: Math.min(edgePct + 52.4, 85),
+              season_avg: proj,
+              last_5_avg: proj,
+              recommendation: recommendation,
+              confidence: edgePct >= 8 ? "HIGH" as const : edgePct >= 4 ? "MEDIUM" as const : "LOW" as const,
+              edge_type: "PROJECTION",
+              edge_score: Math.round(edgePct * 2),
+              edge_description: `Model projects ${proj.toFixed(1)} vs line ${line.toFixed(1)} (${edgePct.toFixed(1)}% ${recommendation} edge)`,
+            };
+          });
 
-        for (const player of players) {
-          for (const statType of ["PTS", "REB", "AST", "FG3M"]) {
-            const hitRates = player.hit_rates[statType];
-            if (!hitRates) continue;
-            for (const lineStr of Object.keys(hitRates)) {
-              requests.push({ player, statType, line: parseFloat(lineStr) });
-            }
-          }
-        }
-
-        if (requests.length > 0) {
-          xgbPredictions = await batchXGBoostPredict(requests);
-          apiLogger.info(`XGBoost returned ${xgbPredictions.size} predictions for ${requests.length} props`);
+          return res.json(picks);
         }
       }
 
-      // Generate bets with XGBoost blend
-      const generatedBets = generatePotentialBets(players, xgbPredictions);
+      // Fallback: generate from player analytics
+      const players = await ensurePlayersLoaded();
+      const generatedBets = generatePotentialBets(players);
       await storage.clearPotentialBets();
       for (const bet of generatedBets) {
         await storage.createPotentialBet(bet);
       }
       const bets = await storage.getPotentialBets();
-
-      // Filter for bets with edges and get top 10
-      const betsWithEdges = bets.filter(b => b.edge_score && b.edge_score > 0);
-      const topPicks = betsWithEdges.slice(0, 10);
-
+      const sortedByProb = [...bets].sort((a, b) => {
+        const probA = a.recommendation === "OVER" ? a.hit_rate : (100 - a.hit_rate);
+        const probB = b.recommendation === "OVER" ? b.hit_rate : (100 - b.hit_rate);
+        return probB - probA;
+      });
+      const topPicks = sortedByProb.slice(0, 10);
       res.json(topPicks);
     } catch (error) {
       apiLogger.error("Error fetching top picks:", error);
@@ -3613,9 +3653,9 @@ export async function registerRoutes(
       }
 
       const result = await pool.query(
-        `SELECT po.*, p.player_name
+        `SELECT po.*, COALESCE(p.player_name, po.player_name) as player_name
          FROM projection_outputs po
-         LEFT JOIN players p ON po.player_id = CAST(p.player_id AS text)
+         LEFT JOIN players p ON CAST(po.player_id AS text) = CAST(p.player_id AS text)
          WHERE po.game_date = $1
          ORDER BY ABS(po.edge_pct) DESC`,
         [gameDate]
@@ -3645,9 +3685,9 @@ export async function registerRoutes(
         return res.status(503).json({ error: "Database not available" });
       }
       const result = await pool.query(
-        `SELECT po.*, p.player_name
+        `SELECT po.*, COALESCE(p.player_name, po.player_name) as player_name
          FROM projection_outputs po
-         LEFT JOIN players p ON po.player_id = CAST(p.player_id AS text)
+         LEFT JOIN players p ON CAST(po.player_id AS text) = CAST(p.player_id AS text)
          WHERE po.id = $1`,
         [id]
       );

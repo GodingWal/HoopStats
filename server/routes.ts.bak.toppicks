@@ -3613,9 +3613,9 @@ export async function registerRoutes(
       }
 
       const result = await pool.query(
-        `SELECT po.*, p.player_name
+        `SELECT po.*, COALESCE(p.player_name, po.player_name) as player_name
          FROM projection_outputs po
-         LEFT JOIN players p ON po.player_id = CAST(p.player_id AS text)
+         LEFT JOIN players p ON CAST(po.player_id AS text) = CAST(p.player_id AS text)
          WHERE po.game_date = $1
          ORDER BY ABS(po.edge_pct) DESC`,
         [gameDate]
@@ -3645,9 +3645,9 @@ export async function registerRoutes(
         return res.status(503).json({ error: "Database not available" });
       }
       const result = await pool.query(
-        `SELECT po.*, p.player_name
+        `SELECT po.*, COALESCE(p.player_name, po.player_name) as player_name
          FROM projection_outputs po
-         LEFT JOIN players p ON po.player_id = CAST(p.player_id AS text)
+         LEFT JOIN players p ON CAST(po.player_id AS text) = CAST(p.player_id AS text)
          WHERE po.id = $1`,
         [id]
       );
