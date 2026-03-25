@@ -1666,6 +1666,30 @@ export async function registerRoutes(
     }
   });
 
+  // =============== TRACKING-DERIVED STATS ===============
+
+  app.get("/api/stats/tracking/:playerId", async (req, res) => {
+    try {
+      const playerId = parseInt(req.params.playerId);
+      if (isNaN(playerId)) {
+        return res.status(400).json({ error: "Invalid player ID" });
+      }
+
+      const players = await ensurePlayersLoaded();
+      const player = players.find(p => p.player_id === playerId);
+      if (!player) {
+        return res.status(404).json({ error: "Player not found" });
+      }
+
+      const { computeTrackingStats } = await import("./tracking-stats");
+      const trackingStats = computeTrackingStats(player);
+      res.json(trackingStats);
+    } catch (error) {
+      apiLogger.error("Error in /api/stats/tracking:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
   // =============== PRIZEPICKS ROUTES ===============
 
   // Get scraper configuration status
