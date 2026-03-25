@@ -6,6 +6,7 @@ import { eq, ilike, or, desc, and, gte, sql, inArray, avg, max, min, count } fro
 export interface IStorage {
   getPlayers(): Promise<Player[]>;
   getPlayer(id: number): Promise<Player | undefined>;
+  getPlayerByName(name: string): Promise<Player | undefined>;
   searchPlayers(query: string): Promise<Player[]>;
   createPlayer(player: InsertPlayer): Promise<Player>;
   getPotentialBets(): Promise<PotentialBet[]>;
@@ -125,6 +126,12 @@ export class DatabaseStorage implements IStorage {
   async getPlayer(id: number): Promise<Player | undefined> {
     if (!db) throw new Error("Database not initialized");
     const [result] = await db.select().from(players).where(eq(players.player_id, id));
+    return result ? dbPlayerToPlayer(result) : undefined;
+  }
+
+  async getPlayerByName(name: string): Promise<Player | undefined> {
+    if (!db) throw new Error("Database not initialized");
+    const [result] = await db.select().from(players).where(ilike(players.player_name, name));
     return result ? dbPlayerToPlayer(result) : undefined;
   }
 
@@ -981,6 +988,13 @@ export class MemStorage implements IStorage {
 
   async getPlayer(id: number): Promise<Player | undefined> {
     return this.players.get(id);
+  }
+
+  async getPlayerByName(name: string): Promise<Player | undefined> {
+    const lower = name.toLowerCase();
+    return Array.from(this.players.values()).find(
+      p => p.player_name.toLowerCase() === lower
+    );
   }
 
   async searchPlayers(query: string): Promise<Player[]> {

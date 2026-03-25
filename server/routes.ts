@@ -1455,13 +1455,31 @@ export async function registerRoutes(
   app.post("/api/parlays", async (req, res) => {
     try {
       const { parlayType, numPicks, entryAmount, payoutMultiplier, picks } = req.body;
+
+      // Resolve missing team abbreviations from the players table
+      // so auto-settle can match picks to the correct game
+      const enrichedPicks = await Promise.all(
+        (picks as Array<{ playerName: string; team: string; stat: string; line: number; side: string; gameDate: string }>).map(async (pick) => {
+          if (pick.team && pick.team.trim() !== "") return pick;
+          try {
+            const player = await storage.getPlayerByName(pick.playerName);
+            if (player?.team) {
+              return { ...pick, team: player.team };
+            }
+          } catch {
+            // Lookup failed — proceed with empty team
+          }
+          return pick;
+        })
+      );
+
       const savedParlay = await storage.saveParlay({
         parlayType,
         numPicks,
         entryAmount,
         payoutMultiplier,
         result: 'pending',
-      }, picks);
+      }, enrichedPicks);
       res.json(savedParlay);
     } catch (error) {
       apiLogger.error("Error saving parlay:", error);
