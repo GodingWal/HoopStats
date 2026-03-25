@@ -5,6 +5,10 @@ Builds the full feature vector for XGBoost training and inference.
 Combines existing edge scores with raw continuous numeric inputs,
 volatility metrics, line movement data, and CLV tracking.
 
+Now integrates with the Advanced Feature Engineering Pipeline for
+elite-tier features including EWMA, qSQ, interaction terms,
+defensive matchup scoring, and PCA dimensionality reduction.
+
 The key insight: existing edge scores (0-10 binned) lose information.
 XGBoost needs the raw continuous values to learn optimal thresholds
 and interaction effects that additive scoring can't capture.
@@ -16,12 +20,18 @@ Feature groups:
 4. Line movement as numeric features
 5. CLV tracking as numeric features
 6. Meta features (total edges fired, signal score, etc.)
+7-9. Matchup, trend, market features
+10. Advanced features (EWMA, qSQ, interactions, schedule, lineup, defense)
 """
 
 from typing import Dict, Any, List, Optional, Tuple
 from dataclasses import dataclass, field
 import numpy as np
 from numpy.polynomial import polynomial as P
+import pandas as pd
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -138,27 +148,77 @@ XGBOOST_FEATURE_NAMES = [
     "vig_magnitude",
 ]
 
+# Import advanced feature names
+try:
+    from .advanced.pipeline import ADVANCED_XGBOOST_FEATURES
+except ImportError:
+    ADVANCED_XGBOOST_FEATURES = []
+
+# Extended feature set: original + advanced
+XGBOOST_FEATURE_NAMES_EXTENDED = XGBOOST_FEATURE_NAMES + ADVANCED_XGBOOST_FEATURES
+
 
 class XGBoostFeatureBuilder:
     """
     Builds feature vectors for XGBoost from game context.
 
+    Supports two modes:
+    1. Standard mode: Uses original feature set (backward compatible)
+    2. Advanced mode: Integrates the Advanced Feature Pipeline for
+       elite-tier features (EWMA, qSQ, interactions, etc.)
+
     Usage:
+        # Standard mode
         builder = XGBoostFeatureBuilder()
         fv = builder.build(context)
         X = fv.to_array().reshape(1, -1)
+
+        # Advanced mode (with game log)
+        builder = XGBoostFeatureBuilder(use_advanced=True)
+        fv = builder.build(context, game_log=game_log)
+        X = fv.to_array().reshape(1, -1)
     """
 
-    def __init__(self):
-        self.feature_names = XGBOOST_FEATURE_NAMES
+    def __init__(self, use_advanced: bool = False):
+        """
+        Args:
+            use_advanced: If True, use extended feature set with advanced
+                         feature engineering pipeline.
+        """
+        self.use_advanced = use_advanced
+        self._advanced_pipeline = None
 
-    def build(self, context: Dict[str, Any]) -> XGBoostFeatureVector:
+        if use_advanced and ADVANCED_XGBOOST_FEATURES:
+            self.feature_names = XGBOOST_FEATURE_NAMES_EXTENDED
+            try:
+                from .advanced.pipeline import AdvancedFeaturePipeline
+                self._advanced_pipeline = AdvancedFeaturePipeline()
+                logger.info(
+                    f"Advanced feature pipeline loaded: "
+                    f"{len(XGBOOST_FEATURE_NAMES)} base + "
+                    f"{len(ADVANCED_XGBOOST_FEATURES)} advanced = "
+                    f"{len(self.feature_names)} total features"
+                )
+            except ImportError as e:
+                logger.warning(f"Advanced features not available: {e}")
+                self.feature_names = XGBOOST_FEATURE_NAMES
+                self.use_advanced = False
+        else:
+            self.feature_names = XGBOOST_FEATURE_NAMES
+
+    def build(
+        self,
+        context: Dict[str, Any],
+        game_log: Optional[pd.DataFrame] = None,
+    ) -> XGBoostFeatureVector:
         """
         Build complete feature vector from game context.
 
         Args:
             context: Dict containing all available data about the player/game/prop.
                      Keys are flexible — missing keys default to 0.0.
+            game_log: Optional player game log DataFrame for advanced features.
+                     Required when use_advanced=True for full feature extraction.
 
         Returns:
             XGBoostFeatureVector with all features populated.
@@ -192,6 +252,10 @@ class XGBoostFeatureBuilder:
         # Group 9: Market/odds
         self._extract_market_features(context, features)
 
+        # Group 10: Advanced features (EWMA, qSQ, interactions, etc.)
+        if self.use_advanced and self._advanced_pipeline is not None:
+            self._extract_advanced_features(context, features, game_log)
+
         # Build target if actual result available
         target = self._compute_target(context)
 
@@ -206,6 +270,7 @@ class XGBoostFeatureBuilder:
         context: Dict[str, Any],
         actual_value: float,
         line_value: float,
+        game_log: Optional[pd.DataFrame] = None,
     ) -> XGBoostFeatureVector:
         """
         Build a labeled training row for XGBoost.
@@ -214,11 +279,12 @@ class XGBoostFeatureBuilder:
             context: Game context at prediction time.
             actual_value: Post-game actual stat value.
             line_value: The betting line.
+            game_log: Optional player game log for advanced features.
 
         Returns:
             XGBoostFeatureVector with target set.
         """
-        fv = self.build(context)
+        fv = self.build(context, game_log=game_log)
         fv.target = int(actual_value > line_value)
         return fv
 
@@ -472,6 +538,63 @@ class XGBoostFeatureBuilder:
 
         # Vig magnitude (total overround — high vig = uncertain market)
         f["vig_magnitude"] = float(ctx.get("vig_magnitude", ctx.get("total_vig", 0.0)))
+
+    # ------------------------------------------------------------------
+    # Group 10: Advanced Feature Pipeline Integration
+    # ------------------------------------------------------------------
+
+    def _extract_advanced_features(
+        self,
+        ctx: Dict[str, Any],
+        f: Dict[str, float],
+        game_log: Optional[pd.DataFrame] = None,
+    ) -> None:
+        """
+        Extract advanced features using the elite feature engineering pipeline.
+
+        Integrates EWMA rolling features, usage/efficiency derivatives,
+        defensive matchup scoring, schedule context, shot quality (qSQ),
+        lineup dynamics, interaction terms, and PCA compression.
+        """
+        if self._advanced_pipeline is None:
+            return
+
+        stat_type = ctx.get("stat_type", ctx.get("prop_type", "Points"))
+
+        # Build game log DataFrame if not provided
+        if game_log is None:
+            game_logs_raw = ctx.get("game_logs", [])
+            if game_logs_raw and isinstance(game_logs_raw, list):
+                game_log = pd.DataFrame(game_logs_raw)
+            elif game_logs_raw is not None and hasattr(game_logs_raw, "columns"):
+                game_log = game_logs_raw
+            else:
+                # Create minimal DataFrame from context averages
+                game_log = pd.DataFrame()
+
+        if game_log is None or (hasattr(game_log, "empty") and game_log.empty):
+            # Set defaults for all advanced features
+            for feat_name in ADVANCED_XGBOOST_FEATURES:
+                f[feat_name] = 0.0
+            return
+
+        try:
+            # Run the advanced pipeline
+            advanced_features = self._advanced_pipeline.engineer_features(
+                game_log=game_log,
+                context=ctx,
+                stat_type=stat_type,
+                reduce_dimensions=False,
+            )
+
+            # Map advanced features to the canonical XGBoost feature names
+            for feat_name in ADVANCED_XGBOOST_FEATURES:
+                f[feat_name] = advanced_features.get(feat_name, 0.0)
+
+        except Exception as e:
+            logger.warning(f"Advanced feature extraction failed: {e}")
+            for feat_name in ADVANCED_XGBOOST_FEATURES:
+                f[feat_name] = 0.0
 
     @staticmethod
     def _compute_trend_slope(values: List[float]) -> float:
