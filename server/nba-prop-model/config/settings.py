@@ -36,9 +36,12 @@ class ModelConfig:
     n_simulations: int = 10000
     
     # Betting
-    min_edge_threshold: float = 0.03  # 3% edge minimum
-    kelly_fraction: float = 0.25  # Quarter Kelly
+    min_edge_threshold: float = 0.03  # 3% edge minimum (default, overridden per-stat)
+    kelly_fraction: float = 0.25  # Quarter Kelly (base — adjusted by confidence tier)
     max_bet_pct: float = 0.02  # Max 2% of bankroll per bet
+    max_drawdown_pct: float = 0.15  # Circuit breaker at 15% drawdown
+    edge_decay_hours: float = 12.0  # After 12h, require larger edge
+    edge_decay_multiplier: float = 1.5  # Stale line edge multiplier
 
 @dataclass
 class FeatureConfig:
@@ -73,14 +76,35 @@ class XGBoostConfig:
     reg_alpha: float = 0.1        # L1 regularization
     reg_lambda: float = 1.0       # L2 regularization
 
+    # Early stopping
+    early_stopping_rounds: int = 20  # Stop if no improvement for N rounds
+
+    # Calibration
+    use_calibration: bool = True     # Post-hoc isotonic calibration
+
+    # Sample weighting (recency bias)
+    sample_weight_halflife_days: int = 90  # Recent games weighted more (0 = disabled)
+
     # Data requirements
     min_training_samples: int = 100   # Minimum to attempt training
     recommended_samples: int = 500    # Recommended for reliable results
     validation_split: float = 0.2     # Chronological hold-out
 
     # Ensemble blending
-    xgb_prob_weight: float = 0.40     # Weight for XGBoost probability in blend
-    analytical_prob_weight: float = 0.60  # Weight for analytical probability
+    xgb_prob_weight: float = 0.40     # Default XGBoost probability weight in blend
+    analytical_prob_weight: float = 0.60  # Default analytical probability weight
+
+    # Per-stat XGBoost weights (confidence-adaptive base weights)
+    per_stat_xgb_weights: Dict[str, float] = field(default_factory=lambda: {
+        "Points": 0.45,
+        "Rebounds": 0.40,
+        "Assists": 0.38,
+        "3-Pointers Made": 0.25,
+        "Steals": 0.20,
+        "Blocks": 0.20,
+        "Turnovers": 0.30,
+        "Pts+Rebs+Asts": 0.42,
+    })
 
     # Model persistence
     model_dir: str = "models/xgboost"
@@ -92,6 +116,12 @@ class XGBoostConfig:
     use_line_movement: bool = True     # Group 4: line movement as numeric
     use_clv: bool = True               # Group 5: CLV tracking
     use_meta: bool = True              # Group 6: signal score, projections
+    use_matchup: bool = True           # Group 7: matchup-specific features
+    use_trends: bool = True            # Group 8: trend/momentum features
+    use_market: bool = True            # Group 9: market/odds features
+
+    # Auto-retrain settings
+    auto_retrain_threshold: int = 50   # New samples needed to trigger retrain
 
 @dataclass
 class DatabaseConfig:

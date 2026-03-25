@@ -182,20 +182,43 @@ class EnsembleProjector:
     When XGBoost models are trained and available, uses them for
     calibrated over/under probabilities. Falls back to the existing
     analytical + simple GBM blend otherwise.
+
+    Supports confidence-adaptive and per-stat-type XGBoost weighting
+    to maximize ensemble accuracy.
     """
+
+    # Per-stat XGBoost weight overrides.
+    # Higher for stable, high-data stats; lower for volatile, sparse stats.
+    DEFAULT_PER_STAT_XGB_WEIGHTS: Dict[str, float] = {
+        "Points": 0.45,            # Most data, most stable
+        "Rebounds": 0.40,           # Good data volume
+        "Assists": 0.38,            # Moderate variance
+        "3-Pointers Made": 0.25,    # High variance, sparse — trust analytical more
+        "Steals": 0.20,             # Very sparse — analytical better
+        "Blocks": 0.20,             # Very sparse — analytical better
+        "Turnovers": 0.30,          # Moderate
+        "Pts+Rebs+Asts": 0.42,     # Combo, good signal
+    }
+
+    # Confidence-adaptive thresholds
+    HIGH_CONFIDENCE_THRESHOLD = 0.70
+    LOW_CONFIDENCE_THRESHOLD = 0.30
 
     def __init__(
         self,
         analytical_weight: float = 0.65,
         ml_weight: float = 0.35,
+        per_stat_xgb_weights: Optional[Dict[str, float]] = None,
     ):
         """
         Args:
             analytical_weight: Weight for analytical model output
             ml_weight: Weight for ML model output (should sum to 1.0 with analytical)
+            per_stat_xgb_weights: Optional per-stat XGBoost probability weights
         """
         self.analytical_weight = analytical_weight
         self.ml_weight = ml_weight
+        self.per_stat_xgb_weights = per_stat_xgb_weights or self.DEFAULT_PER_STAT_XGB_WEIGHTS
         self.ml_models: Dict[str, SimpleGradientBoostedModel] = {}
 
         # XGBoost integration (optional — used when trained models exist)
@@ -395,12 +418,12 @@ class EnsembleProjector:
                 prob_over = 1 - norm.cdf(line, ensemble_projection, std)
                 prob_under = 1 - prob_over
 
-            # Blend with XGBoost probability if available
+            # Blend with XGBoost probability using confidence-adaptive weighting
             xgb_pred = self.get_xgboost_prediction(stat_type, context)
             if xgb_pred is not None:
-                # Weighted blend: analytical probs + XGBoost probs
-                # XGBoost gets 40% weight when available (it captures interactions)
-                xgb_weight = 0.40
+                xgb_weight = self._get_adaptive_xgb_weight(
+                    stat_type, xgb_pred["confidence"]
+                )
                 prob_over = (1 - xgb_weight) * prob_over + xgb_weight * xgb_pred["prob_over"]
                 prob_under = 1 - prob_over
                 feature_importances.update(xgb_pred.get("feature_importances", {}))
@@ -424,6 +447,31 @@ class EnsembleProjector:
             confidence=confidence,
             feature_importances=feature_importances,
         )
+
+    def _get_adaptive_xgb_weight(self, stat_type: str, xgb_confidence: float) -> float:
+        """
+        Get XGBoost weight based on stat type and model confidence.
+
+        When XGBoost is very confident, trust it more.
+        When uncertain, lean on analytical model.
+        Per-stat weights account for data volume and stat volatility.
+        """
+        # Start with per-stat base weight
+        base_weight = self.per_stat_xgb_weights.get(stat_type, 0.40)
+
+        # Confidence-adaptive adjustment
+        if xgb_confidence > self.HIGH_CONFIDENCE_THRESHOLD:
+            # XGBoost is very confident — boost its weight by up to 15%
+            boost = 0.15 * ((xgb_confidence - self.HIGH_CONFIDENCE_THRESHOLD)
+                            / (1.0 - self.HIGH_CONFIDENCE_THRESHOLD))
+            return min(base_weight + boost, 0.65)
+        elif xgb_confidence < self.LOW_CONFIDENCE_THRESHOLD:
+            # XGBoost is uncertain — reduce its weight by up to 15%
+            reduction = 0.15 * ((self.LOW_CONFIDENCE_THRESHOLD - xgb_confidence)
+                                / self.LOW_CONFIDENCE_THRESHOLD)
+            return max(base_weight - reduction, 0.10)
+        else:
+            return base_weight
 
     def _estimate_std(self, stat_type: str, context: Dict[str, Any]) -> float:
         """Estimate standard deviation for probability calculation."""
