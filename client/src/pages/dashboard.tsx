@@ -76,13 +76,13 @@ function StatCard({ label, value, highlight = false }: { label: string; value: s
 }
 
 export default function Dashboard() {
-  const { data: topPicks, isLoading: picksLoading } = useQuery({
+  const { data: topPicks, isLoading: picksLoading, isError: picksError } = useQuery({
     queryKey: ['/api/bets/top-picks'],
     queryFn: fetchTopPicks,
     refetchInterval: 60000, // Refresh every minute
   });
 
-  const { data: trackRecord, isLoading: recordLoading } = useQuery({
+  const { data: trackRecord, isLoading: recordLoading, isError: recordError } = useQuery({
     queryKey: ['track-record', 30],
     queryFn: () => fetchTrackRecord(30),
     refetchInterval: 300000, // Refresh every 5 minutes
@@ -109,6 +109,11 @@ export default function Dashboard() {
           {recordLoading ? (
             <div className="flex justify-center py-8">
               <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+            </div>
+          ) : recordError ? (
+            <div className="text-center py-8 text-muted-foreground">
+              <p>Unable to load track record.</p>
+              <p className="text-sm mt-2">Check your connection and try again.</p>
             </div>
           ) : trackRecord && trackRecord.total > 0 ? (
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -155,6 +160,11 @@ export default function Dashboard() {
           {picksLoading ? (
             <div className="flex justify-center py-8">
               <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+            </div>
+          ) : picksError ? (
+            <div className="text-center py-12 text-muted-foreground">
+              <p className="text-lg">Unable to load picks</p>
+              <p className="text-sm mt-2">Check your connection and try again.</p>
             </div>
           ) : topPicks && topPicks.length > 0 ? (
             <div className="space-y-3">
