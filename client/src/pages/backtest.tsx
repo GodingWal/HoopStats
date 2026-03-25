@@ -188,6 +188,73 @@ interface XGBoostFeature {
   diff: number;
 }
 
+// ==================== EVALUATION METRICS TYPES ====================
+
+interface CalibrationBin {
+  binRange: string;
+  predicted: number;
+  actual: number;
+  count: number;
+}
+
+interface EvalMetrics {
+  brierScore: number;
+  logLoss: number;
+  ece: number;
+  avgClv: number;
+  clvPositiveRate: number;
+  hitRate: number;
+  calibrationBins: CalibrationBin[];
+  statBreakdown: Record<string, {
+    count: number;
+    hitRate: number;
+    brierScore: number;
+    roi: number;
+  }>;
+}
+
+interface EvalMetricsResponse {
+  metrics: EvalMetrics | null;
+  sampleSize: number;
+  clvSampleSize: number;
+  days: number;
+  message?: string;
+}
+
+interface MarketDisagreementItem {
+  playerName: string;
+  statType: string;
+  gameDate: string;
+  modelProjection: number;
+  marketConsensus: number;
+  line: number;
+  difference: number;
+  differencePct: number;
+  modelSide: string;
+  marketSide: string;
+  sidesAgree: boolean;
+  numBooks: number;
+  lineSpread: number;
+  actualValue: number | null;
+  modelCorrect: boolean | null;
+  marketCorrect: boolean | null;
+  inefficiencyScore: number;
+}
+
+interface MarketComparisonData {
+  totalCompared: number;
+  totalDisagreements: number;
+  agreementRate: number;
+  modelCloserToActualRate: number | null;
+  totalWithActuals: number;
+  topDisagreements: MarketDisagreementItem[];
+}
+
+interface MarketComparisonResponse {
+  comparison: MarketComparisonData | null;
+  days: number;
+}
+
 // ==================== CONFIDENCE TIER COLORS ====================
 
 const TIER_COLORS: Record<string, string> = {
@@ -342,6 +409,31 @@ export default function BacktestPage() {
     },
   });
 
+  // Evaluation metrics (Brier, ECE, log-loss, CLV)
+  const { data: evalMetrics } = useQuery<EvalMetricsResponse>({
+    queryKey: ["/api/backtest/evaluation-metrics", statType],
+    queryFn: async () => {
+      const url = statType
+        ? `/api/backtest/evaluation-metrics?days=30&statType=${statType}`
+        : `/api/backtest/evaluation-metrics?days=30`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error("Failed to fetch evaluation metrics");
+      return res.json();
+    },
+    refetchInterval: 60000,
+  });
+
+  // Market comparison
+  const { data: marketComparison } = useQuery<MarketComparisonResponse>({
+    queryKey: ["/api/backtest/market-comparison"],
+    queryFn: async () => {
+      const res = await fetch("/api/backtest/market-comparison?days=7");
+      if (!res.ok) throw new Error("Failed to fetch market comparison");
+      return res.json();
+    },
+    refetchInterval: 60000,
+  });
+
   const isRefreshing = refreshMutation.isPending || refreshStatus?.isRefreshing;
 
   if (overviewLoading) {
@@ -439,6 +531,16 @@ export default function BacktestPage() {
         <TabsContent value={statType} className="space-y-6 mt-4">
           {/* Overview Stats */}
           <OverviewCards overview={overview} />
+
+          {/* Evaluation Metrics (Brier, ECE, Log-Loss, CLV) */}
+          {evalMetrics?.metrics && (
+            <EvaluationMetricsSection metrics={evalMetrics.metrics} sampleSize={evalMetrics.sampleSize} clvSampleSize={evalMetrics.clvSampleSize} />
+          )}
+
+          {/* Market Comparison */}
+          {marketComparison?.comparison && marketComparison.comparison.totalCompared > 0 && (
+            <MarketComparisonSection comparison={marketComparison.comparison} />
+          )}
 
           {hasData ? (
             <>
@@ -1599,6 +1701,275 @@ function XGBoostPredictionLogSection({ predictions, isLoading }: { predictions: 
             </tbody>
           </table>
         </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+
+// ==================== EVALUATION METRICS SECTION ====================
+
+function EvaluationMetricsSection({
+  metrics,
+  sampleSize,
+  clvSampleSize,
+}: {
+  metrics: EvalMetrics;
+  sampleSize: number;
+  clvSampleSize: number;
+}) {
+  const brierQuality = metrics.brierScore < 0.15 ? "Excellent" :
+    metrics.brierScore < 0.20 ? "Good" :
+    metrics.brierScore < 0.25 ? "Average" : "Poor";
+  const brierColor = metrics.brierScore < 0.15 ? "text-emerald-400" :
+    metrics.brierScore < 0.20 ? "text-yellow-400" :
+    metrics.brierScore < 0.25 ? "text-orange-400" : "text-rose-400";
+
+  const eceQuality = metrics.ece < 0.03 ? "Well Calibrated" :
+    metrics.ece < 0.06 ? "Decent" :
+    metrics.ece < 0.10 ? "Needs Work" : "Poorly Calibrated";
+  const eceColor = metrics.ece < 0.03 ? "text-emerald-400" :
+    metrics.ece < 0.06 ? "text-yellow-400" :
+    metrics.ece < 0.10 ? "text-orange-400" : "text-rose-400";
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center gap-2">
+          <Target className="w-5 h-5 text-primary" />
+          <CardTitle className="text-lg">Probabilistic Evaluation Metrics</CardTitle>
+          <Badge variant="outline" className="text-xs ml-auto">
+            {sampleSize} predictions
+          </Badge>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {/* Metric Cards */}
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+          <div className="rounded-lg bg-card/50 border p-3">
+            <div className="text-xs text-muted-foreground mb-1">Brier Score</div>
+            <div className={`text-2xl font-bold font-mono ${brierColor}`}>
+              {metrics.brierScore.toFixed(4)}
+            </div>
+            <div className="text-xs text-muted-foreground mt-1">{brierQuality}</div>
+          </div>
+
+          <div className="rounded-lg bg-card/50 border p-3">
+            <div className="text-xs text-muted-foreground mb-1">ECE</div>
+            <div className={`text-2xl font-bold font-mono ${eceColor}`}>
+              {metrics.ece.toFixed(4)}
+            </div>
+            <div className="text-xs text-muted-foreground mt-1">{eceQuality}</div>
+          </div>
+
+          <div className="rounded-lg bg-card/50 border p-3">
+            <div className="text-xs text-muted-foreground mb-1">Log Loss</div>
+            <div className="text-2xl font-bold font-mono text-blue-400">
+              {metrics.logLoss.toFixed(4)}
+            </div>
+            <div className="text-xs text-muted-foreground mt-1">Lower is better</div>
+          </div>
+
+          <div className="rounded-lg bg-card/50 border p-3">
+            <div className="text-xs text-muted-foreground mb-1">Avg CLV</div>
+            <div className={`text-2xl font-bold font-mono ${metrics.avgClv > 0 ? "text-emerald-400" : metrics.avgClv < 0 ? "text-rose-400" : "text-muted-foreground"}`}>
+              {metrics.avgClv > 0 ? "+" : ""}{metrics.avgClv.toFixed(3)}
+            </div>
+            <div className="text-xs text-muted-foreground mt-1">{clvSampleSize} w/ closing</div>
+          </div>
+
+          <div className="rounded-lg bg-card/50 border p-3">
+            <div className="text-xs text-muted-foreground mb-1">CLV+ Rate</div>
+            <div className={`text-2xl font-bold font-mono ${metrics.clvPositiveRate > 0.5 ? "text-emerald-400" : "text-rose-400"}`}>
+              {(metrics.clvPositiveRate * 100).toFixed(1)}%
+            </div>
+            <div className="text-xs text-muted-foreground mt-1">Beat closing line</div>
+          </div>
+        </div>
+
+        {/* Calibration Chart */}
+        {metrics.calibrationBins.length > 0 && (
+          <div>
+            <h4 className="text-sm font-medium mb-3">Calibration Chart (Predicted vs Actual Hit Rate)</h4>
+            <div className="h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={metrics.calibrationBins.filter(b => b.count > 0)}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                  <XAxis dataKey="binRange" tick={{ fontSize: 10 }} stroke="hsl(var(--muted-foreground))" />
+                  <YAxis domain={[0, 1]} tick={{ fontSize: 10 }} stroke="hsl(var(--muted-foreground))" />
+                  <Tooltip
+                    contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))" }}
+                    formatter={(value: number, name: string) => [(value * 100).toFixed(1) + "%", name === "predicted" ? "Predicted" : "Actual"]}
+                  />
+                  <Bar dataKey="predicted" fill="hsl(217, 91%, 60%)" name="predicted" opacity={0.6} />
+                  <Bar dataKey="actual" fill="hsl(142, 76%, 36%)" name="actual" />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+            <p className="text-xs text-muted-foreground mt-2">
+              Perfect calibration: blue and green bars match. Gaps indicate over/under-confidence.
+            </p>
+          </div>
+        )}
+
+        {/* Per-Stat Brier Score Breakdown */}
+        {Object.keys(metrics.statBreakdown).length > 0 && (
+          <div>
+            <h4 className="text-sm font-medium mb-3">Per-Stat Breakdown</h4>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border/50 text-xs text-muted-foreground">
+                    <th className="text-left py-2 px-2">Stat</th>
+                    <th className="text-center py-2 px-2">Count</th>
+                    <th className="text-center py-2 px-2">Hit Rate</th>
+                    <th className="text-center py-2 px-2">Brier</th>
+                    <th className="text-center py-2 px-2">ROI</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {Object.entries(metrics.statBreakdown)
+                    .sort(([, a], [, b]) => b.count - a.count)
+                    .map(([stat, data]) => (
+                    <tr key={stat} className="border-b border-border/20">
+                      <td className="py-2 px-2 font-medium">{stat}</td>
+                      <td className="text-center py-2 px-2 text-muted-foreground">{data.count}</td>
+                      <td className={`text-center py-2 px-2 font-mono ${data.hitRate > 0.52 ? "text-emerald-400" : "text-rose-400"}`}>
+                        {(data.hitRate * 100).toFixed(1)}%
+                      </td>
+                      <td className={`text-center py-2 px-2 font-mono ${data.brierScore < 0.20 ? "text-emerald-400" : "text-orange-400"}`}>
+                        {data.brierScore.toFixed(4)}
+                      </td>
+                      <td className={`text-center py-2 px-2 font-mono ${data.roi > 0 ? "text-emerald-400" : "text-rose-400"}`}>
+                        {data.roi > 0 ? "+" : ""}{(data.roi * 100).toFixed(1)}%
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+
+// ==================== MARKET COMPARISON SECTION ====================
+
+function MarketComparisonSection({
+  comparison,
+}: {
+  comparison: MarketComparisonData;
+}) {
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center gap-2">
+          <Scale className="w-5 h-5 text-primary" />
+          <CardTitle className="text-lg">Model vs Market Consensus</CardTitle>
+          <Badge variant="outline" className="text-xs ml-auto">
+            {comparison.totalCompared} props compared
+          </Badge>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {/* Summary Cards */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="rounded-lg bg-card/50 border p-3">
+            <div className="text-xs text-muted-foreground mb-1">Agreement Rate</div>
+            <div className="text-2xl font-bold font-mono text-blue-400">
+              {(comparison.agreementRate * 100).toFixed(1)}%
+            </div>
+            <div className="text-xs text-muted-foreground mt-1">Model agrees w/ market</div>
+          </div>
+
+          <div className="rounded-lg bg-card/50 border p-3">
+            <div className="text-xs text-muted-foreground mb-1">Disagreements</div>
+            <div className="text-2xl font-bold font-mono text-amber-400">
+              {comparison.totalDisagreements}
+            </div>
+            <div className="text-xs text-muted-foreground mt-1">Potential edges</div>
+          </div>
+
+          {comparison.modelCloserToActualRate !== null && (
+            <div className="rounded-lg bg-card/50 border p-3">
+              <div className="text-xs text-muted-foreground mb-1">Model Closer to Actual</div>
+              <div className={`text-2xl font-bold font-mono ${comparison.modelCloserToActualRate > 0.5 ? "text-emerald-400" : "text-rose-400"}`}>
+                {(comparison.modelCloserToActualRate * 100).toFixed(1)}%
+              </div>
+              <div className="text-xs text-muted-foreground mt-1">{comparison.totalWithActuals} settled</div>
+            </div>
+          )}
+
+          <div className="rounded-lg bg-card/50 border p-3">
+            <div className="text-xs text-muted-foreground mb-1">Opposite Side Picks</div>
+            <div className="text-2xl font-bold font-mono text-purple-400">
+              {comparison.topDisagreements.filter(d => !d.sidesAgree).length}
+            </div>
+            <div className="text-xs text-muted-foreground mt-1">Model vs market disagree</div>
+          </div>
+        </div>
+
+        {/* Top Disagreements Table */}
+        {comparison.topDisagreements.length > 0 && (
+          <div>
+            <h4 className="text-sm font-medium mb-3">Top Market Disagreements</h4>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border/50 text-xs text-muted-foreground">
+                    <th className="text-left py-2 px-2">Player</th>
+                    <th className="text-center py-2 px-2">Stat</th>
+                    <th className="text-center py-2 px-2">Model</th>
+                    <th className="text-center py-2 px-2">Market</th>
+                    <th className="text-center py-2 px-2">Line</th>
+                    <th className="text-center py-2 px-2">Diff%</th>
+                    <th className="text-center py-2 px-2">Sides</th>
+                    <th className="text-center py-2 px-2">Books</th>
+                    <th className="text-center py-2 px-2">Result</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {comparison.topDisagreements.slice(0, 15).map((d, i) => (
+                    <tr key={i} className="border-b border-border/20">
+                      <td className="py-2 px-2 font-medium truncate max-w-[120px]">{d.playerName}</td>
+                      <td className="text-center py-2 px-2 text-xs">{d.statType}</td>
+                      <td className="text-center py-2 px-2 font-mono">{d.modelProjection.toFixed(1)}</td>
+                      <td className="text-center py-2 px-2 font-mono text-muted-foreground">{d.marketConsensus.toFixed(1)}</td>
+                      <td className="text-center py-2 px-2 font-mono">{d.line.toFixed(1)}</td>
+                      <td className={`text-center py-2 px-2 font-mono font-bold ${d.differencePct > 5 ? "text-amber-400" : "text-yellow-400"}`}>
+                        {d.differencePct.toFixed(1)}%
+                      </td>
+                      <td className="text-center py-2 px-2">
+                        {d.sidesAgree ? (
+                          <span className="text-xs text-muted-foreground">Agree</span>
+                        ) : (
+                          <Badge className="text-[10px] bg-purple-500/15 text-purple-400 border-purple-500/30">
+                            Disagree
+                          </Badge>
+                        )}
+                      </td>
+                      <td className="text-center py-2 px-2 text-muted-foreground">{d.numBooks}</td>
+                      <td className="text-center py-2 px-2">
+                        {d.actualValue !== null ? (
+                          d.modelCorrect ? (
+                            <CheckCircle2 className="w-4 h-4 text-emerald-400 inline" />
+                          ) : (
+                            <XCircle className="w-4 h-4 text-rose-400 inline" />
+                          )
+                        ) : (
+                          <span className="text-xs text-muted-foreground">Pending</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
       </CardContent>
     </Card>
   );

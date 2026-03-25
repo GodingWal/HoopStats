@@ -12,6 +12,9 @@ from .backtester import (
     calculate_brier_score,
     calculate_log_loss,
     calculate_clv,
+    calculate_expected_calibration_error,
+    devig_to_fair_prob,
+    simulate_full_betting,
 )
 
 from .backtest_engine import (
@@ -27,6 +30,12 @@ from .weight_optimizer import (
     optimize_all_weights,
 )
 
+from .market_comparison import (
+    MarketComparator,
+    MarketDisagreement,
+    ComparisonReport,
+)
+
 
 __all__ = [
     # Original backtester
@@ -37,6 +46,9 @@ __all__ = [
     'calculate_brier_score',
     'calculate_log_loss',
     'calculate_clv',
+    'calculate_expected_calibration_error',
+    'devig_to_fair_prob',
+    'simulate_full_betting',
 
     # Signal backtest engine
     'BacktestEngine',
@@ -48,4 +60,9 @@ __all__ = [
     'SignalWeight',
     'LearnedWeights',
     'optimize_all_weights',
+
+    # Market comparison
+    'MarketComparator',
+    'MarketDisagreement',
+    'ComparisonReport',
 ]
