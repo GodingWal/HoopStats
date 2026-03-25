@@ -138,31 +138,50 @@ function determineResult(actual: number, line: number, side: string): "hit" | "m
 
 /**
  * Build a lookup of all players from completed game box scores.
- * Key: normalized player name -> { stats, gameId, team }
+ * Key: normalized player name -> array of entries (one per game, in case of multi-date lookups)
+ *
+ * Stores gameDate (YYYY-MM-DD) alongside each entry so settlement can verify
+ * that a pick's gameDate matches the actual game the player appeared in.
  */
 interface PlayerBoxEntry {
   displayName: string;
   stats: Record<string, string>;
   teamAbbr: string;
   gameId: string;
+  gameDate: string; // YYYY-MM-DD of the game
+  opponentAbbr: string;
 }
 
-async function buildPlayerStatsMap(completedGames: LiveGame[]): Promise<Map<string, PlayerBoxEntry>> {
-  const map = new Map<string, PlayerBoxEntry>();
+async function buildPlayerStatsMap(completedGames: LiveGame[]): Promise<Map<string, PlayerBoxEntry[]>> {
+  const map = new Map<string, PlayerBoxEntry[]>();
 
   for (const game of completedGames) {
     const boxScore = await fetchGameBoxScore(game.id);
     if (!boxScore) continue;
 
-    for (const teamData of [boxScore.homeTeam, boxScore.awayTeam]) {
+    // Derive game date from ESPN event date (ISO string) -> YYYY-MM-DD
+    const gameDate = game.date ? game.date.slice(0, 10) : "";
+
+    const teams = [boxScore.homeTeam, boxScore.awayTeam];
+    for (let i = 0; i < teams.length; i++) {
+      const teamData = teams[i];
+      const opponentData = teams[1 - i];
       for (const player of teamData.players) {
         const key = normalizeName(player.displayName);
-        map.set(key, {
+        const entry: PlayerBoxEntry = {
           displayName: player.displayName,
           stats: player.stats,
           teamAbbr: teamData.abbreviation,
           gameId: game.id,
-        });
+          gameDate,
+          opponentAbbr: opponentData.abbreviation,
+        };
+        const existing = map.get(key);
+        if (existing) {
+          existing.push(entry);
+        } else {
+          map.set(key, [entry]);
+        }
       }
     }
   }
@@ -239,6 +258,59 @@ async function settleParlay(
 }
 
 /**
+ * Find the correct box-score entry for a pick by matching game date and team.
+ *
+ * Priority:
+ *   1. Date + team both match → best match
+ *   2. Date matches, team is empty (imported picks) → accept if only one entry for that date
+ *   3. No date match → skip (prevents settling against wrong game)
+ */
+function findMatchingEntry(
+  entries: PlayerBoxEntry[],
+  pick: DbParlayPick,
+): PlayerBoxEntry | null {
+  // Normalize the pick's gameDate to YYYY-MM-DD for comparison
+  const pickDate = pick.gameDate ? pick.gameDate.replace(/-/g, "-") : "";
+
+  // Filter entries to those matching the pick's game date
+  const dateMatches = entries.filter(e => {
+    if (!pickDate || !e.gameDate) return false;
+    // Compare YYYY-MM-DD strings (both should already be in this format)
+    return e.gameDate === pickDate;
+  });
+
+  if (dateMatches.length === 0) {
+    return null; // No completed game on the pick's date — don't settle
+  }
+
+  // If the pick has a team set, require it to match
+  const pickTeam = (pick.team || "").toUpperCase().trim();
+  if (pickTeam) {
+    const teamMatch = dateMatches.find(
+      e => e.teamAbbr.toUpperCase() === pickTeam
+    );
+    if (teamMatch) return teamMatch;
+
+    // Team didn't match any entry for this date — skip rather than mis-settle
+    serverLogger.debug(
+      `Team mismatch for ${pick.playerName}: pick team=${pickTeam}, found teams=${dateMatches.map(e => e.teamAbbr).join(",")}`
+    );
+    return null;
+  }
+
+  // No team on pick (imported with team=""): accept only if there's exactly one
+  // entry for this date (unambiguous). If multiple, skip to avoid wrong match.
+  if (dateMatches.length === 1) {
+    return dateMatches[0];
+  }
+
+  serverLogger.warn(
+    `Ambiguous match for ${pick.playerName}: ${dateMatches.length} entries on ${pickDate} with no team set — skipping`
+  );
+  return null;
+}
+
+/**
  * Main settlement routine. Call this periodically.
  */
 export async function runSettlement(): Promise<{ settledPicks: number; settledParlays: number }> {
@@ -263,12 +335,9 @@ export async function runSettlement(): Promise<{ settledPicks: number; settledPa
     }
 
     if (gameDates.size === 0) {
-      // No dated picks; also check today and yesterday
-      const today = new Date();
-      const yesterday = new Date(today);
-      yesterday.setDate(yesterday.getDate() - 1);
-      gameDates.add(toEspnDate(today));
-      gameDates.add(toEspnDate(yesterday));
+      // No dated picks — nothing to settle
+      serverLogger.debug("No game dates found on pending picks — skipping settlement");
+      return { settledPicks: 0, settledParlays: 0 };
     }
 
     // 3. Fetch completed games for each date
@@ -294,7 +363,7 @@ export async function runSettlement(): Promise<{ settledPicks: number; settledPa
     const playerMap = await buildPlayerStatsMap(completedGames);
     serverLogger.info(`Auto-settle: ${playerMap.size} players from ${completedGames.length} completed games`);
 
-    // 5. Settle individual picks
+    // 5. Settle individual picks — with game-date and team alignment checks
     for (const parlay of pendingParlays) {
       let parlayChanged = false;
 
@@ -302,10 +371,21 @@ export async function runSettlement(): Promise<{ settledPicks: number; settledPa
         if (pick.result && pick.result !== "pending") continue;
 
         const nameKey = normalizeName(pick.playerName);
-        const entry = playerMap.get(nameKey);
-        if (!entry) continue; // Player not found in any completed game
+        const entries = playerMap.get(nameKey);
+        if (!entries || entries.length === 0) continue; // Player not found in any completed game
 
-        const actualValue = extractStatValue(entry.stats, pick.stat);
+        // Find the correct box-score entry for this pick by verifying:
+        //   1. Game date must match the pick's gameDate
+        //   2. Team must match (if pick has a team set)
+        const matchedEntry = findMatchingEntry(entries, pick);
+        if (!matchedEntry) {
+          serverLogger.debug(
+            `Skipping pick: ${pick.playerName} — no completed game matching date=${pick.gameDate} team=${pick.team}`
+          );
+          continue;
+        }
+
+        const actualValue = extractStatValue(matchedEntry.stats, pick.stat);
         if (actualValue === null) continue; // Stat not available (DNP, etc.)
 
         const result = determineResult(actualValue, pick.line, pick.side);
@@ -313,7 +393,7 @@ export async function runSettlement(): Promise<{ settledPicks: number; settledPa
 
         // Log outcome to XGBoost training table (fire-and-forget)
         const pickGameDate = pick.gameDate ?? toEspnDate(new Date());
-        const actualMinutes = parseStatNum(entry.stats["MIN"]);
+        const actualMinutes = parseStatNum(matchedEntry.stats["MIN"]);
         logXGBoostOutcome(
           pick.playerName, pickGameDate, pick.stat,
           actualValue, actualMinutes ?? undefined,
@@ -327,7 +407,7 @@ export async function runSettlement(): Promise<{ settledPicks: number; settledPa
         parlayChanged = true;
 
         serverLogger.info(
-          `Settled pick: ${pick.playerName} ${pick.stat} ${pick.side} ${pick.line} → actual: ${actualValue} → ${result}`
+          `Settled pick: ${pick.playerName} ${pick.stat} ${pick.side} ${pick.line} → actual: ${actualValue} → ${result} (game: ${matchedEntry.gameId}, date: ${matchedEntry.gameDate})`
         );
       }
 
