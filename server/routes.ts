@@ -711,48 +711,53 @@ export async function registerRoutes(
     }
   });
 
-  // Get top 10 best picks based on edge analysis + XGBoost ML
+  // Get top 10 best picks - uses projection model data for highest probability picks
   app.get("/api/bets/top-picks", async (req, res) => {
     try {
-      const players = await ensurePlayersLoaded();
-
-      // Run XGBoost predictions for all player-stat-line combinations
-      const availableModels = getAvailableModels();
-      let xgbPredictions: Map<string, XGBoostPrediction> | undefined;
-
-      if (availableModels.length > 0) {
-        apiLogger.info(`XGBoost models available: ${availableModels.join(", ")}`);
-        const requests: Array<{ player: Player; statType: string; line: number }> = [];
-
-        for (const player of players) {
-          for (const statType of ["PTS", "REB", "AST", "FG3M"]) {
-            const hitRates = player.hit_rates[statType];
-            if (!hitRates) continue;
-            for (const lineStr of Object.keys(hitRates)) {
-              requests.push({ player, statType, line: parseFloat(lineStr) });
-            }
-          }
-        }
-
-        if (requests.length > 0) {
-          xgbPredictions = await batchXGBoostPredict(requests);
-          apiLogger.info(`XGBoost returned ${xgbPredictions.size} predictions for ${requests.length} props`);
-        }
-      }
-
-      // Generate bets with XGBoost blend
-      const generatedBets = generatePotentialBets(players, xgbPredictions);
-      await storage.clearPotentialBets();
-      for (const bet of generatedBets) {
-        await storage.createPotentialBet(bet);
-      }
-      const bets = await storage.getPotentialBets();
-
-      // Filter for bets with edges and get top 10
-      const betsWithEdges = bets.filter(b => b.edge_score && b.edge_score > 0);
-      const topPicks = betsWithEdges.slice(0, 10);
-
-      res.json(topPicks);
+      if (!pool) return res.json([]);
+      const result = await pool.query(`
+        WITH ranked_picks AS (
+          SELECT DISTINCT ON (po.player_name, po.prop_type)
+            po.player_name,
+            COALESCE(pdl.team, '') as team,
+            po.prop_type as stat_type,
+            po.prizepicks_line as line,
+            CASE WHEN po.edge_pct > 0 THEN 'OVER' ELSE 'UNDER' END as recommendation,
+            CASE
+              WHEN ABS(po.edge_pct) >= 8 THEN 'HIGH'
+              WHEN ABS(po.edge_pct) >= 4 THEN 'MEDIUM'
+              ELSE 'LOW'
+            END as confidence,
+            'PROJECTION' as edge_type,
+            ROUND(ABS(po.edge_pct)::numeric, 2) as edge_score,
+            'Model projects ' || ROUND(po.final_projection::numeric, 1) || ' vs line ' || po.prizepicks_line || ' (' || ROUND(ABS(po.edge_pct)::numeric, 1) || '% edge)' as edge_description,
+            ROUND(po.final_projection::numeric, 2) as season_avg,
+            ROUND(po.final_projection::numeric, 2) as last_5_avg,
+            LEAST(50 + ABS(po.edge_pct) * 4, 95)::numeric as hit_rate,
+            LEAST(50 + ABS(po.edge_pct) * 4, 95)::numeric as adjusted_hit_rate,
+            ROUND((ABS(po.edge_pct) / 100 * 2)::numeric, 4) as expected_value,
+            ROUND((ABS(po.edge_pct) / 100)::numeric, 4) as kelly_size,
+            10 as sample_size,
+            ABS(po.edge_pct) as abs_edge
+          FROM projection_outputs po
+          LEFT JOIN prizepicks_daily_lines pdl
+            ON LOWER(TRIM(po.player_name)) = LOWER(TRIM(pdl.player_name))
+            AND po.prop_type = pdl.stat_type
+            AND pdl.game_date = CURRENT_DATE
+          WHERE po.game_date = CURRENT_DATE
+            AND po.player_name IS NOT NULL AND po.player_name != ''
+            AND po.confidence_tier != 'SKIP'
+            AND po.prizepicks_line IS NOT NULL AND po.prizepicks_line > 0.5
+          ORDER BY po.player_name, po.prop_type, ABS(po.edge_pct) DESC
+        )
+        SELECT player_name, team, stat_type, line, recommendation, confidence,
+               edge_type, edge_score, edge_description, season_avg, last_5_avg,
+               hit_rate, adjusted_hit_rate, expected_value, kelly_size, sample_size
+        FROM ranked_picks
+        ORDER BY abs_edge DESC
+        LIMIT 10
+      `);
+      res.json(result.rows);
     } catch (error) {
       apiLogger.error("Error fetching top picks:", error);
       res.status(500).json({ error: "Failed to fetch top picks" });
@@ -3717,14 +3722,14 @@ export async function registerRoutes(
       // Get market consensus from multi-book lines (median line = market projection)
       const marketQuery = `
         SELECT
-          player_id, stat_type, game_date,
+          player_id, stat as stat_type, game_date,
           PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY line) as market_line,
-          COUNT(DISTINCT sportsbook) as num_books,
+          COUNT(DISTINCT sportsbook_key) as num_books,
           MAX(line) - MIN(line) as line_spread
         FROM player_prop_lines
         WHERE game_date >= NOW() - INTERVAL '${days} days'
           AND line IS NOT NULL
-        GROUP BY player_id, stat_type, game_date
+        GROUP BY player_id, stat, game_date
       `;
 
       const [projResult, marketResult] = await Promise.all([

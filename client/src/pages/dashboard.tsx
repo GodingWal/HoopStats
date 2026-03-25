@@ -4,7 +4,7 @@ import { PropCard } from "@/components/prop-card";
 import { Badge } from "@/components/ui/badge";
 import { InjuryAlertsWidget } from "@/components/injury-alerts-widget";
 import type { PotentialBet } from "@shared/schema";
-import { Loader2, Flame, TrendingUp, TrendingDown } from "lucide-react";
+import { Loader2, Flame, TrendingUp, TrendingDown, RefreshCw } from "lucide-react";
 
 interface Recommendation {
   playerId: number;
@@ -58,6 +58,7 @@ function getEdgeBadgeColor(edgeType: string | undefined) {
   if (edgeType === "BAD_DEFENSE") return "bg-red-500/20 text-red-400 border-red-500/30";
   if (edgeType === "MINUTES_STABILITY") return "bg-green-500/20 text-green-400 border-green-500/30";
   if (edgeType === "HOME_ROAD_SPLIT") return "bg-yellow-500/20 text-yellow-400 border-yellow-500/30";
+  if (edgeType === "PROJECTION") return "bg-indigo-500/20 text-indigo-400 border-indigo-500/30";
   return "bg-primary/20 text-primary border-primary/30";
 }
 
@@ -76,7 +77,7 @@ function StatCard({ label, value, highlight = false }: { label: string; value: s
 }
 
 export default function Dashboard() {
-  const { data: topPicks, isLoading: picksLoading, isError: picksError } = useQuery({
+  const { data: topPicks, isLoading: picksLoading, isError: picksError, refetch: refetchPicks, isFetching: picksFetching } = useQuery({
     queryKey: ['/api/bets/top-picks'],
     queryFn: fetchTopPicks,
     refetchInterval: 60000, // Refresh every minute
@@ -151,8 +152,19 @@ export default function Dashboard() {
         <CardHeader>
           <div className="flex justify-between items-center">
             <CardTitle>Top 10 Best Picks</CardTitle>
-            <div className="text-sm text-muted-foreground">
-              Edge-based analysis
+            <div className="flex items-center gap-3">
+              <div className="text-sm text-muted-foreground">
+                Edge-based analysis
+              </div>
+              <button
+                onClick={() => refetchPicks()}
+                disabled={picksFetching}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border border-border bg-background hover:bg-accent hover:text-accent-foreground transition-colors disabled:opacity-50"
+                title="Refresh picks"
+              >
+                <RefreshCw className={`h-3.5 w-3.5 ${picksFetching ? 'animate-spin' : ''}`} />
+                {picksFetching ? 'Refreshing...' : 'Refresh'}
+              </button>
             </div>
           </div>
         </CardHeader>
