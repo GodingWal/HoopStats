@@ -21,6 +21,7 @@ Feature groups:
 from typing import Dict, Any, List, Optional, Tuple
 from dataclasses import dataclass, field
 import numpy as np
+from numpy.polynomial import polynomial as P
 
 
 @dataclass
@@ -117,6 +118,24 @@ XGBOOST_FEATURE_NAMES = [
     "signal_count",
     "projected_value",
     "projected_minutes",
+
+    # --- Group 7: Matchup-specific features ---
+    "opp_pos_def_rank",
+    "player_matchup_edge",
+    "opp_pace_rank",
+    "expected_game_pace",
+
+    # --- Group 8: Trend/momentum features ---
+    "trend_slope_l10",
+    "trend_slope_l5",
+    "games_above_line_streak",
+    "last_game_delta",
+
+    # --- Group 9: Market/odds features ---
+    "implied_prob_over",
+    "line_vs_consensus",
+    "num_books_offering",
+    "vig_magnitude",
 ]
 
 
@@ -163,6 +182,15 @@ class XGBoostFeatureBuilder:
 
         # Group 6: Meta
         self._extract_meta(context, features)
+
+        # Group 7: Matchup-specific
+        self._extract_matchup_features(context, features)
+
+        # Group 8: Trend/momentum
+        self._extract_trend_features(context, features)
+
+        # Group 9: Market/odds
+        self._extract_market_features(context, features)
 
         # Build target if actual result available
         target = self._compute_target(context)
@@ -367,6 +395,99 @@ class XGBoostFeatureBuilder:
         f["signal_count"] = float(ctx.get("active_signals", ctx.get("signal_count", 0)))
         f["projected_value"] = float(ctx.get("projected_value", 0.0))
         f["projected_minutes"] = float(ctx.get("projected_minutes", 30.0))
+
+    # ------------------------------------------------------------------
+    # Group 7-9: New feature extraction methods
+    # ------------------------------------------------------------------
+
+    def _extract_matchup_features(self, ctx: Dict[str, Any], f: Dict[str, float]) -> None:
+        """Extract matchup-specific features — position defense, pace rank, expected pace."""
+        # Opponent defensive rank vs player's position (1-30, normalized to 0-1)
+        # Lower rank = better defense (1 = best, 30 = worst)
+        pos_def_rank = ctx.get("opp_pos_def_rank", ctx.get("opp_position_defense_rank", 15))
+        f["opp_pos_def_rank"] = float(pos_def_rank) / 30.0  # Normalize 0-1
+
+        # Player matchup edge: historical avg vs opponent minus line, normalized
+        hist_avg = f.get("player_vs_opp_hist_avg", 0.0)
+        line = ctx.get("line", ctx.get("prizepicks_line", 0.0))
+        if line > 0 and hist_avg > 0:
+            f["player_matchup_edge"] = (hist_avg - line) / line
+        else:
+            f["player_matchup_edge"] = 0.0
+
+        # Opponent pace rank (1-30, normalized to 0-1; 1 = fastest)
+        pace_rank = ctx.get("opp_pace_rank", 15)
+        f["opp_pace_rank"] = float(pace_rank) / 30.0
+
+        # Expected game pace: average of team + opponent pace
+        team_pace = f.get("team_pace_actual", 100.0)
+        opp_pace = f.get("opp_pace_actual", 100.0)
+        f["expected_game_pace"] = (team_pace + opp_pace) / 2.0
+
+    def _extract_trend_features(self, ctx: Dict[str, Any], f: Dict[str, float]) -> None:
+        """Extract trend/momentum features — slopes, streaks, recency."""
+        game_logs = ctx.get("game_logs", [])
+        stat_type = ctx.get("stat_type", ctx.get("prop_type", ""))
+        stat_key = self._stat_type_to_key(stat_type)
+        line = ctx.get("line", ctx.get("prizepicks_line", 0.0))
+
+        stat_values_l10 = self._extract_stat_values(game_logs, stat_key, n=10)
+        stat_values_l5 = self._extract_stat_values(game_logs, stat_key, n=5)
+
+        # Linear regression slope over last 10 games (positive = improving)
+        f["trend_slope_l10"] = self._compute_trend_slope(stat_values_l10)
+        f["trend_slope_l5"] = self._compute_trend_slope(stat_values_l5)
+
+        # Consecutive recent games over the line (streak)
+        streak = 0
+        if stat_values_l10 and line > 0:
+            for val in stat_values_l10:
+                if val > line:
+                    streak += 1
+                else:
+                    break
+        f["games_above_line_streak"] = float(streak)
+
+        # Last game delta: (last game stat - line) / line
+        if stat_values_l10 and line > 0:
+            f["last_game_delta"] = (stat_values_l10[0] - line) / line
+        else:
+            f["last_game_delta"] = 0.0
+
+    def _extract_market_features(self, ctx: Dict[str, Any], f: Dict[str, float]) -> None:
+        """Extract market/odds features — implied probability, consensus, vig."""
+        # Implied probability of over from sportsbook odds
+        f["implied_prob_over"] = float(ctx.get("implied_prob_over", ctx.get("implied_probability", 0.5)))
+
+        # Current line vs consensus line across books
+        consensus = ctx.get("consensus_line", ctx.get("market_consensus_line", None))
+        current_line = ctx.get("line", ctx.get("prizepicks_line", 0.0))
+        if consensus is not None and float(consensus) > 0:
+            f["line_vs_consensus"] = current_line - float(consensus)
+        else:
+            f["line_vs_consensus"] = 0.0
+
+        # Number of sportsbooks offering this prop (liquidity/confidence proxy)
+        f["num_books_offering"] = float(ctx.get("num_books_offering", ctx.get("sportsbook_count", 0)))
+
+        # Vig magnitude (total overround — high vig = uncertain market)
+        f["vig_magnitude"] = float(ctx.get("vig_magnitude", ctx.get("total_vig", 0.0)))
+
+    @staticmethod
+    def _compute_trend_slope(values: List[float]) -> float:
+        """Compute linear regression slope over a sequence of stat values.
+        Values are ordered most-recent-first, so we reverse for regression.
+        Returns slope per game (positive = trending up)."""
+        if len(values) < 3:
+            return 0.0
+        # Reverse so index 0 = oldest game
+        y = np.array(list(reversed(values)), dtype=float)
+        x = np.arange(len(y), dtype=float)
+        try:
+            coeffs = np.polyfit(x, y, 1)
+            return float(coeffs[0])  # slope
+        except (np.linalg.LinAlgError, ValueError):
+            return 0.0
 
     # ------------------------------------------------------------------
     # Utility methods

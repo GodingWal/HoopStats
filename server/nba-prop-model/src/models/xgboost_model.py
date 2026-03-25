@@ -25,8 +25,10 @@ Usage:
 import logging
 import json
 import os
+import pickle
 from typing import Dict, Any, List, Optional, Tuple
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta
 import numpy as np
 
 from src.features.xgboost_features import (
@@ -45,6 +47,14 @@ try:
 except ImportError:
     HAS_XGBOOST = False
     logger.info("xgboost not installed — using fallback gradient boosting")
+
+# Try to import sklearn calibration
+try:
+    from sklearn.calibration import IsotonicRegression
+    HAS_SKLEARN_CALIBRATION = True
+except ImportError:
+    HAS_SKLEARN_CALIBRATION = False
+    logger.info("sklearn not available — isotonic calibration disabled")
 
 
 @dataclass
@@ -82,6 +92,9 @@ class XGBoostPropModel:
         reg_alpha: float = 0.1,
         reg_lambda: float = 1.0,
         model_dir: str = "models/xgboost",
+        early_stopping_rounds: int = 20,
+        use_calibration: bool = True,
+        sample_weight_halflife_days: int = 90,
     ):
         self.params = {
             "n_estimators": n_estimators,
@@ -94,9 +107,14 @@ class XGBoostPropModel:
             "reg_lambda": reg_lambda,
         }
         self.model_dir = model_dir
+        self.early_stopping_rounds = early_stopping_rounds
+        self.use_calibration = use_calibration and HAS_SKLEARN_CALIBRATION
+        self.sample_weight_halflife_days = sample_weight_halflife_days
         self.feature_builder = XGBoostFeatureBuilder()
         self.models: Dict[str, Any] = {}  # stat_type -> trained model
+        self.calibrators: Dict[str, Any] = {}  # stat_type -> IsotonicRegression
         self.is_fitted: Dict[str, bool] = {}
+        self.pruned_features: Dict[str, List[str]] = {}  # stat_type -> low-importance features
 
     def train(
         self,
@@ -111,6 +129,7 @@ class XGBoostPropModel:
             training_data: List of dicts with "features" and "target" keys.
                           Features is a dict of feature_name -> value.
                           Target is 1 (hit/over) or 0 (miss/under).
+                          Optional "game_date" for recency weighting.
             stat_type: Stat type to train for (trains one model per stat).
             validation_split: Fraction held out for validation.
 
@@ -129,15 +148,38 @@ class XGBoostPropModel:
         # Build feature matrix
         X, y = self._build_matrices(training_data)
 
+        # Compute sample weights (recency bias)
+        sample_weights = self._compute_sample_weights(training_data)
+
         # Train/val split (chronological — don't shuffle time series)
         split_idx = int(len(X) * (1 - validation_split))
         X_train, X_val = X[:split_idx], X[split_idx:]
         y_train, y_val = y[:split_idx], y[split_idx:]
+        w_train = sample_weights[:split_idx] if sample_weights is not None else None
 
         if HAS_XGBOOST:
-            metrics = self._train_xgboost(X_train, y_train, X_val, y_val, stat_type)
+            metrics = self._train_xgboost(X_train, y_train, X_val, y_val, stat_type, w_train)
         else:
             metrics = self._train_fallback(X_train, y_train, X_val, y_val, stat_type)
+
+        # Post-hoc isotonic calibration
+        if self.use_calibration and stat_type in self.models:
+            self._fit_calibrator(X_val, y_val, stat_type)
+            metrics["calibrated"] = True
+        else:
+            metrics["calibrated"] = False
+
+        # Feature importance pruning — identify low-value features
+        importances = metrics.get("feature_importances", {})
+        if importances:
+            total_imp = sum(importances.values())
+            if total_imp > 0:
+                self.pruned_features[stat_type] = [
+                    name for name, imp in importances.items()
+                    if imp / total_imp < 0.005  # < 0.5% importance
+                ]
+                metrics["pruned_features"] = self.pruned_features[stat_type]
+                metrics["n_pruned"] = len(self.pruned_features[stat_type])
 
         self.is_fitted[stat_type] = True
         metrics["n_train"] = len(X_train)
@@ -147,7 +189,8 @@ class XGBoostPropModel:
         logger.info(
             f"Trained {stat_type} model: "
             f"val_accuracy={metrics.get('val_accuracy', 0):.3f}, "
-            f"n_train={metrics['n_train']}, n_val={metrics['n_val']}"
+            f"n_train={metrics['n_train']}, n_val={metrics['n_val']}, "
+            f"calibrated={metrics['calibrated']}"
         )
 
         return metrics
@@ -155,6 +198,8 @@ class XGBoostPropModel:
     def predict_proba(self, context: Dict[str, Any], stat_type: str) -> float:
         """
         Predict probability of hitting over the line.
+
+        Uses isotonic calibration when available for better-calibrated outputs.
 
         Args:
             context: Game context dict.
@@ -172,12 +217,21 @@ class XGBoostPropModel:
         model = self.models[stat_type]
         if HAS_XGBOOST and isinstance(model, xgb.XGBClassifier):
             proba = model.predict_proba(X)[0]
-            return float(proba[1])  # Probability of class 1 (hit)
+            raw_prob = float(proba[1])  # Probability of class 1 (hit)
         else:
             # Fallback model returns raw predictions, convert to probability
             raw = model.predict(X)[0]
-            # Sigmoid to convert to probability
-            return float(1.0 / (1.0 + np.exp(-raw)))
+            raw_prob = float(1.0 / (1.0 + np.exp(-raw)))
+
+        # Apply isotonic calibration if available
+        if stat_type in self.calibrators:
+            try:
+                calibrated = self.calibrators[stat_type].predict([raw_prob])
+                return float(np.clip(calibrated[0], 0.01, 0.99))
+            except Exception:
+                pass
+
+        return raw_prob
 
     def predict(self, context: Dict[str, Any], stat_type: str) -> XGBoostPrediction:
         """
@@ -227,7 +281,7 @@ class XGBoostPropModel:
             return model.get_feature_importance()
 
     def save(self, stat_type: str) -> bool:
-        """Save trained model to disk."""
+        """Save trained model and calibrator to disk."""
         if stat_type not in self.models:
             return False
 
@@ -247,11 +301,27 @@ class XGBoostPropModel:
             with open(path, "w") as f:
                 json.dump(data, f)
 
+        # Save calibrator if available
+        if stat_type in self.calibrators:
+            cal_path = os.path.join(self.model_dir, f"{stat_type}_calibrator.pkl")
+            try:
+                with open(cal_path, "wb") as f:
+                    pickle.dump(self.calibrators[stat_type], f)
+                logger.info(f"Saved calibrator for {stat_type}")
+            except Exception as e:
+                logger.warning(f"Failed to save calibrator for {stat_type}: {e}")
+
+        # Save pruned features list
+        if stat_type in self.pruned_features:
+            prune_path = os.path.join(self.model_dir, f"{stat_type}_pruned.json")
+            with open(prune_path, "w") as f:
+                json.dump(self.pruned_features[stat_type], f)
+
         logger.info(f"Saved {stat_type} model to {path}")
         return True
 
     def load(self, stat_type: str) -> bool:
-        """Load a trained model from disk."""
+        """Load a trained model, calibrator, and pruned features from disk."""
         path = os.path.join(self.model_dir, f"{stat_type}.json")
         if not os.path.exists(path):
             return False
@@ -273,6 +343,26 @@ class XGBoostPropModel:
                 self.models[stat_type] = model
 
             self.is_fitted[stat_type] = True
+
+            # Load calibrator if available
+            cal_path = os.path.join(self.model_dir, f"{stat_type}_calibrator.pkl")
+            if os.path.exists(cal_path):
+                try:
+                    with open(cal_path, "rb") as f:
+                        self.calibrators[stat_type] = pickle.load(f)
+                    logger.info(f"Loaded calibrator for {stat_type}")
+                except Exception:
+                    pass
+
+            # Load pruned features if available
+            prune_path = os.path.join(self.model_dir, f"{stat_type}_pruned.json")
+            if os.path.exists(prune_path):
+                try:
+                    with open(prune_path) as f:
+                        self.pruned_features[stat_type] = json.load(f)
+                except Exception:
+                    pass
+
             logger.info(f"Loaded {stat_type} model from {path}")
             return True
         except Exception as e:
@@ -306,6 +396,71 @@ class XGBoostPropModel:
 
         return np.array(X_list), np.array(y_list)
 
+    def _compute_sample_weights(
+        self, training_data: List[Dict[str, Any]]
+    ) -> Optional[np.ndarray]:
+        """Compute exponential decay sample weights based on game date recency.
+        More recent games get higher weight. Half-life is configurable."""
+        if self.sample_weight_halflife_days <= 0:
+            return None
+
+        today = datetime.utcnow()
+        decay_rate = np.log(2) / self.sample_weight_halflife_days
+        weights = []
+
+        for row in training_data:
+            target = row.get("target")
+            if target is None:
+                continue
+            game_date = row.get("game_date")
+            if game_date:
+                try:
+                    if isinstance(game_date, str):
+                        gd = datetime.fromisoformat(game_date.replace("Z", "+00:00").split("+")[0])
+                    else:
+                        gd = game_date
+                    days_ago = max((today - gd).days, 0)
+                except (ValueError, TypeError):
+                    days_ago = 90  # default to half-weight
+            else:
+                days_ago = 90
+            weights.append(np.exp(-decay_rate * days_ago))
+
+        if not weights:
+            return None
+        return np.array(weights)
+
+    def _fit_calibrator(
+        self, X_val: np.ndarray, y_val: np.ndarray, stat_type: str
+    ) -> None:
+        """Fit isotonic regression calibrator on validation predictions."""
+        if not HAS_SKLEARN_CALIBRATION:
+            return
+
+        model = self.models[stat_type]
+        if HAS_XGBOOST and isinstance(model, xgb.XGBClassifier):
+            raw_proba = model.predict_proba(X_val)[:, 1]
+        else:
+            raw = model.predict(X_val)
+            raw_proba = 1.0 / (1.0 + np.exp(-raw))
+
+        if len(y_val) < 20:
+            logger.warning(f"Too few validation samples ({len(y_val)}) for calibration")
+            return
+
+        calibrator = IsotonicRegression(y_min=0.01, y_max=0.99, out_of_bounds="clip")
+        calibrator.fit(raw_proba, y_val)
+        self.calibrators[stat_type] = calibrator
+
+        # Log calibration improvement
+        raw_brier = float(np.mean((raw_proba - y_val) ** 2))
+        cal_proba = calibrator.predict(raw_proba)
+        cal_brier = float(np.mean((cal_proba - y_val) ** 2))
+        logger.info(
+            f"Calibration for {stat_type}: Brier score {raw_brier:.4f} -> {cal_brier:.4f} "
+            f"({'improved' if cal_brier < raw_brier else 'no improvement'})"
+        )
+
     def _train_xgboost(
         self,
         X_train: np.ndarray,
@@ -313,8 +468,9 @@ class XGBoostPropModel:
         X_val: np.ndarray,
         y_val: np.ndarray,
         stat_type: str,
+        sample_weights: Optional[np.ndarray] = None,
     ) -> Dict[str, Any]:
-        """Train using native XGBoost."""
+        """Train using native XGBoost with early stopping and sample weights."""
         model = xgb.XGBClassifier(
             n_estimators=self.params["n_estimators"],
             max_depth=self.params["max_depth"],
@@ -326,12 +482,14 @@ class XGBoostPropModel:
             reg_lambda=self.params["reg_lambda"],
             objective="binary:logistic",
             eval_metric="logloss",
+            early_stopping_rounds=self.early_stopping_rounds,
             random_state=42,
         )
 
         model.fit(
             X_train, y_train,
             eval_set=[(X_val, y_val)],
+            sample_weight=sample_weights,
             verbose=False,
         )
 
@@ -349,13 +507,21 @@ class XGBoostPropModel:
             (1 - y_val) * np.log(1 - val_proba + eps)
         ))
 
+        # Brier score (calibration metric)
+        val_brier = float(np.mean((val_proba - y_val) ** 2))
+
         # Feature importance
         importances = dict(zip(XGBOOST_FEATURE_NAMES, model.feature_importances_))
         top_features = sorted(importances.items(), key=lambda x: x[1], reverse=True)[:10]
 
+        # Best iteration (from early stopping)
+        best_iteration = getattr(model, "best_iteration", self.params["n_estimators"])
+
         return {
             "val_accuracy": val_accuracy,
             "val_logloss": val_logloss,
+            "val_brier": val_brier,
+            "best_iteration": best_iteration,
             "model_type": "xgboost",
             "top_features": top_features,
             "feature_importances": importances,
