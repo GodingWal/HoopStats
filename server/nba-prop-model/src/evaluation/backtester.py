@@ -26,6 +26,9 @@ class BetResult:
     actual_value: float
     won: bool
     profit: float  # +profit if won, -1 if lost (assuming unit bets)
+    closing_line: Optional[float] = None  # Closing line for CLV calc
+    best_odds: Optional[int] = None  # Best available odds across books
+    sportsbook: Optional[str] = None  # Sportsbook used
 
 
 @dataclass
@@ -36,25 +39,32 @@ class BacktestResults:
     total_bets: int
     wins: int
     losses: int
-    
+
     # Performance metrics
     hit_rate: float
     roi: float
     profit: float
-    
+
     # By stat type
     stats_breakdown: Dict[str, Dict]
-    
+
     # Calibration
     calibration_buckets: Dict[str, float]
-    
+
     # Risk metrics
     max_drawdown: float
     sharpe_ratio: float
-    
+
+    # Probabilistic evaluation metrics
+    brier_score: float = 0.0
+    log_loss: float = 0.0
+    expected_calibration_error: float = 0.0  # ECE
+    avg_clv: float = 0.0  # Average Closing Line Value
+    clv_positive_rate: float = 0.0  # % of bets with positive CLV
+
     # Individual bets
     bets: List[BetResult] = field(default_factory=list)
-    
+
     def summary(self) -> str:
         """Generate summary string"""
         return f"""
@@ -68,13 +78,20 @@ Total Profit: {self.profit:+.1f} units
 Max Drawdown: {self.max_drawdown:.1f} units
 Sharpe Ratio: {self.sharpe_ratio:.2f}
 
+Probabilistic Metrics:
+  Brier Score: {self.brier_score:.4f}
+  Log Loss: {self.log_loss:.4f}
+  ECE: {self.expected_calibration_error:.4f}
+  Avg CLV: {self.avg_clv:+.3f}
+  CLV+ Rate: {self.clv_positive_rate:.1%}
+
 By Stat:
 {self._format_stats_breakdown()}
 
 Calibration:
 {self._format_calibration()}
 """
-    
+
     def _format_stats_breakdown(self) -> str:
         lines = []
         for stat, data in self.stats_breakdown.items():
@@ -83,7 +100,7 @@ Calibration:
                 f"({data['hit_rate']:.1%}) | ROI: {data['roi']:.1%}"
             )
         return "\n".join(lines)
-    
+
     def _format_calibration(self) -> str:
         lines = []
         for bucket, actual_rate in sorted(self.calibration_buckets.items()):
@@ -93,38 +110,56 @@ Calibration:
 
 class Backtester:
     """
-    Walk-forward backtesting for prop model
+    Walk-forward backtesting for prop model.
+
+    Supports:
+    - No-vig fair odds (devigging) for accurate edge calculation
+    - Line shopping across multiple sportsbooks
+    - Multi-season date ranges
+    - Full probabilistic evaluation (Brier, ECE, log-loss, CLV)
     """
-    
+
     def __init__(
         self,
         min_edge_threshold: float = 0.03,
-        odds: int = -110
+        odds: int = -110,
+        use_devig: bool = True,
+        use_line_shopping: bool = False,
     ):
         self.min_edge_threshold = min_edge_threshold
         self.odds = odds
-        
+        self.use_devig = use_devig
+        self.use_line_shopping = use_line_shopping
+
         # Calculate profit on win based on odds
         if odds < 0:
             self.profit_on_win = 100 / abs(odds)
         else:
             self.profit_on_win = odds / 100
-    
+
     def run_backtest(
         self,
         predictions: pd.DataFrame,
         actuals: pd.DataFrame,
         start_date: Optional[str] = None,
-        end_date: Optional[str] = None
+        end_date: Optional[str] = None,
+        multi_book_lines: Optional[pd.DataFrame] = None,
+        seasons: Optional[List[str]] = None,
     ) -> BacktestResults:
         """
-        Run backtest on predictions vs actuals
-        
+        Run backtest on predictions vs actuals.
+
         Args:
             predictions: DataFrame with columns:
                 - date, player_id, stat, line, prob_over, prob_under
+                - Optional: over_odds, under_odds (for devigging)
+                - Optional: closing_line (for CLV)
             actuals: DataFrame with columns:
                 - date, player_id, stat, actual_value
+            multi_book_lines: Optional DataFrame for line shopping with columns:
+                - date, player_id, stat, sportsbook, line, over_odds, under_odds
+            seasons: Optional list of season strings (e.g. ['2023-24', '2024-25'])
+                     to run multi-season backtest
         """
         # Merge predictions with actuals
         merged = pd.merge(
@@ -132,34 +167,103 @@ class Backtester:
             actuals,
             on=['date', 'player_id', 'stat']
         )
-        
+
         # Filter date range
         if start_date:
             merged = merged[merged['date'] >= start_date]
         if end_date:
             merged = merged[merged['date'] <= end_date]
-        
+
+        # Multi-season filtering
+        if seasons:
+            merged = self._filter_by_seasons(merged, seasons)
+
         if len(merged) == 0:
             raise ValueError("No matching predictions and actuals found")
-        
+
+        # If line shopping enabled, attach best available lines
+        if self.use_line_shopping and multi_book_lines is not None:
+            merged = self._attach_best_lines(merged, multi_book_lines)
+
         # Evaluate each bet
         bets = []
-        
+
         for _, row in merged.iterrows():
             bet = self._evaluate_bet(row)
             if bet is not None:
                 bets.append(bet)
-        
+
         # Aggregate results
         return self._aggregate_results(bets, start_date, end_date)
-    
+
+    def _filter_by_seasons(self, data: pd.DataFrame, seasons: List[str]) -> pd.DataFrame:
+        """Filter data to include only specified NBA seasons (Oct-Jun)."""
+        masks = []
+        for season in seasons:
+            parts = season.split('-')
+            if len(parts) == 2:
+                start_year = int(parts[0]) if len(parts[0]) == 4 else int('20' + parts[0])
+                end_year = int(parts[1]) if len(parts[1]) == 4 else int('20' + parts[1])
+            else:
+                continue
+            season_start = f"{start_year}-10-01"
+            season_end = f"{end_year}-06-30"
+            mask = (data['date'] >= season_start) & (data['date'] <= season_end)
+            masks.append(mask)
+        if masks:
+            combined = masks[0]
+            for m in masks[1:]:
+                combined = combined | m
+            return data[combined]
+        return data
+
+    def _attach_best_lines(
+        self, merged: pd.DataFrame, multi_book_lines: pd.DataFrame
+    ) -> pd.DataFrame:
+        """Attach best available odds from multi-book data for line shopping."""
+        best_rows = []
+        for _, row in multi_book_lines.iterrows():
+            best_rows.append(row)
+
+        if not best_rows:
+            return merged
+
+        # Group multi-book lines by (date, player_id, stat) and find best odds
+        grouped = multi_book_lines.groupby(['date', 'player_id', 'stat'])
+        best_lines = []
+        for (date, pid, stat), group in grouped:
+            # Best over odds = highest payout for over
+            best_over_idx = group['over_odds'].idxmax() if 'over_odds' in group.columns else None
+            best_under_idx = group['under_odds'].idxmax() if 'under_odds' in group.columns else None
+
+            best_over_odds = int(group.loc[best_over_idx, 'over_odds']) if best_over_idx is not None else self.odds
+            best_under_odds = int(group.loc[best_under_idx, 'under_odds']) if best_under_idx is not None else self.odds
+            best_over_book = group.loc[best_over_idx, 'sportsbook'] if best_over_idx is not None else 'default'
+            best_under_book = group.loc[best_under_idx, 'sportsbook'] if best_under_idx is not None else 'default'
+
+            best_lines.append({
+                'date': date,
+                'player_id': pid,
+                'stat': stat,
+                'best_over_odds': best_over_odds,
+                'best_under_odds': best_under_odds,
+                'best_over_book': best_over_book,
+                'best_under_book': best_under_book,
+            })
+
+        if best_lines:
+            best_df = pd.DataFrame(best_lines)
+            merged = pd.merge(merged, best_df, on=['date', 'player_id', 'stat'], how='left')
+
+        return merged
+
     def _evaluate_bet(self, row: pd.Series) -> Optional[BetResult]:
-        """Evaluate a single prediction"""
+        """Evaluate a single prediction with devigging and line shopping support."""
         prob_over = row['prob_over']
         prob_under = row.get('prob_under', 1 - prob_over)
         line = row['line']
         actual = row['actual_value']
-        
+
         # Determine best side
         if prob_over > prob_under:
             side = 'over'
@@ -169,23 +273,53 @@ class Backtester:
             side = 'under'
             model_prob = prob_under
             won = actual < line
-        
-        # Calculate edge
-        edge, ev = calculate_edge(model_prob, self.odds)
-        
+
+        # Get odds — use best available if line shopping is active
+        if self.use_line_shopping and 'best_over_odds' in row.index:
+            if side == 'over':
+                bet_odds = row.get('best_over_odds', self.odds)
+                sportsbook = row.get('best_over_book', None)
+            else:
+                bet_odds = row.get('best_under_odds', self.odds)
+                sportsbook = row.get('best_under_book', None)
+            bet_odds = int(bet_odds) if not pd.isna(bet_odds) else self.odds
+        else:
+            bet_odds = self.odds
+            sportsbook = None
+
+        # Calculate implied probability — with or without vig removal
+        if self.use_devig and 'over_odds' in row.index and 'under_odds' in row.index:
+            over_odds = row.get('over_odds', self.odds)
+            under_odds = row.get('under_odds', self.odds)
+            if not pd.isna(over_odds) and not pd.isna(under_odds):
+                implied = devig_to_fair_prob(
+                    int(over_odds), int(under_odds),
+                    side=side
+                )
+            else:
+                implied = _american_to_implied(bet_odds)
+        else:
+            implied = _american_to_implied(bet_odds)
+
+        # Calculate edge against fair (no-vig) probability
+        edge = model_prob - implied
+
         # Only bet if edge exceeds threshold
         if edge < self.min_edge_threshold:
             return None
-        
-        # Implied probability
-        if self.odds < 0:
-            implied = abs(self.odds) / (abs(self.odds) + 100)
+
+        # Calculate profit using actual bet odds (with vig — what you'd really get)
+        if bet_odds < 0:
+            profit_on_win = 100 / abs(bet_odds)
         else:
-            implied = 100 / (self.odds + 100)
-        
-        # Calculate profit
-        profit = self.profit_on_win if won else -1.0
-        
+            profit_on_win = bet_odds / 100
+        profit = profit_on_win if won else -1.0
+
+        # Closing line for CLV
+        closing_line = row.get('closing_line', None)
+        if closing_line is not None and pd.isna(closing_line):
+            closing_line = None
+
         return BetResult(
             date=str(row['date']),
             player=row.get('player_name', str(row['player_id'])),
@@ -197,7 +331,10 @@ class Backtester:
             edge=edge,
             actual_value=actual,
             won=won,
-            profit=profit
+            profit=profit,
+            closing_line=float(closing_line) if closing_line is not None else None,
+            best_odds=bet_odds if self.use_line_shopping else None,
+            sportsbook=sportsbook,
         )
     
     def _aggregate_results(
@@ -206,7 +343,7 @@ class Backtester:
         start_date: Optional[str],
         end_date: Optional[str]
     ) -> BacktestResults:
-        """Aggregate individual bet results"""
+        """Aggregate individual bet results with full probabilistic metrics."""
         if not bets:
             return BacktestResults(
                 start_date=start_date or "",
@@ -221,35 +358,65 @@ class Backtester:
                 calibration_buckets={},
                 max_drawdown=0,
                 sharpe_ratio=0,
+                brier_score=0,
+                log_loss=0,
+                expected_calibration_error=0,
+                avg_clv=0,
+                clv_positive_rate=0,
                 bets=[]
             )
-        
+
         total = len(bets)
         wins = sum(1 for b in bets if b.won)
         losses = total - wins
-        
+
         total_profit = sum(b.profit for b in bets)
         roi = total_profit / total
-        
-        # Stats breakdown
-        stats_breakdown = defaultdict(lambda: {'wins': 0, 'total': 0, 'profit': 0})
+
+        # Stats breakdown with per-stat Brier/ROI
+        stats_breakdown = defaultdict(lambda: {
+            'wins': 0, 'total': 0, 'profit': 0,
+            'probs': [], 'outcomes': [],
+        })
         for bet in bets:
             stats_breakdown[bet.stat]['total'] += 1
             stats_breakdown[bet.stat]['profit'] += bet.profit
+            stats_breakdown[bet.stat]['probs'].append(bet.model_prob)
+            stats_breakdown[bet.stat]['outcomes'].append(1.0 if bet.won else 0.0)
             if bet.won:
                 stats_breakdown[bet.stat]['wins'] += 1
-        
+
         for stat in stats_breakdown:
             data = stats_breakdown[stat]
             data['hit_rate'] = data['wins'] / data['total'] if data['total'] > 0 else 0
             data['roi'] = data['profit'] / data['total'] if data['total'] > 0 else 0
-        
-        # Calibration
+            # Per-stat Brier score
+            if data['probs']:
+                probs_arr = np.array(data['probs'])
+                outcomes_arr = np.array(data['outcomes'])
+                data['brier_score'] = float(calculate_brier_score(probs_arr, outcomes_arr))
+            else:
+                data['brier_score'] = 0.0
+            # Clean up temp lists from serializable output
+            del data['probs']
+            del data['outcomes']
+
+        # Calibration buckets
         calibration_buckets = self._calculate_calibration(bets)
-        
+
         # Drawdown and Sharpe
         max_drawdown, sharpe = self._calculate_risk_metrics(bets)
-        
+
+        # Probabilistic metrics
+        probs = np.array([b.model_prob for b in bets])
+        outcomes = np.array([1.0 if b.won else 0.0 for b in bets])
+        brier = float(calculate_brier_score(probs, outcomes))
+        logloss = float(calculate_log_loss(probs, outcomes))
+        ece = float(calculate_expected_calibration_error(probs, outcomes))
+
+        # CLV metrics
+        avg_clv, clv_pos_rate = self._calculate_clv_metrics(bets)
+
         return BacktestResults(
             start_date=start_date or bets[0].date,
             end_date=end_date or bets[-1].date,
@@ -263,8 +430,33 @@ class Backtester:
             calibration_buckets=calibration_buckets,
             max_drawdown=max_drawdown,
             sharpe_ratio=sharpe,
+            brier_score=brier,
+            log_loss=logloss,
+            expected_calibration_error=ece,
+            avg_clv=avg_clv,
+            clv_positive_rate=clv_pos_rate,
             bets=bets
         )
+
+    def _calculate_clv_metrics(self, bets: List[BetResult]) -> Tuple[float, float]:
+        """Calculate CLV metrics from bets that have closing line data."""
+        bets_with_cl = [b for b in bets if b.closing_line is not None]
+        if not bets_with_cl:
+            return 0.0, 0.0
+
+        clv_values = []
+        for bet in bets_with_cl:
+            opening = bet.line
+            closing = bet.closing_line
+            if bet.side == 'over':
+                clv = opening - closing  # Line dropped = we got value
+            else:
+                clv = closing - opening  # Line rose = we got value
+            clv_values.append(clv)
+
+        avg_clv = float(np.mean(clv_values))
+        clv_pos_rate = sum(1 for c in clv_values if c > 0) / len(clv_values)
+        return avg_clv, clv_pos_rate
     
     def _calculate_calibration(self, bets: List[BetResult]) -> Dict[str, float]:
         """Check probability calibration by bucket"""
@@ -424,16 +616,87 @@ class Backtester:
         }
 
 
+# ==================== UTILITY FUNCTIONS ====================
+
+
+def _american_to_implied(odds: int) -> float:
+    """Convert American odds to implied probability (with vig)."""
+    if odds < 0:
+        return abs(odds) / (abs(odds) + 100)
+    elif odds > 0:
+        return 100 / (odds + 100)
+    return 0.5
+
+
+def devig_to_fair_prob(
+    over_odds: int,
+    under_odds: int,
+    side: str = 'over',
+    method: str = 'multiplicative',
+) -> float:
+    """
+    Remove vig from a two-way market to get the true fair probability.
+
+    Methods:
+    - 'multiplicative' (default): Scale implied probs proportionally
+      (most common, assumes vig is distributed proportional to probability)
+    - 'additive': Subtract equal vig from each side
+    - 'power': Shin's method — better for sharp markets
+    - 'worst_case': Use the higher implied prob (conservative)
+
+    Args:
+        over_odds: American odds for the over
+        under_odds: American odds for the under
+        side: Which side's fair prob to return ('over' or 'under')
+        method: Devigging method
+
+    Returns:
+        Fair (no-vig) probability for the requested side
+    """
+    impl_over = _american_to_implied(over_odds)
+    impl_under = _american_to_implied(under_odds)
+    total = impl_over + impl_under  # > 1.0 due to vig
+    vig = total - 1.0
+
+    if method == 'multiplicative':
+        fair_over = impl_over / total
+        fair_under = impl_under / total
+    elif method == 'additive':
+        half_vig = vig / 2.0
+        fair_over = max(impl_over - half_vig, 0.01)
+        fair_under = max(impl_under - half_vig, 0.01)
+        # Re-normalize
+        s = fair_over + fair_under
+        fair_over /= s
+        fair_under /= s
+    elif method == 'power':
+        # Shin's method approximation
+        z = vig / total
+        fair_over = impl_over * (1 - z) / (1 - z * impl_over)
+        fair_under = 1.0 - fair_over
+    elif method == 'worst_case':
+        # Conservative: assume all vig is on your side
+        fair_over = impl_over - vig
+        fair_under = impl_under - vig
+        fair_over = max(fair_over, 0.01)
+        fair_under = max(fair_under, 0.01)
+    else:
+        fair_over = impl_over / total
+        fair_under = impl_under / total
+
+    return fair_over if side == 'over' else fair_under
+
+
 def calculate_brier_score(
     probabilities: np.ndarray,
     outcomes: np.ndarray
 ) -> float:
     """
-    Calculate Brier score for probability predictions
-    
-    Lower is better. 0 = perfect, 0.25 = random guessing (for 50/50)
+    Calculate Brier score for probability predictions.
+
+    Lower is better. 0 = perfect, 0.25 = random guessing (for 50/50).
     """
-    return np.mean((probabilities - outcomes) ** 2)
+    return float(np.mean((probabilities - outcomes) ** 2))
 
 
 def calculate_log_loss(
@@ -442,12 +705,43 @@ def calculate_log_loss(
     eps: float = 1e-15
 ) -> float:
     """
-    Calculate log loss for probability predictions
-    
+    Calculate log loss for probability predictions.
+
     Lower is better.
     """
     probs = np.clip(probabilities, eps, 1 - eps)
-    return -np.mean(outcomes * np.log(probs) + (1 - outcomes) * np.log(1 - probs))
+    return float(-np.mean(outcomes * np.log(probs) + (1 - outcomes) * np.log(1 - probs)))
+
+
+def calculate_expected_calibration_error(
+    probabilities: np.ndarray,
+    outcomes: np.ndarray,
+    n_bins: int = 10,
+) -> float:
+    """
+    Calculate Expected Calibration Error (ECE).
+
+    ECE measures the weighted average gap between predicted probability
+    and actual hit rate across probability bins.
+
+    Lower is better. 0 = perfectly calibrated.
+    """
+    bin_edges = np.linspace(0, 1, n_bins + 1)
+    total = len(probabilities)
+    if total == 0:
+        return 0.0
+
+    ece = 0.0
+    for i in range(n_bins):
+        mask = (probabilities >= bin_edges[i]) & (probabilities < bin_edges[i + 1])
+        count = mask.sum()
+        if count == 0:
+            continue
+        avg_pred = float(probabilities[mask].mean())
+        avg_true = float(outcomes[mask].mean())
+        ece += (count / total) * abs(avg_true - avg_pred)
+
+    return ece
 
 
 def calculate_clv(
@@ -456,27 +750,132 @@ def calculate_clv(
     closing_lines: np.ndarray
 ) -> float:
     """
-    Calculate Closing Line Value
-    
+    Calculate Closing Line Value.
+
     Measures how often your bets beat the closing line.
+    Positive CLV = beating the market (the real proof of edge).
     """
-    # For each bet, check if we got better odds than close
-    # Positive CLV = beating the market
-    
     clv_values = []
-    
+
     for model_p, open_line, close_line in zip(model_probs, opening_lines, closing_lines):
-        # Did line move in our favor?
         if model_p > 0.5:  # We bet over
-            # If close line moved down, we got value
             clv = open_line - close_line
         else:  # We bet under
-            # If close line moved up, we got value
             clv = close_line - open_line
-        
         clv_values.append(clv)
-    
-    return np.mean(clv_values)
+
+    return float(np.mean(clv_values))
+
+
+def simulate_full_betting(
+    predictions: pd.DataFrame,
+    closing_lines: pd.DataFrame,
+    actuals: pd.DataFrame,
+    min_edge: float = 0.03,
+) -> Dict:
+    """
+    Full betting simulation comparing model probs vs closing lines for CLV.
+
+    This is "the real proof of edge" — if you consistently beat the closing line,
+    your model has predictive power regardless of short-term variance.
+
+    Args:
+        predictions: DataFrame with date, player_id, stat, line, prob_over, prob_under,
+                     over_odds, under_odds
+        closing_lines: DataFrame with date, player_id, stat, closing_line,
+                       closing_over_odds, closing_under_odds
+        actuals: DataFrame with date, player_id, stat, actual_value
+
+    Returns:
+        Dict with CLV analysis, bet-level CLV, and comparison metrics
+    """
+    merged = pd.merge(predictions, closing_lines, on=['date', 'player_id', 'stat'])
+    merged = pd.merge(merged, actuals, on=['date', 'player_id', 'stat'])
+
+    results = []
+    for _, row in merged.iterrows():
+        prob_over = row['prob_over']
+        prob_under = row.get('prob_under', 1 - prob_over)
+
+        if prob_over > prob_under:
+            side = 'over'
+            model_prob = prob_over
+            won = row['actual_value'] > row['line']
+        else:
+            side = 'under'
+            model_prob = prob_under
+            won = row['actual_value'] < row['line']
+
+        # Devig opening odds to get fair probability
+        over_odds = row.get('over_odds', -110)
+        under_odds = row.get('under_odds', -110)
+        fair_prob = devig_to_fair_prob(int(over_odds), int(under_odds), side=side)
+
+        edge = model_prob - fair_prob
+        if edge < min_edge:
+            continue
+
+        # Devig closing odds for CLV comparison
+        cl_over = row.get('closing_over_odds', over_odds)
+        cl_under = row.get('closing_under_odds', under_odds)
+        closing_fair = devig_to_fair_prob(int(cl_over), int(cl_under), side=side)
+
+        # CLV = our fair prob at open vs fair prob at close
+        # If closing fair moved toward our prediction, we captured CLV
+        clv = closing_fair - fair_prob  # Positive = market agreed with us
+
+        results.append({
+            'date': str(row['date']),
+            'player': row.get('player_name', str(row['player_id'])),
+            'stat': row['stat'],
+            'side': side,
+            'model_prob': model_prob,
+            'opening_fair': fair_prob,
+            'closing_fair': closing_fair,
+            'edge_at_open': edge,
+            'clv': clv,
+            'won': won,
+        })
+
+    if not results:
+        return {
+            'total_bets': 0,
+            'avg_clv': 0,
+            'clv_positive_rate': 0,
+            'avg_edge': 0,
+            'hit_rate': 0,
+            'bets': [],
+        }
+
+    clv_vals = [r['clv'] for r in results]
+    return {
+        'total_bets': len(results),
+        'avg_clv': float(np.mean(clv_vals)),
+        'median_clv': float(np.median(clv_vals)),
+        'clv_positive_rate': sum(1 for c in clv_vals if c > 0) / len(clv_vals),
+        'avg_edge': float(np.mean([r['edge_at_open'] for r in results])),
+        'hit_rate': sum(1 for r in results if r['won']) / len(results),
+        'clv_by_stat': _clv_by_stat(results),
+        'bets': results,
+    }
+
+
+def _clv_by_stat(results: List[Dict]) -> Dict[str, Dict]:
+    """Break down CLV metrics by stat type."""
+    by_stat = defaultdict(list)
+    for r in results:
+        by_stat[r['stat']].append(r)
+
+    breakdown = {}
+    for stat, bets in by_stat.items():
+        clvs = [b['clv'] for b in bets]
+        breakdown[stat] = {
+            'count': len(bets),
+            'avg_clv': float(np.mean(clvs)),
+            'clv_positive_rate': sum(1 for c in clvs if c > 0) / len(clvs),
+            'hit_rate': sum(1 for b in bets if b['won']) / len(bets),
+        }
+    return breakdown
 
 
 class WalkForwardValidator:

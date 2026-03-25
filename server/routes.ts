@@ -3526,6 +3526,330 @@ export async function registerRoutes(
   });
 
 
+  // =============== VALIDATION & EVALUATION METRICS ENDPOINTS ===============
+
+  // GET /api/backtest/evaluation-metrics — Brier score, ECE, log-loss, CLV for settled predictions
+  app.get("/api/backtest/evaluation-metrics", async (req, res) => {
+    try {
+      if (!pool) return res.json({ metrics: null, message: "No database" });
+
+      const statType = req.query.statType as string | undefined;
+      const days = parseInt(req.query.days as string) || 30;
+
+      let query = `
+        SELECT
+          stat_type,
+          model_prob,
+          hit,
+          line,
+          closing_line,
+          over_odds,
+          under_odds,
+          actual_value
+        FROM xgboost_training_log
+        WHERE actual_value IS NOT NULL
+          AND model_prob IS NOT NULL
+          AND game_date >= NOW() - INTERVAL '${days} days'
+      `;
+      const params: unknown[] = [];
+      if (statType) {
+        params.push(statType);
+        query += ` AND stat_type = $${params.length}`;
+      }
+      query += ` ORDER BY game_date DESC`;
+
+      const result = await pool.query(query, params);
+
+      if (result.rows.length < 5) {
+        return res.json({
+          metrics: null,
+          sampleSize: result.rows.length,
+          message: "Insufficient settled predictions for evaluation",
+        });
+      }
+
+      const rows = result.rows;
+      const probs = rows.map((r: any) => parseFloat(r.model_prob));
+      const outcomes = rows.map((r: any) => r.hit ? 1.0 : 0.0);
+
+      // Brier Score
+      const brierScore = probs.reduce((sum: number, p: number, i: number) =>
+        sum + (p - outcomes[i]) ** 2, 0) / probs.length;
+
+      // Log Loss
+      const eps = 1e-15;
+      const logLoss = -probs.reduce((sum: number, p: number, i: number) => {
+        const clipped = Math.max(eps, Math.min(1 - eps, p));
+        return sum + outcomes[i] * Math.log(clipped) + (1 - outcomes[i]) * Math.log(1 - clipped);
+      }, 0) / probs.length;
+
+      // ECE (Expected Calibration Error)
+      const nBins = 10;
+      let ece = 0;
+      const calibrationBins: Array<{ binRange: string; predicted: number; actual: number; count: number }> = [];
+      for (let bin = 0; bin < nBins; bin++) {
+        const low = bin / nBins;
+        const high = (bin + 1) / nBins;
+        const inBin = probs.map((p: number, i: number) => ({p, o: outcomes[i]}))
+          .filter((x: {p: number; o: number}) => x.p >= low && x.p < high);
+        if (inBin.length === 0) {
+          calibrationBins.push({ binRange: `${(low*100).toFixed(0)}-${(high*100).toFixed(0)}%`, predicted: 0, actual: 0, count: 0 });
+          continue;
+        }
+        const avgPred = inBin.reduce((s: number, x: {p: number; o: number}) => s + x.p, 0) / inBin.length;
+        const avgTrue = inBin.reduce((s: number, x: {p: number; o: number}) => s + x.o, 0) / inBin.length;
+        ece += (inBin.length / probs.length) * Math.abs(avgTrue - avgPred);
+        calibrationBins.push({
+          binRange: `${(low*100).toFixed(0)}-${(high*100).toFixed(0)}%`,
+          predicted: Math.round(avgPred * 1000) / 1000,
+          actual: Math.round(avgTrue * 1000) / 1000,
+          count: inBin.length,
+        });
+      }
+
+      // CLV metrics
+      const withClosing = rows.filter((r: any) => r.closing_line != null && r.line != null);
+      let avgClv = 0;
+      let clvPositiveRate = 0;
+      if (withClosing.length > 0) {
+        const clvValues = withClosing.map((r: any) => {
+          const modelProb = parseFloat(r.model_prob);
+          const opening = parseFloat(r.line);
+          const closing = parseFloat(r.closing_line);
+          if (modelProb > 0.5) return opening - closing;
+          return closing - opening;
+        });
+        avgClv = clvValues.reduce((a: number, b: number) => a + b, 0) / clvValues.length;
+        clvPositiveRate = clvValues.filter((c: number) => c > 0).length / clvValues.length;
+      }
+
+      // Per-stat breakdown
+      const statBreakdown: Record<string, any> = {};
+      const byStatType = rows.reduce((acc: Record<string, any[]>, r: any) => {
+        const st = r.stat_type;
+        if (!acc[st]) acc[st] = [];
+        acc[st].push(r);
+        return acc;
+      }, {} as Record<string, any[]>);
+
+      for (const [st, statRows] of Object.entries(byStatType) as [string, any[]][]) {
+        const sp = statRows.map((r: any) => parseFloat(r.model_prob));
+        const so = statRows.map((r: any) => r.hit ? 1.0 : 0.0);
+        const statBrier = sp.reduce((sum: number, p: number, i: number) =>
+          sum + (p - so[i]) ** 2, 0) / sp.length;
+        const wins = so.filter((o: number) => o === 1).length;
+        statBreakdown[st] = {
+          count: statRows.length,
+          hitRate: wins / statRows.length,
+          brierScore: Math.round(statBrier * 10000) / 10000,
+          roi: statRows.reduce((s: number, r: any) => {
+            return s + (r.hit ? 0.909 : -1.0); // -110 odds
+          }, 0) / statRows.length,
+        };
+      }
+
+      res.json({
+        metrics: {
+          brierScore: Math.round(brierScore * 10000) / 10000,
+          logLoss: Math.round(logLoss * 10000) / 10000,
+          ece: Math.round(ece * 10000) / 10000,
+          avgClv: Math.round(avgClv * 1000) / 1000,
+          clvPositiveRate: Math.round(clvPositiveRate * 1000) / 1000,
+          hitRate: outcomes.filter((o: number) => o === 1).length / outcomes.length,
+          calibrationBins,
+          statBreakdown,
+        },
+        sampleSize: rows.length,
+        clvSampleSize: withClosing.length,
+        days,
+      });
+    } catch (error: any) {
+      if (error.code === '42P01') {
+        return res.json({ metrics: null, sampleSize: 0, message: "Table not yet created." });
+      }
+      apiLogger.error("Error fetching evaluation metrics:", error);
+      res.status(500).json({ error: "Failed to fetch evaluation metrics" });
+    }
+  });
+
+  // GET /api/backtest/market-comparison — Compare model vs market consensus
+  app.get("/api/backtest/market-comparison", async (req, res) => {
+    try {
+      if (!pool) return res.json({ comparison: null, message: "No database" });
+
+      const days = parseInt(req.query.days as string) || 7;
+
+      // Get model projections
+      const projQuery = `
+        SELECT
+          pl.player_id, pl.player_name, pl.stat_type, pl.game_date,
+          pl.projected_value, pl.line, pl.actual_value, pl.projection_hit
+        FROM projection_logs pl
+        WHERE pl.game_date >= NOW() - INTERVAL '${days} days'
+          AND pl.projected_value IS NOT NULL
+        ORDER BY pl.game_date DESC
+      `;
+
+      // Get market consensus from multi-book lines (median line = market projection)
+      const marketQuery = `
+        SELECT
+          player_id, stat_type, game_date,
+          PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY line) as market_line,
+          COUNT(DISTINCT sportsbook) as num_books,
+          MAX(line) - MIN(line) as line_spread
+        FROM player_prop_lines
+        WHERE game_date >= NOW() - INTERVAL '${days} days'
+          AND line IS NOT NULL
+        GROUP BY player_id, stat_type, game_date
+      `;
+
+      const [projResult, marketResult] = await Promise.all([
+        pool.query(projQuery),
+        pool.query(marketQuery),
+      ]);
+
+      if (projResult.rows.length === 0) {
+        return res.json({
+          comparison: null,
+          message: "No projection data available for comparison",
+        });
+      }
+
+      // Build market lookup
+      const marketMap = new Map<string, any>();
+      for (const row of marketResult.rows) {
+        const key = `${row.player_id}_${row.stat_type}_${row.game_date}`;
+        marketMap.set(key, row);
+      }
+
+      // Find disagreements
+      const disagreements: any[] = [];
+      let totalCompared = 0;
+      let modelCloserCount = 0;
+      let totalWithActuals = 0;
+
+      for (const proj of projResult.rows) {
+        const key = `${proj.player_id}_${proj.stat_type}_${proj.game_date}`;
+        const market = marketMap.get(key);
+        if (!market) continue;
+
+        totalCompared++;
+        const modelVal = parseFloat(proj.projected_value);
+        const marketVal = parseFloat(market.market_line);
+        const line = parseFloat(proj.line) || marketVal;
+        const diff = modelVal - marketVal;
+        const diffPct = line > 0 ? Math.abs(diff / line) * 100 : 0;
+
+        const modelSide = modelVal > line ? "OVER" : "UNDER";
+        const marketSide = marketVal > line ? "OVER" : "UNDER";
+
+        // Track accuracy if actual is available
+        let modelCorrect = null;
+        let marketCorrect = null;
+        if (proj.actual_value != null) {
+          const actual = parseFloat(proj.actual_value);
+          const modelErr = Math.abs(modelVal - actual);
+          const marketErr = Math.abs(marketVal - actual);
+          if (modelErr < marketErr) modelCloserCount++;
+          totalWithActuals++;
+
+          modelCorrect = (modelSide === "OVER" && actual > line) || (modelSide === "UNDER" && actual < line);
+          marketCorrect = (marketSide === "OVER" && actual > line) || (marketSide === "UNDER" && actual < line);
+        }
+
+        if (diffPct >= 3.0) { // 3% minimum disagreement threshold
+          disagreements.push({
+            playerName: proj.player_name,
+            statType: proj.stat_type,
+            gameDate: proj.game_date,
+            modelProjection: modelVal,
+            marketConsensus: marketVal,
+            line,
+            difference: Math.round(diff * 100) / 100,
+            differencePct: Math.round(diffPct * 10) / 10,
+            modelSide,
+            marketSide,
+            sidesAgree: modelSide === marketSide,
+            numBooks: parseInt(market.num_books),
+            lineSpread: parseFloat(market.line_spread),
+            actualValue: proj.actual_value ? parseFloat(proj.actual_value) : null,
+            modelCorrect,
+            marketCorrect,
+            inefficiencyScore: Math.round((diffPct * 0.6 + (line > 0 ? Math.abs(modelVal - line) / line * 100 * 0.4 : 0)) * 10) / 10,
+          });
+        }
+      }
+
+      // Sort by inefficiency score
+      disagreements.sort((a: any, b: any) => b.inefficiencyScore - a.inefficiencyScore);
+
+      res.json({
+        comparison: {
+          totalCompared,
+          totalDisagreements: disagreements.length,
+          agreementRate: totalCompared > 0 ? Math.round((1 - disagreements.length / totalCompared) * 1000) / 1000 : 1.0,
+          modelCloserToActualRate: totalWithActuals > 0 ? Math.round(modelCloserCount / totalWithActuals * 1000) / 1000 : null,
+          totalWithActuals,
+          topDisagreements: disagreements.slice(0, 25),
+        },
+        days,
+      });
+    } catch (error: any) {
+      if (error.code === '42P01') {
+        return res.json({ comparison: null, message: "Required tables not yet created." });
+      }
+      apiLogger.error("Error fetching market comparison:", error);
+      res.status(500).json({ error: "Failed to fetch market comparison" });
+    }
+  });
+
+  // GET /api/backtest/devig-odds — Calculate no-vig fair odds for a two-way market
+  app.get("/api/backtest/devig-odds", async (req, res) => {
+    try {
+      const overOdds = parseInt(req.query.overOdds as string) || -110;
+      const underOdds = parseInt(req.query.underOdds as string) || -110;
+
+      const impliedOver = overOdds < 0
+        ? Math.abs(overOdds) / (Math.abs(overOdds) + 100)
+        : 100 / (overOdds + 100);
+      const impliedUnder = underOdds < 0
+        ? Math.abs(underOdds) / (Math.abs(underOdds) + 100)
+        : 100 / (underOdds + 100);
+
+      const totalImplied = impliedOver + impliedUnder;
+      const vig = totalImplied - 1.0;
+      const vigPct = vig * 100;
+
+      // Multiplicative devig (most common method)
+      const fairOver = impliedOver / totalImplied;
+      const fairUnder = impliedUnder / totalImplied;
+
+      res.json({
+        input: { overOdds, underOdds },
+        implied: {
+          over: Math.round(impliedOver * 10000) / 10000,
+          under: Math.round(impliedUnder * 10000) / 10000,
+          total: Math.round(totalImplied * 10000) / 10000,
+        },
+        vig: {
+          amount: Math.round(vig * 10000) / 10000,
+          percentage: Math.round(vigPct * 100) / 100,
+        },
+        fairProbability: {
+          over: Math.round(fairOver * 10000) / 10000,
+          under: Math.round(fairUnder * 10000) / 10000,
+        },
+        breakeven: {
+          over: Math.round(fairOver * 10000) / 100,
+          under: Math.round(fairUnder * 10000) / 100,
+        },
+      });
+    } catch (error) {
+      apiLogger.error("Error calculating devig odds:", error);
+      res.status(500).json({ error: "Failed to calculate devig odds" });
+    }
+  });
+
   // -------------------------------------------------------------------------
   // Signal Engine API Endpoints
   // -------------------------------------------------------------------------
