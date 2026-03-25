@@ -82,6 +82,78 @@ export const advancedStatsSchema = z.object({
 
 export type AdvancedStats = z.infer<typeof advancedStatsSchema>;
 
+// ========================================
+// TRACKING-DERIVED STATS
+// ========================================
+
+// Shot Quality (qSQ) - expected points and luck/regression indicator
+export const shotQualitySchema = z.object({
+  qsq: z.number(),                    // Quantified shot quality score (0-1)
+  expectedEfg: z.number(),            // Expected eFG% from shot profile
+  actualEfg: z.number(),              // Actual eFG% achieved
+  shotQualityDelta: z.number(),       // Delta: actual - expected (luck indicator)
+  regressionSignal: z.enum(["OVER", "UNDER", "NEUTRAL"]),  // Betting regression direction
+  regressionMagnitude: z.number(),    // How strong the regression signal is (0-1)
+  threePointRate: z.number(),         // 3PA / FGA
+  freeThrowRate: z.number(),          // FTA / FGA
+  rimRate: z.number(),                // Estimated at-rim rate
+  midrangeRate: z.number(),           // Estimated midrange rate
+  shotQualityMix: z.number(),         // Shot selection quality (higher = better)
+  archetype: z.string(),              // rim_runner, perimeter, slasher, etc.
+});
+
+export type ShotQuality = z.infer<typeof shotQualitySchema>;
+
+// Defensive metrics - Aggression+ and Variance+
+export const defensiveMatchupSchema = z.object({
+  aggressionPlus: z.number(),         // Double-team frequency / defensive pressure (0-100)
+  variancePlus: z.number(),           // Coverage switch frequency / outcome variance (0-100)
+  matchupDifficulty: z.number(),      // Composite matchup difficulty (0-1)
+  schemeName: z.string(),             // blitz, drop, switch, hedge, zone
+  schemeImpact: z.record(z.string(), z.number()), // Stat-specific multipliers
+  oppDefRating: z.number(),           // Opponent defensive rating
+  oppDefRank: z.number(),             // Rank (1-30, lower = tougher)
+  positionDefense: z.number(),        // How opponent guards this position (0-1 scale)
+  paceAdjFactor: z.number(),          // Expected game pace factor
+});
+
+export type DefensiveMatchup = z.infer<typeof defensiveMatchupSchema>;
+
+// Synergy / Lineup features - teammate combo clustering
+export const synergyLineupSchema = z.object({
+  lineupImpact: z.number(),           // Net rating impact of common lineups
+  minutesStability: z.number(),       // How stable the rotation is (0-1)
+  projectedMinutes: z.number(),       // Expected minutes tonight
+  minutesFloor: z.number(),           // 10th percentile minutes
+  minutesCeiling: z.number(),         // 90th percentile minutes
+  blowoutRisk: z.number(),            // Probability of blowout (reduces minutes)
+  roleScore: z.number(),              // Star (1.0) -> Deep bench (0.1)
+  teammatesOut: z.array(z.object({
+    name: z.string(),
+    statImpact: z.number(),           // Boost/reduction per stat
+    minutesImpact: z.number(),        // Extra minutes absorbed
+  })),
+  bestLineupPartners: z.array(z.object({
+    name: z.string(),
+    netRatingWith: z.number(),
+  })),
+  opponentCluster: z.string(),        // Opponent defensive archetype
+});
+
+export type SynergyLineup = z.infer<typeof synergyLineupSchema>;
+
+// Combined tracking stats response
+export const trackingStatsSchema = z.object({
+  playerId: z.number(),
+  playerName: z.string(),
+  shotQuality: shotQualitySchema,
+  defensiveMatchup: defensiveMatchupSchema,
+  synergyLineup: synergyLineupSchema,
+  lastUpdated: z.string(),
+});
+
+export type TrackingStats = z.infer<typeof trackingStatsSchema>;
+
 // Home/Away averages
 export const splitAveragesSchema = z.object({
   PTS: z.number(),

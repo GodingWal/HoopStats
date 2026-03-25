@@ -12,7 +12,8 @@ import { AlertManager, AlertBadge } from "./alert-manager";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { TrendingUp, Target, Users, BarChart3, Loader2, LineChart, Bell, Activity } from "lucide-react";
+import { TrendingUp, Target, Users, BarChart3, Loader2, LineChart, Bell, Activity, Crosshair } from "lucide-react";
+import { TrackingStatsPanel } from "./tracking-stats";
 
 interface PlayerDetailProps {
   player: Player;
@@ -458,6 +459,10 @@ export function PlayerDetail({ player }: PlayerDetailProps) {
           </TabsTrigger>
           <TabsTrigger value="hitrates" data-testid="tab-hitrates">Hit Rates</TabsTrigger>
           <TabsTrigger value="matchups" data-testid="tab-matchups">Matchups</TabsTrigger>
+          <TabsTrigger value="tracking" data-testid="tab-tracking">
+            <Crosshair className="w-4 h-4 mr-1" />
+            Tracking
+          </TabsTrigger>
           <TabsTrigger value="advanced" data-testid="tab-advanced">
             <Activity className="w-4 h-4 mr-1" />
             Advanced
@@ -637,6 +642,10 @@ export function PlayerDetail({ player }: PlayerDetailProps) {
             vsTeam={vsTeamFromGamelog}
             seasonAvg={seasonAverages}
           />
+        </TabsContent>
+
+        <TabsContent value="tracking" className="mt-4">
+          <TrackingStatsPanel playerId={player.player_id} playerName={player.player_name} />
         </TabsContent>
 
         <TabsContent value="advanced" className="mt-4">
