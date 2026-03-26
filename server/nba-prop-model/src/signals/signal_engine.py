@@ -1,5 +1,5 @@
 """
-Signal Engine — master orchestrator for all NBA prop signals.
+Signal Engine - master orchestrator for all NBA prop signals.
 
 Usage:
     engine = SignalEngine(db_conn)
@@ -33,9 +33,8 @@ class GameContext:
     game_date: str           # YYYY-MM-DD
     prop_type: str           # e.g. "Points", "Rebounds"
     prizepicks_line: float
-    absent_players: List[str] = field(default_factory=list)   # list of player_ids
-    referee_crew: List[str] = field(default_factory=list)     # list of referee names
-    # Optional context extras (position, rest days, season averages, etc.)
+    absent_players: List[str] = field(default_factory=list)
+    referee_crew: List[str] = field(default_factory=list)
     extra: Dict[str, Any] = field(default_factory=dict)
 
     def to_signal_context(self) -> Dict[str, Any]:
@@ -61,12 +60,12 @@ class GameContext:
 @dataclass
 class SignalEngineResult:
     """Output from SignalEngine.run()."""
-    weighted_delta: float          # total weighted projection adjustment (as fraction)
-    direction: Optional[str]       # 'OVER', 'UNDER', or None
-    confidence_tier: str           # 'SMASH', 'STRONG', 'LEAN', 'SKIP'
-    signals_fired: List[Dict[str, Any]]   # list of fired signal dicts
-    signals_skipped: List[str]            # signal names that didn't fire
-    conflict_detected: bool               # True if opposing signals fired
+    weighted_delta: float
+    direction: Optional[str]
+    confidence_tier: str
+    signals_fired: List[Dict[str, Any]]
+    signals_skipped: List[str]
+    conflict_detected: bool
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -93,8 +92,10 @@ class SignalEngine:
     4. Downgrades confidence tier when signals conflict.
     """
 
-    # Confidence tiers ordered highest → lowest (for downgrade logic)
     TIER_ORDER = ["SMASH", "STRONG", "LEAN", "SKIP"]
+
+    # Signals with accuracy worse than coin flip get weight 0
+    DISABLED_SIGNALS = {"clv_tracker", "blowout_risk"}
 
     def __init__(self, db_conn=None):
         self.db_conn = db_conn
@@ -107,20 +108,13 @@ class SignalEngine:
     # ------------------------------------------------------------------
 
     def run(self, game_context: GameContext) -> SignalEngineResult:
-        """
-        Run all signals for the given game context.
-
-        Args:
-            game_context: GameContext dataclass with all required fields.
-
-        Returns:
-            SignalEngineResult with weighted delta and metadata.
-        """
         ctx = game_context.to_signal_context()
         raw_results: Dict[str, Any] = {}
 
-        # Run each signal
         for name, signal in self._signals.items():
+            # Skip disabled signals
+            if name in self.DISABLED_SIGNALS:
+                continue
             if not signal.applies_to(game_context.prop_type):
                 continue
             try:
@@ -134,22 +128,18 @@ class SignalEngine:
             except Exception as e:
                 logger.warning(f"Signal {name} failed: {e}")
 
-        # Separate fired vs skipped
         fired = {k: v for k, v in raw_results.items() if v.fired}
         skipped = [k for k, v in raw_results.items() if not v.fired]
 
-        # Detect conflicts (over vs under signals both firing)
         over_signals = [k for k, v in fired.items() if v.direction == "OVER"]
         under_signals = [k for k, v in fired.items() if v.direction == "UNDER"]
         conflict = len(over_signals) > 0 and len(under_signals) > 0
 
-        # Weighted sum of deltas
         weighted_delta = 0.0
         for name, result in fired.items():
             weight = self._weights.get(name, 0.5)
             weighted_delta += result.adjustment * weight
 
-        # Consensus direction
         if len(over_signals) > len(under_signals):
             direction = "OVER"
         elif len(under_signals) > len(over_signals):
@@ -157,7 +147,6 @@ class SignalEngine:
         else:
             direction = None
 
-        # Base confidence tier
         aligned_count = max(len(over_signals), len(under_signals))
         if aligned_count >= 3 and not conflict:
             tier = "SMASH"
@@ -168,11 +157,9 @@ class SignalEngine:
         else:
             tier = "SKIP"
 
-        # Downgrade one level if conflict detected
         if conflict:
             tier = self._downgrade_tier(tier)
 
-        # Serialize fired signals for output
         fired_list = [
             {
                 "signal_name": name,
@@ -196,7 +183,6 @@ class SignalEngine:
         )
 
     def refresh_weights(self) -> None:
-        """Re-load weights from DB (call after bayesian_optimizer runs)."""
         self._load_weights()
 
     # ------------------------------------------------------------------
@@ -204,7 +190,7 @@ class SignalEngine:
     # ------------------------------------------------------------------
 
     def _load_signals(self) -> Dict[str, Any]:
-        """Import and instantiate all signal classes."""
+        """Import and instantiate ALL signal classes with consistent naming."""
         signals: Dict[str, Any] = {}
 
         def _try_import(module_path: str, class_name: str, signal_key: str):
@@ -217,39 +203,79 @@ class SignalEngine:
             except Exception as e:
                 logger.warning(f"Could not load signal {signal_key}: {e}")
 
-        _try_import("src.signals.positional_defense", "PositionalDefenseSignal", "positional_defense")
-        _try_import("src.signals.rest_days", "RestDaysSignal", "rest_days")
-        _try_import("src.signals.back_to_back", "BackToBackSignal", "b2b_fatigue")
-        _try_import("src.signals.pace_matchup", "PaceMatchupSignal", "pace_matchup")
-        _try_import("src.signals.injury_alpha", "InjuryAlphaSignal", "usage_redistribution")
-        _try_import("src.signals.referee", "RefereeSignal", "ref_foul")
-        _try_import("src.signals.fatigue", "FatigueSignal", "fatigue")
-        _try_import("src.signals.recent_form", "RecentFormSignal", "recent_form")
+        # Core signals (consistent naming matching __init__.py AVAILABLE_SIGNALS)
+        _try_import("src.signals.back_to_back", "BackToBackSignal", "b2b")
         _try_import("src.signals.home_away", "HomeAwaySignal", "home_away")
-        _try_import("src.signals.matchup_history", "MatchupHistorySignal", "matchup_history")
+        _try_import("src.signals.recent_form", "RecentFormSignal", "recent_form")
+        _try_import("src.signals.pace_matchup", "PaceMatchupSignal", "pace")
+        _try_import("src.signals.defense_vs_position", "DefenseVsPositionSignal", "defense")
+        _try_import("src.signals.positional_defense", "PositionalDefenseSignal", "positional_defense")
+
+        # FIX #1: usage_redistribution now correctly loads UsageRedistributionSignal
+        _try_import("src.signals.usage_redistribution", "UsageRedistributionSignal", "usage_redistribution")
+
+        # Injury alpha (separate from usage redistribution)
+        _try_import("src.signals.injury_alpha", "InjuryAlphaSignal", "injury_alpha")
+
+        # Referee signals
+        _try_import("src.signals.referee", "RefereeSignal", "referee")
+        _try_import("src.signals.referee_impact", "RefereeImpactSignal", "referee_impact")
+
+        # V2 signals
+        _try_import("src.signals.clv_tracker", "CLVTrackerSignal", "clv_tracker")
+        _try_import("src.signals.defender_matchup", "DefenderMatchupSignal", "defender_matchup")
         _try_import("src.signals.line_movement", "LineMovementSignal", "line_movement")
+        _try_import("src.signals.matchup_history", "MatchupHistorySignal", "matchup_history")
+        _try_import("src.signals.fatigue", "FatigueSignal", "fatigue")
         _try_import("src.signals.blowout_risk", "BlowoutRiskSignal", "blowout_risk")
+        _try_import("src.signals.rest_days", "RestDaysSignal", "rest_days")
+
+        # NEW: Minutes projection signal
+        _try_import("src.signals.minutes_projection", "MinutesProjectionSignal", "minutes_projection")
 
         logger.info(f"Loaded {len(signals)} signals: {list(signals.keys())}")
         return signals
 
     def _load_weights(self) -> None:
-        """Pull weights from weight_registry table. Falls back to 0.5 default."""
+        """Pull weights from weight_registry table. Falls back to defaults."""
+        # Default weights based on signal_performance accuracy data
+        self._weights = {
+            "line_movement": 0.85,      # 56-63% accuracy - best signal
+            "fatigue": 0.80,            # 55-62% accuracy
+            "recent_form": 0.75,        # 53-56% accuracy
+            "home_away": 0.60,          # 50-53% accuracy
+            "pace": 0.65,              # 54-56% on pts
+            "defense": 0.60,           # 50-52%
+            "positional_defense": 0.65, # structural
+            "b2b": 0.55,              # 43-57% mixed
+            "rest_days": 0.60,         # moderate
+            "injury_alpha": 0.70,      # strong when it fires
+            "usage_redistribution": 0.70,
+            "referee": 0.50,           # needs data
+            "referee_impact": 0.50,
+            "defender_matchup": 0.55,  # low sample
+            "matchup_history": 0.55,   # needs data
+            "blowout_risk": 0.0,       # FIX #2: disabled - 43% accuracy
+            "clv_tracker": 0.0,        # FIX #2: disabled - 40% accuracy
+            "minutes_projection": 0.75, # new signal - high expected value
+        }
+
         if self.db_conn is None:
-            logger.debug("No DB connection — using default weights (0.5)")
+            logger.debug("No DB connection - using default weights")
             return
         try:
             cursor = self.db_conn.cursor()
             cursor.execute("SELECT signal_type, weight FROM weight_registry")
             rows = cursor.fetchall()
             cursor.close()
-            self._weights = {row[0]: float(row[1]) for row in rows if row[1] is not None}
-            logger.debug(f"Loaded {len(self._weights)} weights from DB")
+            for row in rows:
+                if row[0] and row[1] is not None:
+                    self._weights[row[0]] = float(row[1])
+            logger.debug(f"Loaded {len(rows)} weights from DB, merged with defaults")
         except Exception as e:
             logger.warning(f"Could not load weights from DB: {e}")
 
     def _downgrade_tier(self, tier: str) -> str:
-        """Drop confidence tier by one level."""
         try:
             idx = self.TIER_ORDER.index(tier)
             return self.TIER_ORDER[min(idx + 1, len(self.TIER_ORDER) - 1)]
@@ -262,7 +288,7 @@ class SignalEngine:
 # ---------------------------------------------------------------------------
 
 def _run_test():
-    """Quick smoke test — run engine with synthetic data, print JSON."""
+    """Quick smoke test."""
     logging.basicConfig(level=logging.INFO)
 
     ctx = GameContext(

@@ -4,25 +4,6 @@ Signal Registry for NBA Prop Model Backtest Infrastructure
 This module provides a modular signal system for generating prop predictions.
 Each signal analyzes a specific factor (B2B, pace, injuries, etc.) and
 produces an adjustment to add to the baseline projection.
-
-Usage:
-    from signals import registry, AVAILABLE_SIGNALS, DEFAULT_WEIGHTS
-
-    # Calculate all signals for a player
-    results = registry.calculate_all(
-        player_id="201566",
-        game_date="2025-01-28",
-        stat_type="Points",
-        context={
-            "season_averages": {"pts": 25.4, "reb": 6.2, "ast": 5.1},
-            "is_b2b": True,
-            # ... other context
-        }
-    )
-
-    # Get signal summary
-    summary = registry.get_summary(results)
-    print(f"Total adjustment: {summary['total_adjustment']}")
 """
 
 # Import base classes first
@@ -43,7 +24,7 @@ from .injury_alpha import InjuryAlphaSignal
 from .blowout_risk import BlowoutRiskSignal
 from .referee_impact import RefereeImpactSignal
 
-# New signals (v2)
+# V2 signals
 from .clv_tracker import CLVTrackerSignal
 from .referee import RefereeSignal
 from .defender_matchup import DefenderMatchupSignal
@@ -51,126 +32,97 @@ from .line_movement import LineMovementSignal
 from .matchup_history import MatchupHistorySignal
 from .fatigue import FatigueSignal
 
+# Additional signals
+from .positional_defense import PositionalDefenseSignal
+from .rest_days import RestDaysSignal
+from .usage_redistribution import UsageRedistributionSignal
+from .minutes_projection import MinutesProjectionSignal
 
-# List of available signal names
+# Consistent list of ALL signal names matching signal_engine.py
 AVAILABLE_SIGNALS = [
-    "b2b",              # Back-to-back fatigue
-    "home_away",        # Home/away splits
-    "recent_form",      # Hot/cold streaks
-    "pace",             # Opponent pace matchup
-    "defense",          # Opponent defense vs position
-    "injury_alpha",     # Teammate injury boost
-    "blowout",          # Blowout risk minutes reduction
-    "clv_tracker",      # Closing line value tracking & filtering
-    "referee",          # Referee tendency adjustment
-    "defender_matchup", # Specific primary defender matchup
-    "line_movement",    # Line movement / sharp money detection
-    "matchup_history",  # Head-to-head matchup history
-    "fatigue",          # Continuous fatigue model (schedule, travel, load)
+    "b2b",                  # Back-to-back fatigue
+    "home_away",            # Home/away splits
+    "recent_form",          # Hot/cold streaks
+    "pace",                 # Opponent pace matchup
+    "defense",              # Opponent defense vs position
+    "positional_defense",   # Positional defense matchup
+    "injury_alpha",         # Teammate injury boost
+    "usage_redistribution", # Injury-driven usage redistribution
+    "blowout_risk",         # Blowout risk minutes reduction (DISABLED - 43%)
+    "clv_tracker",          # CLV tracking (DISABLED - 40%)
+    "referee",              # Referee tendency adjustment
+    "referee_impact",       # Referee impact (legacy)
+    "defender_matchup",     # Specific primary defender matchup
+    "line_movement",        # Line movement / sharp money detection
+    "matchup_history",      # Head-to-head matchup history
+    "fatigue",              # Continuous fatigue model
+    "rest_days",            # Rest days advantage
+    "minutes_projection",   # Minutes-based projection adjustment (NEW)
 ]
 
-# Default weights for blending signals (sum should be ~1.0 for fired signals)
-# These are starting points - will be updated by weight optimizer
+# Default weights reflecting signal accuracy data
 DEFAULT_WEIGHTS = {
-    "injury_alpha": 0.18,     # Highest - most predictable edge
-    "clv_tracker": 0.12,      # CLV is a strong meta-signal
-    "b2b": 0.10,              # Strong, well-documented
-    "line_movement": 0.10,    # Sharp money signal
-    "defender_matchup": 0.08, # Granular defender matchup
-    "pace": 0.08,             # Moderate
-    "defense": 0.07,          # Moderate (partially overlaps with defender_matchup)
-    "blowout": 0.07,          # Moderate
-    "fatigue": 0.06,          # Beyond B2B fatigue
-    "matchup_history": 0.05,  # Head-to-head history
-    "referee": 0.04,          # Referee tendencies
-    "home_away": 0.03,        # Lower - splits can be noisy
-    "recent_form": 0.02,      # Lowest - often noise
+    "line_movement": 0.85,
+    "fatigue": 0.80,
+    "recent_form": 0.75,
+    "minutes_projection": 0.75,
+    "injury_alpha": 0.70,
+    "usage_redistribution": 0.70,
+    "pace": 0.65,
+    "positional_defense": 0.65,
+    "home_away": 0.60,
+    "defense": 0.60,
+    "rest_days": 0.60,
+    "b2b": 0.55,
+    "defender_matchup": 0.55,
+    "matchup_history": 0.55,
+    "referee": 0.50,
+    "referee_impact": 0.50,
+    "blowout_risk": 0.0,    # DISABLED
+    "clv_tracker": 0.0,     # DISABLED
 }
 
-# Stat types supported by the signal system
+# All stat types supported
 SUPPORTED_STAT_TYPES = [
-    "Points",
-    "Rebounds",
-    "Assists",
-    "3-Pointers Made",
-    "Pts+Rebs+Asts",
-    "Steals",
-    "Blocks",
-    "Turnovers",
-    "Pts+Rebs",
-    "Pts+Asts",
-    "Rebs+Asts",
+    "Points", "Rebounds", "Assists", "3-Pointers Made",
+    "Pts+Rebs+Asts", "Steals", "Blocks", "Turnovers",
+    "Pts+Rebs", "Pts+Asts", "Rebs+Asts",
 ]
 
 
 def get_default_weight(signal_name: str) -> float:
     """Get default weight for a signal."""
-    return DEFAULT_WEIGHTS.get(signal_name, 0.10)
+    return DEFAULT_WEIGHTS.get(signal_name, 0.5)
 
 
-def calculate_blended_adjustment(
-    results: dict,
-    weights: dict = None
-) -> tuple:
-    """
-    Calculate weighted adjustment from signal results.
-
-    Args:
-        results: Dict[str, SignalResult] from registry.calculate_all()
-        weights: Optional weight overrides (uses DEFAULT_WEIGHTS if not provided)
-
-    Returns:
-        Tuple of (total_adjustment, weight_sum, breakdown)
-    """
+def calculate_blended_adjustment(results: dict, weights: dict = None) -> float:
+    """Calculate blended adjustment from multiple signal results."""
     if weights is None:
         weights = DEFAULT_WEIGHTS
-
-    total_adjustment = 0.0
-    weight_sum = 0.0
-    breakdown = {}
-
-    for signal_name, result in results.items():
+    total = 0.0
+    for name, result in results.items():
         if result.fired:
-            weight = weights.get(signal_name, 0.10)
-            weighted_adj = result.adjustment * weight
-
-            total_adjustment += weighted_adj
-            weight_sum += weight
-            breakdown[signal_name] = {
-                'raw_adjustment': result.adjustment,
-                'weight': weight,
-                'weighted_adjustment': weighted_adj,
-                'direction': result.direction,
-                'confidence': result.confidence,
-            }
-
-    return total_adjustment, weight_sum, breakdown
+            w = weights.get(name, 0.5)
+            total += result.adjustment * w
+    return total
 
 
 def calculate_direction_confidence(results: dict) -> tuple:
-    """
-    Calculate overall direction and confidence from signal results.
+    """Calculate consensus direction and confidence from results."""
+    over_confidence = 0.0
+    under_confidence = 0.0
+    total_confidence = 0.0
 
-    Returns:
-        Tuple of (direction, confidence)
-        - direction: 'OVER', 'UNDER', or None if mixed
-        - confidence: 0-1 based on signal agreement
-    """
-    fired_signals = [r for r in results.values() if r.fired]
-
-    if not fired_signals:
-        return None, 0.0
-
-    over_confidence = sum(
-        r.confidence for r in fired_signals if r.direction == 'OVER'
-    )
-    under_confidence = sum(
-        r.confidence for r in fired_signals if r.direction == 'UNDER'
-    )
-    total_confidence = over_confidence + under_confidence
+    for name, result in results.items():
+        if result.fired:
+            total_confidence += result.confidence
+            if result.direction == 'OVER':
+                over_confidence += result.confidence
+            elif result.direction == 'UNDER':
+                under_confidence += result.confidence
 
     if total_confidence == 0:
-        return None, 0.0
+        return None, 0.5
 
     if over_confidence > under_confidence:
         direction = 'OVER'
@@ -185,39 +137,15 @@ def calculate_direction_confidence(results: dict) -> tuple:
     return direction, confidence
 
 
-# Export all public symbols
 __all__ = [
-    # Base classes
-    'SignalResult',
-    'BaseSignal',
-    'SignalRegistry',
-    'registry',
-
-    # Signal implementations (original)
-    'BackToBackSignal',
-    'HomeAwaySignal',
-    'RecentFormSignal',
-    'PaceMatchupSignal',
-    'DefenseVsPositionSignal',
-    'InjuryAlphaSignal',
-    'BlowoutRiskSignal',
-    'RefereeImpactSignal',
-
-    # Signal implementations (v2)
-    'CLVTrackerSignal',
-    'RefereeSignal',
-    'DefenderMatchupSignal',
-    'LineMovementSignal',
-    'MatchupHistorySignal',
-    'FatigueSignal',
-
-    # Constants
-    'AVAILABLE_SIGNALS',
-    'DEFAULT_WEIGHTS',
-    'SUPPORTED_STAT_TYPES',
-
-    # Helper functions
-    'get_default_weight',
-    'calculate_blended_adjustment',
+    'SignalResult', 'BaseSignal', 'SignalRegistry', 'registry',
+    'BackToBackSignal', 'HomeAwaySignal', 'RecentFormSignal',
+    'PaceMatchupSignal', 'DefenseVsPositionSignal', 'InjuryAlphaSignal',
+    'BlowoutRiskSignal', 'RefereeImpactSignal', 'CLVTrackerSignal',
+    'RefereeSignal', 'DefenderMatchupSignal', 'LineMovementSignal',
+    'MatchupHistorySignal', 'FatigueSignal', 'PositionalDefenseSignal',
+    'RestDaysSignal', 'UsageRedistributionSignal', 'MinutesProjectionSignal',
+    'AVAILABLE_SIGNALS', 'DEFAULT_WEIGHTS', 'SUPPORTED_STAT_TYPES',
+    'get_default_weight', 'calculate_blended_adjustment',
     'calculate_direction_confidence',
 ]
