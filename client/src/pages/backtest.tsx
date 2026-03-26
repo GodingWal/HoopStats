@@ -22,14 +22,14 @@ const safeFixed = (val: number | string | null | undefined, digits: number = 1):
   if (val === null || val === undefined) return "—";
   const num = typeof val === 'string' ? parseFloat(val) : val;
   if (isNaN(num)) return "—";
-  return num.toFixed(digits);
+  return Number(num).toFixed(digits);
 };
 
 const safePercentage = (val: number | string | null | undefined, digits: number = 0): string => {
   if (val === null || val === undefined) return "—";
   const num = typeof val === 'string' ? parseFloat(val) : val;
   if (isNaN(num)) return "—";
-  return (num * 100).toFixed(digits) + "%";
+  return Number(num * 100).toFixed(digits) + "%";
 };
 
 // ==================== TYPE DEFINITIONS ====================
@@ -722,7 +722,7 @@ function AccuracyTrendChart({ data }: { data: Array<{ date: string; accuracy: nu
               }}
               labelFormatter={(v) => new Date(v).toLocaleDateString()}
               formatter={(value: number, name: string) => {
-                if (name === "accuracy") return [`${value.toFixed(1)}%`, "Accuracy"];
+                if (name === "accuracy") return [`${Number(value).toFixed(1)}%`, "Accuracy"];
                 return [value, name];
               }}
             />
@@ -934,7 +934,7 @@ function SignalAccuracySection({ signals, isLoading }: { signals: SignalData[]; 
                   border: "1px solid hsl(var(--border))",
                   borderRadius: "8px",
                 }}
-                formatter={(value: number) => [`${value.toFixed(1)}%`, "Accuracy"]}
+                formatter={(value: number) => [`${Number(value).toFixed(1)}%`, "Accuracy"]}
               />
               {/* 52.4% break-even reference */}
               <Bar dataKey="accuracy" radius={[0, 4, 4, 0]}>
@@ -1082,7 +1082,7 @@ function WeightsSection({ weightsData, signals }: { weightsData?: WeightsRespons
                   borderRadius: "8px",
                 }}
                 formatter={(value: number, name: string) => [
-                  `${value.toFixed(1)}%`,
+                  `${Number(value).toFixed(1)}%`,
                   name,
                 ]}
               />
@@ -1423,7 +1423,7 @@ function XGBoostAccuracyChart({ data }: { data: Array<{ date: string; accuracy: 
               }}
               labelFormatter={(v) => new Date(v).toLocaleDateString()}
               formatter={(value: number, name: string) => {
-                if (name === "accuracy") return [`${value.toFixed(1)}%`, "XGBoost Accuracy"];
+                if (name === "accuracy") return [`${Number(value).toFixed(1)}%`, "XGBoost Accuracy"];
                 return [value, name];
               }}
             />
@@ -1530,7 +1530,7 @@ function XGBoostConfidenceTierSection({ tiers }: { tiers: XGBoostOverview["byCon
                     borderRadius: "8px",
                   }}
                   formatter={(value: number, name: string) => {
-                    if (name === "hitRate") return [`${value.toFixed(1)}%`, "Hit Rate"];
+                    if (name === "hitRate") return [`${Number(value).toFixed(1)}%`, "Hit Rate"];
                     return [value, name];
                   }}
                 />
@@ -1589,7 +1589,7 @@ function XGBoostFeatureImportanceSection({ features, sampleSize }: { features: X
 
   const chartData = top12.map(f => ({
     name: FEATURE_LABELS[f.name] || f.name.replace(/_/g, " "),
-    importance: parseFloat(f.importance.toFixed(3)),
+    importance: parseFloat(Number(f.importance).toFixed(3)),
     positive: f.diff > 0,
   }));
 
@@ -1626,7 +1626,7 @@ function XGBoostFeatureImportanceSection({ features, sampleSize }: { features: X
                 border: "1px solid hsl(var(--border))",
                 borderRadius: "8px",
               }}
-              formatter={(value: number) => [value.toFixed(3), "Importance"]}
+              formatter={(value: number) => [Number(value).toFixed(3), "Importance"]}
             />
             <Bar dataKey="importance" radius={[0, 4, 4, 0]}>
               {chartData.map((entry, index) => (
@@ -1802,7 +1802,7 @@ function EvaluationMetricsSection({
           <div className="rounded-lg bg-card/50 border p-3">
             <div className="text-xs text-muted-foreground mb-1">Brier Score</div>
             <div className={`text-2xl font-bold font-mono ${brierColor}`}>
-              {metrics.brierScore.toFixed(4)}
+              {Number(metrics.brierScore).toFixed(4)}
             </div>
             <div className="text-xs text-muted-foreground mt-1">{brierQuality}</div>
           </div>
@@ -1810,7 +1810,7 @@ function EvaluationMetricsSection({
           <div className="rounded-lg bg-card/50 border p-3">
             <div className="text-xs text-muted-foreground mb-1">ECE</div>
             <div className={`text-2xl font-bold font-mono ${eceColor}`}>
-              {metrics.ece.toFixed(4)}
+              {Number(metrics.ece).toFixed(4)}
             </div>
             <div className="text-xs text-muted-foreground mt-1">{eceQuality}</div>
           </div>
@@ -1818,7 +1818,7 @@ function EvaluationMetricsSection({
           <div className="rounded-lg bg-card/50 border p-3">
             <div className="text-xs text-muted-foreground mb-1">Log Loss</div>
             <div className="text-2xl font-bold font-mono text-blue-400">
-              {metrics.logLoss.toFixed(4)}
+              {Number(metrics.logLoss).toFixed(4)}
             </div>
             <div className="text-xs text-muted-foreground mt-1">Lower is better</div>
           </div>
@@ -1826,7 +1826,7 @@ function EvaluationMetricsSection({
           <div className="rounded-lg bg-card/50 border p-3">
             <div className="text-xs text-muted-foreground mb-1">Avg CLV</div>
             <div className={`text-2xl font-bold font-mono ${metrics.avgClv > 0 ? "text-emerald-400" : metrics.avgClv < 0 ? "text-rose-400" : "text-muted-foreground"}`}>
-              {metrics.avgClv > 0 ? "+" : ""}{metrics.avgClv.toFixed(3)}
+              {metrics.avgClv > 0 ? "+" : ""}{Number(metrics.avgClv).toFixed(3)}
             </div>
             <div className="text-xs text-muted-foreground mt-1">{clvSampleSize} w/ closing</div>
           </div>
@@ -1834,7 +1834,7 @@ function EvaluationMetricsSection({
           <div className="rounded-lg bg-card/50 border p-3">
             <div className="text-xs text-muted-foreground mb-1">CLV+ Rate</div>
             <div className={`text-2xl font-bold font-mono ${metrics.clvPositiveRate > 0.5 ? "text-emerald-400" : "text-rose-400"}`}>
-              {(metrics.clvPositiveRate * 100).toFixed(1)}%
+              {Number(metrics.clvPositiveRate * 100).toFixed(1)}%
             </div>
             <div className="text-xs text-muted-foreground mt-1">Beat closing line</div>
           </div>
@@ -1852,7 +1852,7 @@ function EvaluationMetricsSection({
                   <YAxis domain={[0, 1]} tick={{ fontSize: 10 }} stroke="hsl(var(--muted-foreground))" />
                   <Tooltip
                     contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))" }}
-                    formatter={(value: number, name: string) => [(value * 100).toFixed(1) + "%", name === "predicted" ? "Predicted" : "Actual"]}
+                    formatter={(value: number, name: string) => [Number(value * 100).toFixed(1) + "%", name === "predicted" ? "Predicted" : "Actual"]}
                   />
                   <Bar dataKey="predicted" fill="hsl(217, 91%, 60%)" name="predicted" opacity={0.6} />
                   <Bar dataKey="actual" fill="hsl(142, 76%, 36%)" name="actual" />
@@ -1888,13 +1888,13 @@ function EvaluationMetricsSection({
                       <td className="py-2 px-2 font-medium">{stat}</td>
                       <td className="text-center py-2 px-2 text-muted-foreground">{data.count}</td>
                       <td className={`text-center py-2 px-2 font-mono ${data.hitRate > 0.52 ? "text-emerald-400" : "text-rose-400"}`}>
-                        {(data.hitRate * 100).toFixed(1)}%
+                        {Number(data.hitRate * 100).toFixed(1)}%
                       </td>
                       <td className={`text-center py-2 px-2 font-mono ${data.brierScore < 0.20 ? "text-emerald-400" : "text-orange-400"}`}>
-                        {data.brierScore.toFixed(4)}
+                        {Number(data.brierScore).toFixed(4)}
                       </td>
                       <td className={`text-center py-2 px-2 font-mono ${data.roi > 0 ? "text-emerald-400" : "text-rose-400"}`}>
-                        {data.roi > 0 ? "+" : ""}{(data.roi * 100).toFixed(1)}%
+                        {data.roi > 0 ? "+" : ""}{Number(data.roi * 100).toFixed(1)}%
                       </td>
                     </tr>
                   ))}
@@ -1933,7 +1933,7 @@ function MarketComparisonSection({
           <div className="rounded-lg bg-card/50 border p-3">
             <div className="text-xs text-muted-foreground mb-1">Agreement Rate</div>
             <div className="text-2xl font-bold font-mono text-blue-400">
-              {(comparison.agreementRate * 100).toFixed(1)}%
+              {Number(comparison.agreementRate * 100).toFixed(1)}%
             </div>
             <div className="text-xs text-muted-foreground mt-1">Model agrees w/ market</div>
           </div>
@@ -1950,7 +1950,7 @@ function MarketComparisonSection({
             <div className="rounded-lg bg-card/50 border p-3">
               <div className="text-xs text-muted-foreground mb-1">Model Closer to Actual</div>
               <div className={`text-2xl font-bold font-mono ${comparison.modelCloserToActualRate > 0.5 ? "text-emerald-400" : "text-rose-400"}`}>
-                {(comparison.modelCloserToActualRate * 100).toFixed(1)}%
+                {Number(comparison.modelCloserToActualRate * 100).toFixed(1)}%
               </div>
               <div className="text-xs text-muted-foreground mt-1">{comparison.totalWithActuals} settled</div>
             </div>
@@ -1989,11 +1989,11 @@ function MarketComparisonSection({
                     <tr key={i} className="border-b border-border/20">
                       <td className="py-2 px-2 font-medium truncate max-w-[120px]">{d.playerName}</td>
                       <td className="text-center py-2 px-2 text-xs">{d.statType}</td>
-                      <td className="text-center py-2 px-2 font-mono">{d.modelProjection.toFixed(1)}</td>
-                      <td className="text-center py-2 px-2 font-mono text-muted-foreground">{d.marketConsensus.toFixed(1)}</td>
-                      <td className="text-center py-2 px-2 font-mono">{d.line.toFixed(1)}</td>
+                      <td className="text-center py-2 px-2 font-mono">{Number(d.modelProjection).toFixed(1)}</td>
+                      <td className="text-center py-2 px-2 font-mono text-muted-foreground">{Number(d.marketConsensus).toFixed(1)}</td>
+                      <td className="text-center py-2 px-2 font-mono">{Number(d.line).toFixed(1)}</td>
                       <td className={`text-center py-2 px-2 font-mono font-bold ${d.differencePct > 5 ? "text-amber-400" : "text-yellow-400"}`}>
-                        {d.differencePct.toFixed(1)}%
+                        {Number(d.differencePct).toFixed(1)}%
                       </td>
                       <td className="text-center py-2 px-2">
                         {d.sidesAgree ? (

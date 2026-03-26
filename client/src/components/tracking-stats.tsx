@@ -70,13 +70,13 @@ export function TrackingStatsPanel({ playerId, playerName }: TrackingStatsProps)
         <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
           <MetricCard
             title="qSQ Score"
-            value={(shotQuality.qsq * 100).toFixed(0)}
+            value={Number(shotQuality.qsq * 100).toFixed(0)}
             subtitle="Shot quality composite (0-100)"
             color={shotQuality.qsq > 0.6 ? 'text-emerald-500' : shotQuality.qsq < 0.4 ? 'text-red-500' : ''}
           />
           <MetricCard
             title="Shot Quality Delta"
-            value={`${shotQuality.shotQualityDelta > 0 ? '+' : ''}${(shotQuality.shotQualityDelta * 100).toFixed(1)}%`}
+            value={`${shotQuality.shotQualityDelta > 0 ? '+' : ''}${Number(shotQuality.shotQualityDelta * 100).toFixed(1)}%`}
             subtitle={
               shotQuality.regressionSignal === "OVER"
                 ? "Underperforming - regression UP likely"
@@ -95,7 +95,7 @@ export function TrackingStatsPanel({ playerId, playerName }: TrackingStatsProps)
           <MetricCard
             title="Regression Signal"
             value={shotQuality.regressionSignal}
-            subtitle={`Magnitude: ${(shotQuality.regressionMagnitude * 100).toFixed(0)}%`}
+            subtitle={`Magnitude: ${Number(shotQuality.regressionMagnitude * 100).toFixed(0)}%`}
             color={
               shotQuality.regressionSignal === "OVER"
                 ? 'text-emerald-500'
@@ -114,36 +114,36 @@ export function TrackingStatsPanel({ playerId, playerName }: TrackingStatsProps)
           <CardContent className="space-y-3">
             <div className="flex items-center justify-between text-sm">
               <span>Rim Attempts</span>
-              <span className="font-mono">{(shotQuality.rimRate * 100).toFixed(0)}%</span>
+              <span className="font-mono">{Number(shotQuality.rimRate * 100).toFixed(0)}%</span>
             </div>
             <ProgressBar value={shotQuality.rimRate * 100} color="bg-emerald-500" />
 
             <div className="flex items-center justify-between text-sm">
               <span>3-Point Rate</span>
-              <span className="font-mono">{(shotQuality.threePointRate * 100).toFixed(0)}%</span>
+              <span className="font-mono">{Number(shotQuality.threePointRate * 100).toFixed(0)}%</span>
             </div>
             <ProgressBar value={shotQuality.threePointRate * 100} color="bg-blue-500" />
 
             <div className="flex items-center justify-between text-sm">
               <span>Midrange</span>
-              <span className="font-mono">{(shotQuality.midrangeRate * 100).toFixed(0)}%</span>
+              <span className="font-mono">{Number(shotQuality.midrangeRate * 100).toFixed(0)}%</span>
             </div>
             <ProgressBar value={shotQuality.midrangeRate * 100} color="bg-yellow-500" />
 
             <div className="flex items-center justify-between text-sm">
               <span>Free Throw Rate</span>
-              <span className="font-mono">{(shotQuality.freeThrowRate * 100).toFixed(0)}%</span>
+              <span className="font-mono">{Number(shotQuality.freeThrowRate * 100).toFixed(0)}%</span>
             </div>
             <ProgressBar value={shotQuality.freeThrowRate * 100} max={50} color="bg-purple-500" />
 
             <div className="flex items-center justify-between text-sm pt-2 border-t">
               <span className="font-medium">Expected eFG%</span>
-              <span className="font-mono">{(shotQuality.expectedEfg * 100).toFixed(1)}%</span>
+              <span className="font-mono">{Number(shotQuality.expectedEfg * 100).toFixed(1)}%</span>
             </div>
             <div className="flex items-center justify-between text-sm">
               <span className="font-medium">Actual eFG%</span>
               <span className={`font-mono font-bold ${shotQuality.actualEfg > shotQuality.expectedEfg ? 'text-emerald-500' : shotQuality.actualEfg < shotQuality.expectedEfg ? 'text-red-500' : ''}`}>
-                {(shotQuality.actualEfg * 100).toFixed(1)}%
+                {Number(shotQuality.actualEfg * 100).toFixed(1)}%
               </span>
             </div>
           </CardContent>
@@ -187,24 +187,24 @@ export function TrackingStatsPanel({ playerId, playerName }: TrackingStatsProps)
           </Card>
           <MetricCard
             title="Matchup Difficulty"
-            value={`${(defensiveMatchup.matchupDifficulty * 100).toFixed(0)}/100`}
+            value={`${Number(defensiveMatchup.matchupDifficulty * 100).toFixed(0)}/100`}
             subtitle={defensiveMatchup.matchupDifficulty > 0.6 ? 'Tough matchup' : defensiveMatchup.matchupDifficulty < 0.35 ? 'Favorable matchup' : 'Average matchup'}
             color={defensiveMatchup.matchupDifficulty > 0.6 ? 'text-red-500' : defensiveMatchup.matchupDifficulty < 0.35 ? 'text-emerald-500' : ''}
           />
           <MetricCard
             title="Opp Def Rating"
-            value={defensiveMatchup.oppDefRating.toFixed(1)}
+            value={Number(defensiveMatchup.oppDefRating).toFixed(1)}
             subtitle={`Rank: #${defensiveMatchup.oppDefRank}/30`}
             color={defensiveMatchup.oppDefRating < 110 ? 'text-red-500' : defensiveMatchup.oppDefRating > 114 ? 'text-emerald-500' : ''}
           />
           <MetricCard
             title="Pace Factor"
-            value={`${defensiveMatchup.paceAdjFactor.toFixed(2)}x`}
+            value={`${Number(defensiveMatchup.paceAdjFactor).toFixed(2)}x`}
             subtitle={defensiveMatchup.paceAdjFactor > 1.02 ? 'Fast pace boosts counting stats' : defensiveMatchup.paceAdjFactor < 0.98 ? 'Slow pace limits volume' : 'Average pace'}
           />
           <MetricCard
             title="Position Defense"
-            value={`${(defensiveMatchup.positionDefense * 100).toFixed(0)}%`}
+            value={`${Number(defensiveMatchup.positionDefense * 100).toFixed(0)}%`}
             subtitle="How well opp guards this position"
             color={defensiveMatchup.positionDefense > 0.6 ? 'text-red-500' : 'text-emerald-500'}
           />
@@ -224,7 +224,7 @@ export function TrackingStatsPanel({ playerId, playerName }: TrackingStatsProps)
                   <div key={stat} className="text-center">
                     <div className="text-xs text-muted-foreground uppercase">{stat}</div>
                     <div className={`text-lg font-mono font-bold ${mult > 1.02 ? 'text-emerald-500' : mult < 0.98 ? 'text-red-500' : ''}`}>
-                      {mult > 1 ? '+' : ''}{((mult - 1) * 100).toFixed(0)}%
+                      {mult > 1 ? '+' : ''}{Number((mult - 1) * 100).toFixed(0)}%
                     </div>
                   </div>
                 ))}
@@ -245,8 +245,8 @@ export function TrackingStatsPanel({ playerId, playerName }: TrackingStatsProps)
         <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
           <MetricCard
             title="Projected Minutes"
-            value={synergyLineup.projectedMinutes.toFixed(1)}
-            subtitle={`Range: ${synergyLineup.minutesFloor.toFixed(0)}-${synergyLineup.minutesCeiling.toFixed(0)} min`}
+            value={Number(synergyLineup.projectedMinutes).toFixed(1)}
+            subtitle={`Range: ${Number(synergyLineup.minutesFloor).toFixed(0)}-${Number(synergyLineup.minutesCeiling).toFixed(0)} min`}
           />
           <Card>
             <CardHeader className="pb-2">
@@ -254,7 +254,7 @@ export function TrackingStatsPanel({ playerId, playerName }: TrackingStatsProps)
             </CardHeader>
             <CardContent>
               <div className={`text-2xl font-bold ${synergyLineup.minutesStability > 0.7 ? 'text-emerald-500' : synergyLineup.minutesStability < 0.4 ? 'text-red-500' : 'text-yellow-500'}`}>
-                {(synergyLineup.minutesStability * 100).toFixed(0)}%
+                {Number(synergyLineup.minutesStability * 100).toFixed(0)}%
               </div>
               <p className="text-xs text-muted-foreground mt-1">How predictable is the role</p>
               <ProgressBar value={synergyLineup.minutesStability * 100} color={synergyLineup.minutesStability > 0.7 ? 'bg-emerald-500' : 'bg-yellow-500'} />
@@ -263,12 +263,12 @@ export function TrackingStatsPanel({ playerId, playerName }: TrackingStatsProps)
           <MetricCard
             title="Role Score"
             value={synergyLineup.roleScore >= 1.0 ? "Star" : synergyLineup.roleScore >= 0.75 ? "Starter" : synergyLineup.roleScore >= 0.50 ? "Rotation" : "Bench"}
-            subtitle={`Score: ${synergyLineup.roleScore.toFixed(2)}`}
+            subtitle={`Score: ${Number(synergyLineup.roleScore).toFixed(2)}`}
             color={synergyLineup.roleScore >= 0.75 ? 'text-emerald-500' : synergyLineup.roleScore < 0.25 ? 'text-red-500' : ''}
           />
           <MetricCard
             title="Blowout Risk"
-            value={`${(synergyLineup.blowoutRisk * 100).toFixed(0)}%`}
+            value={`${Number(synergyLineup.blowoutRisk * 100).toFixed(0)}%`}
             subtitle="Chance of reduced minutes from blowout"
             color={synergyLineup.blowoutRisk > 0.25 ? 'text-yellow-500' : ''}
           />

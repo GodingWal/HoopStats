@@ -240,7 +240,7 @@ export function ParlayCart() {
                 <div className="flex items-center justify-between">
                   <span className="text-muted-foreground">Potential Win</span>
                   <span className="font-bold text-lg text-emerald-400">
-                    ${potentialWin.toFixed(2)}
+                    ${Number(potentialWin).toFixed(2)}
                   </span>
                 </div>
               </div>

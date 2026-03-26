@@ -247,7 +247,7 @@ export function PlayerDetail({ player }: PlayerDetailProps) {
       };
     }
     return result;
-  })() : player.vs_team;
+  })() : (player.vs_team || {});
 
   return (
     <div className="space-y-6 fade-in" data-testid="player-detail">
@@ -279,7 +279,7 @@ export function PlayerDetail({ player }: PlayerDetailProps) {
               <div className="flex items-end gap-3 group">
                 <div>
                   <div className="text-xs text-muted-foreground uppercase tracking-wider mb-1">PTS</div>
-                  <div className="text-4xl font-mono font-bold stat-gradient">{seasonAverages.PTS.toFixed(1)}</div>
+                  <div className="text-4xl font-mono font-bold stat-gradient">{Number(seasonAverages.PTS).toFixed(1)}</div>
                 </div>
                 <div className="opacity-70 group-hover:opacity-100 transition-opacity">
                   <Sparkline data={recentPts} width={60} height={28} />
@@ -288,7 +288,7 @@ export function PlayerDetail({ player }: PlayerDetailProps) {
               <div className="flex items-end gap-3 group">
                 <div>
                   <div className="text-xs text-muted-foreground uppercase tracking-wider mb-1">REB</div>
-                  <div className="text-4xl font-mono font-bold">{seasonAverages.REB.toFixed(1)}</div>
+                  <div className="text-4xl font-mono font-bold">{Number(seasonAverages.REB).toFixed(1)}</div>
                 </div>
                 <div className="opacity-70 group-hover:opacity-100 transition-opacity">
                   <Sparkline data={recentReb} width={60} height={28} />
@@ -297,7 +297,7 @@ export function PlayerDetail({ player }: PlayerDetailProps) {
               <div className="flex items-end gap-3 group">
                 <div>
                   <div className="text-xs text-muted-foreground uppercase tracking-wider mb-1">AST</div>
-                  <div className="text-4xl font-mono font-bold">{seasonAverages.AST.toFixed(1)}</div>
+                  <div className="text-4xl font-mono font-bold">{Number(seasonAverages.AST).toFixed(1)}</div>
                 </div>
                 <div className="opacity-70 group-hover:opacity-100 transition-opacity">
                   <Sparkline data={recentAst} width={60} height={28} />
@@ -305,7 +305,7 @@ export function PlayerDetail({ player }: PlayerDetailProps) {
               </div>
               <div className="ml-auto">
                 <div className="text-xs text-muted-foreground uppercase tracking-wider mb-1">PRA</div>
-                <div className="text-4xl font-mono font-bold text-primary">{seasonAverages.PRA.toFixed(1)}</div>
+                <div className="text-4xl font-mono font-bold text-primary">{Number(seasonAverages.PRA).toFixed(1)}</div>
               </div>
             </div>
           </div>
@@ -443,8 +443,8 @@ export function PlayerDetail({ player }: PlayerDetailProps) {
           </CardHeader>
           <CardContent className="pt-0">
             <HomeAwaySplits
-              homeAverages={player.home_averages}
-              awayAverages={player.away_averages}
+              homeAverages={player.home_averages || {}}
+              awayAverages={player.away_averages || {}}
             />
           </CardContent>
         </Card>
@@ -583,7 +583,7 @@ export function PlayerDetail({ player }: PlayerDetailProps) {
                 <CardTitle className="text-sm font-medium">Points</CardTitle>
               </CardHeader>
               <CardContent>
-                <HitRateGrid hitRates={player.hit_rates} stat="PTS" />
+                <HitRateGrid hitRates={player.hit_rates || {}} stat="PTS" />
               </CardContent>
             </Card>
             <Card>
@@ -591,7 +591,7 @@ export function PlayerDetail({ player }: PlayerDetailProps) {
                 <CardTitle className="text-sm font-medium">Rebounds</CardTitle>
               </CardHeader>
               <CardContent>
-                <HitRateGrid hitRates={player.hit_rates} stat="REB" />
+                <HitRateGrid hitRates={player.hit_rates || {}} stat="REB" />
               </CardContent>
             </Card>
             <Card>
@@ -599,7 +599,7 @@ export function PlayerDetail({ player }: PlayerDetailProps) {
                 <CardTitle className="text-sm font-medium">Assists</CardTitle>
               </CardHeader>
               <CardContent>
-                <HitRateGrid hitRates={player.hit_rates} stat="AST" />
+                <HitRateGrid hitRates={player.hit_rates || {}} stat="AST" />
               </CardContent>
             </Card>
             <Card>
@@ -607,7 +607,7 @@ export function PlayerDetail({ player }: PlayerDetailProps) {
                 <CardTitle className="text-sm font-medium">PTS + REB + AST</CardTitle>
               </CardHeader>
               <CardContent>
-                <HitRateGrid hitRates={player.hit_rates} stat="PRA" />
+                <HitRateGrid hitRates={player.hit_rates || {}} stat="PRA" />
               </CardContent>
             </Card>
             <Card>
@@ -615,7 +615,7 @@ export function PlayerDetail({ player }: PlayerDetailProps) {
                 <CardTitle className="text-sm font-medium">Steals</CardTitle>
               </CardHeader>
               <CardContent>
-                <HitRateGrid hitRates={player.hit_rates} stat="STL" />
+                <HitRateGrid hitRates={player.hit_rates || {}} stat="STL" />
               </CardContent>
             </Card>
             <Card>
@@ -623,7 +623,7 @@ export function PlayerDetail({ player }: PlayerDetailProps) {
                 <CardTitle className="text-sm font-medium">Blocks</CardTitle>
               </CardHeader>
               <CardContent>
-                <HitRateGrid hitRates={player.hit_rates} stat="BLK" />
+                <HitRateGrid hitRates={player.hit_rates || {}} stat="BLK" />
               </CardContent>
             </Card>
             <Card>
@@ -631,7 +631,7 @@ export function PlayerDetail({ player }: PlayerDetailProps) {
                 <CardTitle className="text-sm font-medium">Turnovers</CardTitle>
               </CardHeader>
               <CardContent>
-                <HitRateGrid hitRates={player.hit_rates} stat="TOV" />
+                <HitRateGrid hitRates={player.hit_rates || {}} stat="TOV" />
               </CardContent>
             </Card>
           </div>

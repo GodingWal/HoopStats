@@ -93,12 +93,12 @@ export default function TrackRecord() {
         />
         <StatCard
           label="Hit Rate"
-          value={`${(record.hitRate * 100).toFixed(1)}%`}
+          value={`${Number(record.hitRate * 100).toFixed(1)}%`}
           highlight={record.hitRate > 0.524}
         />
         <StatCard
           label="ROI"
-          value={`${(record.roi * 100).toFixed(1)}%`}
+          value={`${Number(record.roi * 100).toFixed(1)}%`}
           highlight={record.roi > 0}
         />
       </div>
@@ -124,7 +124,7 @@ export default function TrackRecord() {
                 <YAxis tick={{ fontSize: 12 }} />
                 <Tooltip
                   labelFormatter={(value) => new Date(value).toLocaleDateString()}
-                  formatter={(value: number) => [`${value.toFixed(2)} units`, 'Profit']}
+                  formatter={(value: number) => [`${Number(value).toFixed(2)} units`, 'Profit']}
                 />
                 <Line
                   type="monotone"
@@ -155,7 +155,7 @@ export default function TrackRecord() {
                 <YAxis tick={{ fontSize: 12 }} domain={[0, 100]} />
                 <Tooltip
                   formatter={(value: number, name: string) => {
-                    if (name === 'hitRate') return [`${value.toFixed(1)}%`, 'Hit Rate'];
+                    if (name === 'hitRate') return [`${Number(value).toFixed(1)}%`, 'Hit Rate'];
                     return [value, name];
                   }}
                 />
@@ -194,7 +194,7 @@ export default function TrackRecord() {
                     <div className="flex justify-between items-center">
                       <span className="text-muted-foreground">Hit Rate:</span>
                       <span className={`font-bold text-lg ${stats.hitRate > 0.524 ? 'text-green-600' : ''}`}>
-                        {(stats.hitRate * 100).toFixed(1)}%
+                        {Number(stats.hitRate * 100).toFixed(1)}%
                       </span>
                     </div>
                     <div className="w-full bg-secondary rounded h-2 mt-2">
@@ -232,14 +232,14 @@ export default function TrackRecord() {
               <XAxis
                 dataKey="predicted"
                 tick={{ fontSize: 12 }}
-                tickFormatter={(value) => `${(value * 100).toFixed(0)}%`}
+                tickFormatter={(value) => `${Number(value * 100).toFixed(0)}%`}
               />
               <YAxis
                 tick={{ fontSize: 12 }}
-                tickFormatter={(value) => `${(value * 100).toFixed(0)}%`}
+                tickFormatter={(value) => `${Number(value * 100).toFixed(0)}%`}
               />
               <Tooltip
-                formatter={(value: number) => `${(value * 100).toFixed(1)}%`}
+                formatter={(value: number) => `${Number(value * 100).toFixed(1)}%`}
               />
               <Line
                 type="monotone"
@@ -273,16 +273,16 @@ export default function TrackRecord() {
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Total Profit/Loss:</span>
                   <span className={`font-medium ${record.profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                    {record.profit >= 0 ? '+' : ''}{record.profit.toFixed(2)} units
+                    {record.profit >= 0 ? '+' : ''}{Number(record.profit).toFixed(2)} units
                   </span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Average Bet ROI:</span>
-                  <span className="font-medium">{(record.roi * 100).toFixed(2)}%</span>
+                  <span className="font-medium">{Number(record.roi * 100).toFixed(2)}%</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Win Rate:</span>
-                  <span className="font-medium">{(record.hitRate * 100).toFixed(1)}%</span>
+                  <span className="font-medium">{Number(record.hitRate * 100).toFixed(1)}%</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Break-even Line:</span>
@@ -298,7 +298,7 @@ export default function TrackRecord() {
                   <div key={stat} className="flex justify-between">
                     <span className="text-muted-foreground">{stat.toUpperCase()}:</span>
                     <span className="font-medium">
-                      {data.wins}-{data.total - data.wins} ({(data.hitRate * 100).toFixed(1)}%)
+                      {data.wins}-{data.total - data.wins} ({Number(data.hitRate * 100).toFixed(1)}%)
                     </span>
                   </div>
                 ))}

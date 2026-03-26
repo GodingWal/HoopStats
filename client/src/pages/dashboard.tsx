@@ -124,17 +124,17 @@ export default function Dashboard() {
               />
               <StatCard
                 label="Hit Rate"
-                value={`${(trackRecord.hitRate * 100).toFixed(1)}%`}
+                value={`${Number(trackRecord.hitRate * 100).toFixed(1)}%`}
                 highlight={trackRecord.hitRate > 0.524}
               />
               <StatCard
                 label="ROI"
-                value={`${(trackRecord.roi * 100).toFixed(1)}%`}
+                value={`${Number(trackRecord.roi * 100).toFixed(1)}%`}
                 highlight={trackRecord.roi > 0}
               />
               <StatCard
                 label="Profit"
-                value={`${trackRecord.profit >= 0 ? '+' : ''}${trackRecord.profit.toFixed(1)}u`}
+                value={`${trackRecord.profit >= 0 ? '+' : ''}${Number(trackRecord.profit).toFixed(1)}u`}
                 highlight={trackRecord.profit > 0}
               />
             </div>
@@ -223,14 +223,14 @@ export default function Dashboard() {
                         <div className="text-right">
                           <div className="text-xs text-muted-foreground">Hit Rate</div>
                           <div className={`font-mono text-lg font-bold ${bet.hit_rate >= 70 ? 'text-emerald-400' : 'text-foreground'}`}>
-                            {bet.hit_rate.toFixed(0)}%
+                            {Number(bet.hit_rate).toFixed(0)}%
                           </div>
                         </div>
                         {bet.edge_score && (
                           <div className="text-right">
                             <div className="text-xs text-muted-foreground">Edge Score</div>
                             <div className="font-mono text-sm font-bold text-primary">
-                              {bet.edge_score.toFixed(1)}
+                              {Number(bet.edge_score).toFixed(1)}
                             </div>
                           </div>
                         )}
@@ -268,7 +268,7 @@ export default function Dashboard() {
                       </div>
                       <div className="flex justify-between">
                         <span className="text-muted-foreground">Hit Rate:</span>
-                        <span className="font-medium">{(stats.hitRate * 100).toFixed(1)}%</span>
+                        <span className="font-medium">{Number(stats.hitRate * 100).toFixed(1)}%</span>
                       </div>
                     </div>
                   ) : (

@@ -42,7 +42,7 @@ export function BetRow({ bet }: BetRowProps) {
         <div className="flex flex-col items-end gap-1">
           <div className="flex items-center gap-2">
             <div className={`font-mono text-sm font-bold ${bet.hit_rate >= 70 ? 'text-emerald-400' : bet.hit_rate >= 50 ? 'text-foreground' : 'text-rose-400'}`}>
-              {bet.hit_rate.toFixed(0)}%
+              {Number(bet.hit_rate).toFixed(0)}%
             </div>
 
             {hasEdge && bet.edge_type && (

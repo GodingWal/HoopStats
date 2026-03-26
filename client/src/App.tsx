@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import React, { useState, useCallback } from "react";
 import { Switch, Route, useLocation, Link } from "wouter";
 import { queryClient, apiRequest } from "./lib/queryClient";
 import { QueryClientProvider, useQuery, useMutation } from "@tanstack/react-query";
@@ -59,6 +59,106 @@ import {
   MoreHorizontal,
   X,
 } from "lucide-react";
+
+
+class ErrorBoundary extends React.Component<
+  { children: React.ReactNode },
+  { hasError: boolean; error: Error | null }
+> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, info: React.ErrorInfo) {
+    console.error("React crash caught by ErrorBoundary:", error, info);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{
+          padding: 40,
+          color: "white",
+          background: "linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)",
+          minHeight: "100vh",
+          display: "flex",
+          flexDirection: "column" as const,
+          alignItems: "center",
+          justifyContent: "center",
+          fontFamily: "system-ui, -apple-system, sans-serif",
+        }}>
+          <div style={{
+            background: "rgba(255,255,255,0.05)",
+            borderRadius: 16,
+            padding: "40px 48px",
+            maxWidth: 500,
+            textAlign: "center" as const,
+            border: "1px solid rgba(255,255,255,0.1)",
+          }}>
+            <div style={{ fontSize: 48, marginBottom: 16 }}>&#x1f3c0;</div>
+            <h2 style={{ fontSize: 24, fontWeight: 700, marginBottom: 8 }}>Something went wrong</h2>
+            <p style={{ color: "rgba(255,255,255,0.6)", marginBottom: 24, lineHeight: 1.6 }}>
+              CourtSide Edge encountered an error. Please refresh the page to try again.
+            </p>
+            <button
+              onClick={() => {
+                this.setState({ hasError: false, error: null });
+                window.location.reload();
+              }}
+              style={{
+                background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
+                color: "white",
+                border: "none",
+                padding: "12px 32px",
+                borderRadius: 8,
+                fontSize: 16,
+                fontWeight: 600,
+                cursor: "pointer",
+                marginBottom: 16,
+              }}
+            >
+              Refresh Page
+            </button>
+            <button
+              onClick={() => this.setState({ hasError: false, error: null })}
+              style={{
+                background: "transparent",
+                color: "rgba(255,255,255,0.5)",
+                border: "1px solid rgba(255,255,255,0.2)",
+                padding: "10px 24px",
+                borderRadius: 8,
+                fontSize: 14,
+                cursor: "pointer",
+                marginLeft: 8,
+              }}
+            >
+              Try Again
+            </button>
+            <pre style={{
+              fontSize: 11,
+              marginTop: 24,
+              color: "#ff6b6b",
+              textAlign: "left" as const,
+              background: "rgba(0,0,0,0.3)",
+              padding: 16,
+              borderRadius: 8,
+              overflow: "auto",
+              maxHeight: 120,
+            }}>
+              {this.state.error?.toString()}
+            </pre>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 function Router() {
   return (
@@ -322,6 +422,7 @@ function App() {
   };
 
   return (
+    <ErrorBoundary>
     <ThemeProvider attribute="class" defaultTheme="dark" enableSystem>
       <QueryClientProvider client={queryClient}>
         <ParlayCartProvider>
@@ -379,6 +480,7 @@ function App() {
         </ParlayCartProvider>
       </QueryClientProvider>
     </ThemeProvider>
+    </ErrorBoundary>
   );
 }
 

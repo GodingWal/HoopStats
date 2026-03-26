@@ -73,16 +73,16 @@ function StatDelta({ label, withValue, withoutValue, delta }: StatDeltaProps) {
       <div className="text-xs text-muted-foreground">{label}</div>
       {withValue !== null && (
         <div className="text-xs text-muted-foreground">
-          {withValue.toFixed(1)}
+          {Number(withValue).toFixed(1)}
         </div>
       )}
       <div className="text-sm font-semibold">
-        {withoutValue.toFixed(1)}
+        {Number(withoutValue).toFixed(1)}
       </div>
       <div className={`flex items-center gap-1 text-xs font-medium ${getDeltaColor(delta)}`}>
         {getDeltaIcon(delta)}
         {delta !== null ? (
-          <span>{delta > 0 ? '+' : ''}{delta.toFixed(1)}</span>
+          <span>{delta > 0 ? '+' : ''}{Number(delta).toFixed(1)}</span>
         ) : (
           <span>-</span>
         )}

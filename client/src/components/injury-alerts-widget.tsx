@@ -155,7 +155,7 @@ export function InjuryAlertsWidget() {
                         <span className="text-muted-foreground">{ben.stat.toUpperCase()}</span>
                       </div>
                       <span className="text-emerald-400 font-bold">
-                        +{ben.impact.toFixed(1)}
+                        +{Number(ben.impact).toFixed(1)}
                       </span>
                     </div>
                   ))}

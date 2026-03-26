@@ -27,8 +27,8 @@ function getDiffIndicator(value: number, avg: number): { text: string; color: st
   const diff = value - avg;
   const pctDiff = avg !== 0 ? (diff / avg) * 100 : 0;
 
-  if (pctDiff > 10) return { text: `+${diff.toFixed(1)}`, color: "text-emerald-400" };
-  if (pctDiff < -10) return { text: diff.toFixed(1), color: "text-red-400" };
+  if (pctDiff > 10) return { text: `+${Number(diff).toFixed(1)}`, color: "text-emerald-400" };
+  if (pctDiff < -10) return { text: Number(diff).toFixed(1), color: "text-red-400" };
   return { text: "~", color: "text-muted-foreground" };
 }
 
@@ -48,7 +48,7 @@ export function VsTeamStats({ vsTeam, seasonAvg }: VsTeamStatsProps) {
   const [searchFilter, setSearchFilter] = useState("");
 
   const teams = useMemo(() => {
-    let entries = Object.entries(vsTeam);
+    let entries = Object.entries(vsTeam || {});
 
     // Apply search filter
     if (searchFilter) {
@@ -100,11 +100,11 @@ export function VsTeamStats({ vsTeam, seasonAvg }: VsTeamStatsProps) {
   // Summary stats
   const allTeamEntries = Object.values(vsTeam);
   const totalGames = allTeamEntries.reduce((sum, s) => sum + s.games, 0);
-  const bestMatchup = Object.entries(vsTeam).reduce((best, [team, stats]) =>
+  const bestMatchup = Object.entries(vsTeam || {}).reduce((best, [team, stats]) =>
     stats.PRA > (best?.stats.PRA ?? 0) ? { team, stats } : best,
     null as { team: string; stats: VsTeamMatchup } | null
   );
-  const worstMatchup = Object.entries(vsTeam).reduce((worst, [team, stats]) =>
+  const worstMatchup = Object.entries(vsTeam || {}).reduce((worst, [team, stats]) =>
     stats.PRA < (worst?.stats.PRA ?? Infinity) ? { team, stats } : worst,
     null as { team: string; stats: VsTeamMatchup } | null
   );
@@ -121,12 +121,12 @@ export function VsTeamStats({ vsTeam, seasonAvg }: VsTeamStatsProps) {
         </Badge>
         {bestMatchup && (
           <span className="text-emerald-400 text-xs">
-            Best: vs {bestMatchup.team} ({bestMatchup.stats.PRA.toFixed(1)} PRA)
+            Best: vs {bestMatchup.team} ({Number(bestMatchup.stats.PRA).toFixed(1)} PRA)
           </span>
         )}
         {worstMatchup && (
           <span className="text-red-400 text-xs">
-            Worst: vs {worstMatchup.team} ({worstMatchup.stats.PRA.toFixed(1)} PRA)
+            Worst: vs {worstMatchup.team} ({Number(worstMatchup.stats.PRA).toFixed(1)} PRA)
           </span>
         )}
       </div>
@@ -200,23 +200,23 @@ export function VsTeamStats({ vsTeam, seasonAvg }: VsTeamStatsProps) {
                   )}
                 </div>
                 <div className={`text-sm font-mono font-semibold ${praDiff.color}`}>
-                  {stats.PRA.toFixed(1)} PRA
+                  {Number(stats.PRA).toFixed(1)} PRA
                 </div>
               </div>
               <div className="grid grid-cols-7 gap-2 text-xs">
                 <div className="text-center">
                   <div className="text-muted-foreground mb-0.5">PTS</div>
-                  <div className="font-mono font-semibold">{stats.PTS.toFixed(1)}</div>
+                  <div className="font-mono font-semibold">{Number(stats.PTS).toFixed(1)}</div>
                   <div className={`text-[10px] ${ptsDiff.color}`}>{ptsDiff.text}</div>
                 </div>
                 <div className="text-center">
                   <div className="text-muted-foreground mb-0.5">REB</div>
-                  <div className="font-mono font-semibold">{stats.REB.toFixed(1)}</div>
+                  <div className="font-mono font-semibold">{Number(stats.REB).toFixed(1)}</div>
                   <div className={`text-[10px] ${rebDiff.color}`}>{rebDiff.text}</div>
                 </div>
                 <div className="text-center">
                   <div className="text-muted-foreground mb-0.5">AST</div>
-                  <div className="font-mono font-semibold">{stats.AST.toFixed(1)}</div>
+                  <div className="font-mono font-semibold">{Number(stats.AST).toFixed(1)}</div>
                   <div className={`text-[10px] ${astDiff.color}`}>{astDiff.text}</div>
                 </div>
                 <div className="text-center">

@@ -189,19 +189,19 @@ function QuarterScoringChart({
         </div>
         <div className="grid grid-cols-4 gap-2 mt-4">
           <div className="text-center p-2 bg-muted/50 rounded">
-            <div className="text-lg font-bold">{scoring.q1.toFixed(1)}</div>
+            <div className="text-lg font-bold">{Number(scoring.q1).toFixed(1)}</div>
             <div className="text-xs text-muted-foreground">Q1 Avg</div>
           </div>
           <div className="text-center p-2 bg-muted/50 rounded">
-            <div className="text-lg font-bold">{scoring.q2.toFixed(1)}</div>
+            <div className="text-lg font-bold">{Number(scoring.q2).toFixed(1)}</div>
             <div className="text-xs text-muted-foreground">Q2 Avg</div>
           </div>
           <div className="text-center p-2 bg-muted/50 rounded">
-            <div className="text-lg font-bold">{scoring.q3.toFixed(1)}</div>
+            <div className="text-lg font-bold">{Number(scoring.q3).toFixed(1)}</div>
             <div className="text-xs text-muted-foreground">Q3 Avg</div>
           </div>
           <div className="text-center p-2 bg-muted/50 rounded">
-            <div className="text-lg font-bold">{scoring.q4.toFixed(1)}</div>
+            <div className="text-lg font-bold">{Number(scoring.q4).toFixed(1)}</div>
             <div className="text-xs text-muted-foreground">Q4 Avg</div>
           </div>
         </div>
@@ -313,28 +313,28 @@ function PlayerRotationRow({ player }: { player: PlayerRotationStats }) {
           )}
         </div>
         <div className="flex gap-4 mt-1 text-xs text-muted-foreground">
-          <span>{player.overallPpg.toFixed(1)} PPG</span>
-          <span>{player.overallRpg.toFixed(1)} RPG</span>
-          <span>{player.overallApg.toFixed(1)} APG</span>
+          <span>{Number(player.overallPpg).toFixed(1)} PPG</span>
+          <span>{Number(player.overallRpg).toFixed(1)} RPG</span>
+          <span>{Number(player.overallApg).toFixed(1)} APG</span>
         </div>
       </div>
       <div className="grid grid-cols-3 gap-3 text-center">
         <div>
-          <div className="text-sm font-bold">{player.overallMpg.toFixed(1)}</div>
+          <div className="text-sm font-bold">{Number(player.overallMpg).toFixed(1)}</div>
           <div className="text-xs text-muted-foreground">Overall</div>
         </div>
         <div>
-          <div className="text-sm font-bold text-amber-500">{player.closeGameMpg.toFixed(1)}</div>
+          <div className="text-sm font-bold text-amber-500">{Number(player.closeGameMpg).toFixed(1)}</div>
           <div className="text-xs text-muted-foreground">Close</div>
         </div>
         <div>
-          <div className="text-sm font-bold text-blue-500">{player.blowoutMpg.toFixed(1)}</div>
+          <div className="text-sm font-bold text-blue-500">{Number(player.blowoutMpg).toFixed(1)}</div>
           <div className="text-xs text-muted-foreground">Blowout</div>
         </div>
       </div>
       <div className="w-20 text-right">
         <div className={`text-sm font-medium ${closeVsBlowout > 0 ? 'text-amber-500' : 'text-blue-500'}`}>
-          {closeVsBlowout > 0 ? '+' : ''}{closeVsBlowout.toFixed(1)}
+          {closeVsBlowout > 0 ? '+' : ''}{Number(closeVsBlowout).toFixed(1)}
         </div>
         <div className="text-xs text-muted-foreground">Diff</div>
       </div>
@@ -449,29 +449,29 @@ function AdvancedStatsRadar({ stats }: { stats: TeamStats['advancedStats'] }) {
         <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mt-4">
           <div className="p-3 bg-muted/50 rounded-lg">
             <div className="text-xs text-muted-foreground">Off Rating</div>
-            <div className="text-lg font-bold">{stats.offRating.toFixed(1)}</div>
+            <div className="text-lg font-bold">{Number(stats.offRating).toFixed(1)}</div>
           </div>
           <div className="p-3 bg-muted/50 rounded-lg">
             <div className="text-xs text-muted-foreground">Def Rating</div>
-            <div className="text-lg font-bold">{stats.defRating.toFixed(1)}</div>
+            <div className="text-lg font-bold">{Number(stats.defRating).toFixed(1)}</div>
           </div>
           <div className="p-3 bg-muted/50 rounded-lg">
             <div className="text-xs text-muted-foreground">Net Rating</div>
             <div className={`text-lg font-bold ${stats.netRating > 0 ? 'text-emerald-500' : 'text-red-500'}`}>
-              {stats.netRating > 0 ? '+' : ''}{stats.netRating.toFixed(1)}
+              {stats.netRating > 0 ? '+' : ''}{Number(stats.netRating).toFixed(1)}
             </div>
           </div>
           <div className="p-3 bg-muted/50 rounded-lg">
             <div className="text-xs text-muted-foreground">Pace</div>
-            <div className="text-lg font-bold">{stats.pace.toFixed(1)}</div>
+            <div className="text-lg font-bold">{Number(stats.pace).toFixed(1)}</div>
           </div>
           <div className="p-3 bg-muted/50 rounded-lg">
             <div className="text-xs text-muted-foreground">eFG%</div>
-            <div className="text-lg font-bold">{(stats.efgPct * 100).toFixed(1)}%</div>
+            <div className="text-lg font-bold">{Number(stats.efgPct * 100).toFixed(1)}%</div>
           </div>
           <div className="p-3 bg-muted/50 rounded-lg">
             <div className="text-xs text-muted-foreground">True Shooting</div>
-            <div className="text-lg font-bold">{(stats.tsPct * 100).toFixed(1)}%</div>
+            <div className="text-lg font-bold">{Number(stats.tsPct * 100).toFixed(1)}%</div>
           </div>
         </div>
       </CardContent>
@@ -528,19 +528,19 @@ function PlayerComparisonTable({ comparison }: { comparison: TeamComparison }) {
                   </div>
                   <div className="grid grid-cols-4 gap-2 text-center text-xs">
                     <div>
-                      <div className="font-semibold text-blue-500">{player.overallMpg.toFixed(1)}</div>
+                      <div className="font-semibold text-blue-500">{Number(player.overallMpg).toFixed(1)}</div>
                       <div className="text-muted-foreground">MIN</div>
                     </div>
                     <div>
-                      <div className="font-semibold">{player.overallPpg.toFixed(1)}</div>
+                      <div className="font-semibold">{Number(player.overallPpg).toFixed(1)}</div>
                       <div className="text-muted-foreground">PTS</div>
                     </div>
                     <div>
-                      <div className="font-semibold">{player.overallRpg.toFixed(1)}</div>
+                      <div className="font-semibold">{Number(player.overallRpg).toFixed(1)}</div>
                       <div className="text-muted-foreground">REB</div>
                     </div>
                     <div>
-                      <div className="font-semibold">{player.overallApg.toFixed(1)}</div>
+                      <div className="font-semibold">{Number(player.overallApg).toFixed(1)}</div>
                       <div className="text-muted-foreground">AST</div>
                     </div>
                   </div>
@@ -573,19 +573,19 @@ function PlayerComparisonTable({ comparison }: { comparison: TeamComparison }) {
                   </div>
                   <div className="grid grid-cols-4 gap-2 text-center text-xs">
                     <div>
-                      <div className="font-semibold text-blue-500">{player.overallMpg.toFixed(1)}</div>
+                      <div className="font-semibold text-blue-500">{Number(player.overallMpg).toFixed(1)}</div>
                       <div className="text-muted-foreground">MIN</div>
                     </div>
                     <div>
-                      <div className="font-semibold">{player.overallPpg.toFixed(1)}</div>
+                      <div className="font-semibold">{Number(player.overallPpg).toFixed(1)}</div>
                       <div className="text-muted-foreground">PTS</div>
                     </div>
                     <div>
-                      <div className="font-semibold">{player.overallRpg.toFixed(1)}</div>
+                      <div className="font-semibold">{Number(player.overallRpg).toFixed(1)}</div>
                       <div className="text-muted-foreground">REB</div>
                     </div>
                     <div>
-                      <div className="font-semibold">{player.overallApg.toFixed(1)}</div>
+                      <div className="font-semibold">{Number(player.overallApg).toFixed(1)}</div>
                       <div className="text-muted-foreground">AST</div>
                     </div>
                   </div>
@@ -627,7 +627,7 @@ function TeamComparisonView({ comparison }: { comparison: TeamComparison }) {
               </div>
               <div>
                 <div className="text-lg text-muted-foreground">vs</div>
-                <div className="text-xs">Avg Diff: {headToHead.avgPointDiff.toFixed(1)}</div>
+                <div className="text-xs">Avg Diff: {Number(headToHead.avgPointDiff).toFixed(1)}</div>
               </div>
               <div>
                 <div className="text-2xl font-bold">{headToHead.team2Wins}</div>
@@ -684,32 +684,32 @@ function TeamComparisonView({ comparison }: { comparison: TeamComparison }) {
                 </tr>
                 <tr className="border-b hover:bg-muted/50">
                   <td className="py-2 px-3">PPG</td>
-                  <td className="py-2 px-3 text-center">{team1.basicStats.ppg.toFixed(1)}</td>
-                  <td className="py-2 px-3 text-center">{team2.basicStats.ppg.toFixed(1)}</td>
+                  <td className="py-2 px-3 text-center">{Number(team1.basicStats.ppg).toFixed(1)}</td>
+                  <td className="py-2 px-3 text-center">{Number(team2.basicStats.ppg).toFixed(1)}</td>
                   <td className="py-2 px-3 text-center">
                     {team1.basicStats.ppg > team2.basicStats.ppg ? team1.teamAbbr : team2.teamAbbr}
                   </td>
                 </tr>
                 <tr className="border-b hover:bg-muted/50">
                   <td className="py-2 px-3">Opp PPG</td>
-                  <td className="py-2 px-3 text-center">{team1.basicStats.oppPpg.toFixed(1)}</td>
-                  <td className="py-2 px-3 text-center">{team2.basicStats.oppPpg.toFixed(1)}</td>
+                  <td className="py-2 px-3 text-center">{Number(team1.basicStats.oppPpg).toFixed(1)}</td>
+                  <td className="py-2 px-3 text-center">{Number(team2.basicStats.oppPpg).toFixed(1)}</td>
                   <td className="py-2 px-3 text-center">
                     {team1.basicStats.oppPpg < team2.basicStats.oppPpg ? team1.teamAbbr : team2.teamAbbr}
                   </td>
                 </tr>
                 <tr className="border-b hover:bg-muted/50">
                   <td className="py-2 px-3">1st Half PPG</td>
-                  <td className="py-2 px-3 text-center">{team1.basicStats.avgQuarterScoring.firstHalf.toFixed(1)}</td>
-                  <td className="py-2 px-3 text-center">{team2.basicStats.avgQuarterScoring.firstHalf.toFixed(1)}</td>
+                  <td className="py-2 px-3 text-center">{Number(team1.basicStats.avgQuarterScoring.firstHalf).toFixed(1)}</td>
+                  <td className="py-2 px-3 text-center">{Number(team2.basicStats.avgQuarterScoring.firstHalf).toFixed(1)}</td>
                   <td className="py-2 px-3 text-center">
                     {team1.basicStats.avgQuarterScoring.firstHalf > team2.basicStats.avgQuarterScoring.firstHalf ? team1.teamAbbr : team2.teamAbbr}
                   </td>
                 </tr>
                 <tr className="border-b hover:bg-muted/50">
                   <td className="py-2 px-3">2nd Half PPG</td>
-                  <td className="py-2 px-3 text-center">{team1.basicStats.avgQuarterScoring.secondHalf.toFixed(1)}</td>
-                  <td className="py-2 px-3 text-center">{team2.basicStats.avgQuarterScoring.secondHalf.toFixed(1)}</td>
+                  <td className="py-2 px-3 text-center">{Number(team1.basicStats.avgQuarterScoring.secondHalf).toFixed(1)}</td>
+                  <td className="py-2 px-3 text-center">{Number(team2.basicStats.avgQuarterScoring.secondHalf).toFixed(1)}</td>
                   <td className="py-2 px-3 text-center">
                     {team1.basicStats.avgQuarterScoring.secondHalf > team2.basicStats.avgQuarterScoring.secondHalf ? team1.teamAbbr : team2.teamAbbr}
                   </td>
@@ -900,31 +900,31 @@ export default function TeamStatsPage() {
           <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
             <StatCard
               label="Points Per Game"
-              value={teamStats.basicStats.ppg.toFixed(1)}
+              value={Number(teamStats.basicStats.ppg).toFixed(1)}
               icon={Target}
             />
             <StatCard
               label="Opp PPG"
-              value={teamStats.basicStats.oppPpg.toFixed(1)}
+              value={Number(teamStats.basicStats.oppPpg).toFixed(1)}
               icon={Target}
             />
             <StatCard
               label="FG%"
-              value={`${(teamStats.basicStats.fgPct * 100).toFixed(1)}%`}
+              value={`${Number(teamStats.basicStats.fgPct * 100).toFixed(1)}%`}
             />
             <StatCard
               label="3P%"
-              value={`${(teamStats.basicStats.fg3Pct * 100).toFixed(1)}%`}
+              value={`${Number(teamStats.basicStats.fg3Pct * 100).toFixed(1)}%`}
             />
             <StatCard
               label="Home PPG"
-              value={teamStats.basicStats.homePpg.toFixed(1)}
+              value={Number(teamStats.basicStats.homePpg).toFixed(1)}
               subValue={teamStats.basicStats.homeRecord}
               icon={Home}
             />
             <StatCard
               label="Away PPG"
-              value={teamStats.basicStats.awayPpg.toFixed(1)}
+              value={Number(teamStats.basicStats.awayPpg).toFixed(1)}
               subValue={teamStats.basicStats.awayRecord}
               icon={Plane}
             />
@@ -983,7 +983,7 @@ export default function TeamStatsPage() {
                         .sort((a, b) => b.overallPpg - a.overallPpg)
                         .map((player) => (
                           <SelectItem key={player.playerId} value={player.playerId.toString()}>
-                            {player.playerName} ({player.overallPpg.toFixed(1)} PPG)
+                            {player.playerName} ({Number(player.overallPpg).toFixed(1)} PPG)
                           </SelectItem>
                         ))}
                     </SelectContent>

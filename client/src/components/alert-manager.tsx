@@ -72,7 +72,7 @@ export function AlertManager({ playerId, playerName, seasonAvg }: AlertManagerPr
         const avg = stat === "PRA"
             ? (seasonAvg.PRA ?? seasonAvg.PTS + seasonAvg.REB + seasonAvg.AST)
             : seasonAvg[stat] ?? 0;
-        return avg.toFixed(1);
+        return Number(avg).toFixed(1);
     };
 
     return (

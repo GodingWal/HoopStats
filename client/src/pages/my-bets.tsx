@@ -455,12 +455,12 @@ function ParlayCard({ parlay }: { parlay: Parlay }) {
               <div className="flex items-center gap-4 text-sm">
                 <div>
                   <span className="text-muted-foreground">Entry:</span>
-                  <span className="font-mono font-bold ml-2">${parlay.entryAmount.toFixed(2)}</span>
+                  <span className="font-mono font-bold ml-2">${Number(parlay.entryAmount).toFixed(2)}</span>
                 </div>
                 <div className="text-muted-foreground">|</div>
                 <div>
                   <span className="text-muted-foreground">To Win:</span>
-                  <span className="font-mono font-bold ml-2 text-emerald-400">${potentialWin.toFixed(2)}</span>
+                  <span className="font-mono font-bold ml-2 text-emerald-400">${Number(potentialWin).toFixed(2)}</span>
                 </div>
               </div>
 
@@ -689,20 +689,20 @@ export default function MyBets() {
           />
           <StatCard
             title="Pick Hit Rate"
-            value={stats.totalPicks > 0 ? `${((stats.hitsCount / stats.totalPicks) * 100).toFixed(1)}%` : "—"}
+            value={stats.totalPicks > 0 ? `${Number((stats.hitsCount / stats.totalPicks) * 100).toFixed(1)}%` : "—"}
             icon={Trophy}
             color="text-emerald-400"
             subtitle={`${stats.hitsCount}/${stats.totalPicks} picks`}
           />
           <StatCard
             title="Total P&L"
-            value={`$${stats.totalProfit >= 0 ? '+' : ''}${stats.totalProfit.toFixed(2)}`}
+            value={`$${stats.totalProfit >= 0 ? '+' : ''}${Number(stats.totalProfit).toFixed(2)}`}
             icon={DollarSign}
             color={stats.totalProfit >= 0 ? "text-emerald-400" : "text-rose-400"}
           />
           <StatCard
             title="ROI"
-            value={`${stats.roi >= 0 ? '+' : ''}${stats.roi.toFixed(1)}%`}
+            value={`${stats.roi >= 0 ? '+' : ''}${Number(stats.roi).toFixed(1)}%`}
             icon={TrendingUp}
             color={stats.roi >= 0 ? "text-emerald-400" : "text-rose-400"}
           />
