@@ -743,7 +743,7 @@ export async function registerRoutes(
           INNER JOIN prizepicks_daily_lines pdl
             ON po.player_id::text = pdl.prizepicks_player_id::text
             AND po.prop_type = pdl.stat_type
-            AND pdl.game_date = (NOW() AT TIME ZONE 'America/New_York')::date
+            AND ((pdl.game_time AT TIME ZONE 'UTC') AT TIME ZONE 'America/New_York')::date = (NOW() AT TIME ZONE 'America/New_York')::date
           WHERE po.game_date = (NOW() AT TIME ZONE 'America/New_York')::date
             AND po.confidence_tier != 'SKIP'
             AND po.prizepicks_line IS NOT NULL AND po.prizepicks_line > 0.5
