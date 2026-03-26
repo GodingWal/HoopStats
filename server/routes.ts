@@ -2815,9 +2815,19 @@ export async function registerRoutes(
         return res.json({ signals: [], statType, days, message: "Database not configured" });
       }
 
+      // Normalize legacy/alternate signal names to canonical names so data
+      // from different engine versions is merged correctly.
       const result = await pool.query(`
         SELECT
-          signal_name,
+          CASE signal_name
+            WHEN 'usage_redistribution' THEN 'injury_alpha'
+            WHEN 'positional_defense' THEN 'defense'
+            WHEN 'b2b_fatigue' THEN 'b2b'
+            WHEN 'pace_matchup' THEN 'pace'
+            WHEN 'ref_foul' THEN 'referee'
+            WHEN 'blowout_risk' THEN 'blowout'
+            ELSE signal_name
+          END as signal_name,
           stat_type,
           SUM(predictions_made) as total_predictions,
           SUM(correct_predictions) as total_correct,
@@ -2833,7 +2843,17 @@ export async function registerRoutes(
         FROM signal_performance
         WHERE stat_type = $1
           AND evaluation_date >= CURRENT_DATE - INTERVAL '1 day' * $2
-        GROUP BY signal_name, stat_type
+        GROUP BY
+          CASE signal_name
+            WHEN 'usage_redistribution' THEN 'injury_alpha'
+            WHEN 'positional_defense' THEN 'defense'
+            WHEN 'b2b_fatigue' THEN 'b2b'
+            WHEN 'pace_matchup' THEN 'pace'
+            WHEN 'ref_foul' THEN 'referee'
+            WHEN 'blowout_risk' THEN 'blowout'
+            ELSE signal_name
+          END,
+          stat_type
         ORDER BY accuracy DESC
       `, [statType, days]);
 

@@ -283,6 +283,17 @@ const SIGNAL_DISPLAY: Record<string, { label: string; description: string; color
   referee: { label: "Referee", description: "Referee tendency adjustment", color: "hsl(340, 65%, 50%)" },
 };
 
+// Maps legacy/alternate signal names (from SignalEngine) to canonical registry names.
+// When both the legacy and canonical name exist in the DB, data is merged under the canonical name.
+const SIGNAL_NAME_ALIASES: Record<string, string> = {
+  usage_redistribution: "injury_alpha",
+  positional_defense: "defense",
+  b2b_fatigue: "b2b",
+  pace_matchup: "pace",
+  ref_foul: "referee",
+  blowout_risk: "blowout",
+};
+
 const GRADE_COLORS: Record<string, string> = {
   HIGH: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30",
   MEDIUM: "bg-yellow-500/15 text-yellow-400 border-yellow-500/30",
@@ -749,21 +760,61 @@ function SignalAccuracySection({ signals, isLoading }: { signals: SignalData[]; 
     );
   }
 
-  // If no signals from API, show all signals with default state
-  const displaySignals = signals.length > 0 ? signals : Object.keys(SIGNAL_DISPLAY).map(name => ({
-    signalName: name,
-    statType: "Points",
-    totalPredictions: 0,
-    totalCorrect: 0,
-    accuracy: 0,
-    overPredictions: 0,
-    overCorrect: 0,
-    underPredictions: 0,
-    underCorrect: 0,
-    avgError: 0,
-    lastEvaluated: "",
-    grade: "NOISE" as const,
-  }));
+  // Merge API signals with SIGNAL_DISPLAY to always show all known signals.
+  // Also normalizes legacy/alternate signal names to canonical names.
+  const displaySignals = (() => {
+    const defaultSignal = (name: string): SignalData => ({
+      signalName: name,
+      statType: "Points",
+      totalPredictions: 0,
+      totalCorrect: 0,
+      accuracy: 0,
+      overPredictions: 0,
+      overCorrect: 0,
+      underPredictions: 0,
+      underCorrect: 0,
+      avgError: 0,
+      lastEvaluated: "",
+      grade: "NOISE" as const,
+    });
+
+    // Build a map of canonical signal name -> merged data
+    const signalMap = new Map<string, SignalData>();
+
+    // Seed with all SIGNAL_DISPLAY entries (defaults)
+    for (const name of Object.keys(SIGNAL_DISPLAY)) {
+      signalMap.set(name, defaultSignal(name));
+    }
+
+    // Overlay API data, resolving aliases
+    for (const signal of signals) {
+      const canonicalName = SIGNAL_NAME_ALIASES[signal.signalName] || signal.signalName;
+      const existing = signalMap.get(canonicalName);
+
+      if (existing) {
+        // Merge: add predictions from aliased names together
+        signalMap.set(canonicalName, {
+          ...signal,
+          signalName: canonicalName,
+          totalPredictions: existing.totalPredictions + signal.totalPredictions,
+          totalCorrect: existing.totalCorrect + signal.totalCorrect,
+          overPredictions: existing.overPredictions + signal.overPredictions,
+          overCorrect: existing.overCorrect + signal.overCorrect,
+          underPredictions: existing.underPredictions + signal.underPredictions,
+          underCorrect: existing.underCorrect + signal.underCorrect,
+          accuracy: (existing.totalPredictions + signal.totalPredictions) > 0
+            ? (existing.totalCorrect + signal.totalCorrect) / (existing.totalPredictions + signal.totalPredictions)
+            : 0,
+          grade: signal.totalPredictions > 0 ? signal.grade : existing.grade,
+        });
+      } else if (canonicalName in SIGNAL_DISPLAY || !(signal.signalName in SIGNAL_NAME_ALIASES)) {
+        // New signal not in SIGNAL_DISPLAY and not an alias — show it
+        signalMap.set(canonicalName, { ...signal, signalName: canonicalName });
+      }
+    }
+
+    return Array.from(signalMap.values());
+  })();
 
   // Data for bar chart
   const chartData = displaySignals.map(s => ({

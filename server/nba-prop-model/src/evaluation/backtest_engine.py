@@ -189,6 +189,15 @@ class BacktestEngine:
             self._load_injuries()
             self._load_team_rosters()
 
+            # Log data availability for diagnostics
+            logger.info(
+                f"Backtest data loaded — teams: {len(self.team_stats)}, "
+                f"referee games: {len(self.game_referees)}, "
+                f"line history keys: {len(self.line_history)}, "
+                f"injury team-dates: {len(self.injury_data)}, "
+                f"roster teams: {len(self.team_rosters)}"
+            )
+
     @property
     def signal_registry(self):
         """Lazy load signal registry to avoid circular imports."""
@@ -253,14 +262,56 @@ class BacktestEngine:
             )
 
         # Evaluate each game
+        _context_logged = False
         for game in games:
             context = self._build_context(game, players_df)
+
+            # Log first game's context keys for diagnostics (once per run)
+            if not _context_logged:
+                ctx_keys = {
+                    k: (type(v).__name__ if v is not None else 'None')
+                    for k, v in context.items()
+                    if k in (
+                        'season_averages', 'last_5_averages', 'home_averages',
+                        'away_averages', 'is_b2b', 'is_home', 'opponent_pace',
+                        'opponent_def_vs_position', 'vegas_spread', 'referee_names',
+                        'injured_teammates', 'line_history', 'primary_defender',
+                        'opening_line', 'closing_line', 'model_direction',
+                        'player_position', 'vs_team_history',
+                    )
+                }
+                sa = context.get('season_averages') or {}
+                sa_keys = list(sa.keys())[:5] if sa else []
+                logger.info(
+                    f"Sample context for {stat_type} — "
+                    f"player={context.get('player_name', '?')}, "
+                    f"context fields: {ctx_keys}, "
+                    f"season_avg keys sample: {sa_keys}"
+                )
+                _context_logged = True
+
             self._evaluate_game(game, context, stat_type, signal_accuracy)
 
         # Calculate overall accuracy
         total_correct = sum(sa.correct_predictions for sa in signal_accuracy.values())
         total_preds = sum(sa.total_predictions for sa in signal_accuracy.values())
         overall_accuracy = total_correct / total_preds if total_preds > 0 else 0.0
+
+        # Log signal fire rates for diagnostics
+        fire_summary = {
+            name: sa.total_predictions
+            for name, sa in sorted(signal_accuracy.items(), key=lambda x: x[1].total_predictions, reverse=True)
+        }
+        logger.info(
+            f"Backtest {stat_type}: {len(games)} games, "
+            f"signal fire counts: {fire_summary}"
+        )
+        # Log signals that never fired — likely missing context data
+        never_fired = [name for name, sa in signal_accuracy.items() if sa.total_predictions == 0]
+        if never_fired:
+            logger.warning(
+                f"Signals with 0 predictions for {stat_type} (likely missing context data): {never_fired}"
+            )
 
         return BacktestResults(
             stat_type=stat_type,
@@ -744,6 +795,50 @@ class BacktestEngine:
         context['home_averages'] = normalize_keys(home_avgs)
         context['away_averages'] = normalize_keys(away_avgs)
 
+        # Fallback: compute L5/L10 from recent_games JSONB when dedicated fields are empty.
+        # This ensures Recent Form and other signals have data even when the players table
+        # only stores the raw game log but not pre-computed rolling averages.
+        if not context['last_5_averages'] or not context['last_10_averages']:
+            recent_games = game.get('recent_games') or []
+            if isinstance(recent_games, str):
+                try:
+                    recent_games = json.loads(recent_games)
+                except (json.JSONDecodeError, TypeError):
+                    recent_games = []
+
+            if isinstance(recent_games, list) and len(recent_games) >= 3:
+                stat_fields = ['pts', 'reb', 'ast', 'fg3m', 'stl', 'blk', 'tov', 'min']
+                alt_keys = {
+                    'pts': ['PTS', 'pts'], 'reb': ['REB', 'reb'],
+                    'ast': ['AST', 'ast'], 'fg3m': ['FG3M', 'fg3m'],
+                    'stl': ['STL', 'stl'], 'blk': ['BLK', 'blk'],
+                    'tov': ['TOV', 'tov', 'TO'], 'min': ['MIN', 'min'],
+                }
+
+                def _avg_from_games(games_list, n):
+                    subset = games_list[:n]
+                    if not subset:
+                        return {}
+                    avgs = {}
+                    for field in stat_fields:
+                        vals = []
+                        for g in subset:
+                            for k in alt_keys.get(field, [field]):
+                                if k in g:
+                                    try:
+                                        vals.append(float(g[k]))
+                                    except (ValueError, TypeError):
+                                        pass
+                                    break
+                        if vals:
+                            avgs[field] = sum(vals) / len(vals)
+                    return avgs
+
+                if not context['last_5_averages']:
+                    context['last_5_averages'] = _avg_from_games(recent_games, 5)
+                if not context['last_10_averages']:
+                    context['last_10_averages'] = _avg_from_games(recent_games, 10)
+
         # Position
         position = game.get('position', '')
         if position:
@@ -815,13 +910,29 @@ class BacktestEngine:
             if vs_history:
                 context['vs_team_history'] = vs_history
 
-        # --- CLV Tracker: compute model_direction from baseline vs line ---
+        # --- Fallback baseline: use opening_line when season_averages is empty ---
+        # Many signals need a baseline (season avg for the stat type). When the
+        # players table join fails or has no data, we can use the betting line as
+        # a reasonable proxy — the market's estimate of the player's stat value.
         line = context.get('opening_line') or context.get('current_line')
         try:
-            from ..signals.stat_helpers import get_baseline
+            from ..signals.stat_helpers import get_baseline, STAT_KEY_MAP
             season_avg_baseline = get_baseline(stat_type, context)
         except ImportError:
             season_avg_baseline = None
+            STAT_KEY_MAP = {}
+
+        if season_avg_baseline is None and line is not None:
+            stat_key = STAT_KEY_MAP.get(stat_type) if STAT_KEY_MAP else None
+            if stat_key:
+                sa = context.get('season_averages') or {}
+                if stat_key not in sa:
+                    sa[stat_key] = float(line)
+                    context['season_averages'] = sa
+                    season_avg_baseline = float(line)
+                    logger.debug(f"Using opening_line {line} as fallback baseline for {stat_type}")
+
+        # --- CLV Tracker: compute model_direction from baseline vs line ---
         if season_avg_baseline is not None and line is not None:
             if season_avg_baseline > line:
                 context['model_direction'] = 'OVER'
