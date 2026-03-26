@@ -281,6 +281,8 @@ const SIGNAL_DISPLAY: Record<string, { label: string; description: string; color
   line_movement: { label: "Line Movement", description: "Sharp money detection", color: "hsl(190, 75%, 45%)" },
   fatigue: { label: "Fatigue", description: "Schedule & travel load", color: "hsl(10, 70%, 55%)" },
   referee: { label: "Referee", description: "Referee tendency adjustment", color: "hsl(340, 65%, 50%)" },
+  rest_days: { label: "Rest Days", description: "Days of rest advantage/disadvantage", color: "hsl(170, 65%, 45%)" },
+  minutes_projection: { label: "Minutes Projection", description: "Expected minutes impact", color: "hsl(55, 75%, 50%)" },
 };
 
 // Maps legacy/alternate signal names (from SignalEngine) to canonical registry names.
