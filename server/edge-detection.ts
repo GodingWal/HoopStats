@@ -82,9 +82,25 @@ export function analyzeEdges(
     if (lineEdge) edges.push(lineEdge);
   }
 
+  // 12. Rest days advantage
+  const restEdge = detectRestDaysEdge(player, recommendation);
+  if (restEdge) edges.push(restEdge);
+
+  // 13. Minutes projection trend
+  const minutesProjEdge = detectMinutesProjectionEdge(player, statType, recommendation);
+  if (minutesProjEdge) edges.push(minutesProjEdge);
+
+  // 14. Usage redistribution from injuries
+  const usageEdge = detectUsageRedistributionEdge(player, statType, recommendation);
+  if (usageEdge) edges.push(usageEdge);
+
+  // 15. Positional defense matchup
+  const posDefEdge = detectPositionalDefenseEdge(player, statType, recommendation);
+  if (posDefEdge) edges.push(posDefEdge);
+
   // TRACKING-DERIVED EDGES
 
-  // 10. Shot Quality Regression - player over/underperforming shot quality
+  // 16. Shot Quality Regression - player over/underperforming shot quality
   const sqEdge = detectShotQualityEdge(player, statType, recommendation);
   if (sqEdge) edges.push(sqEdge);
 
@@ -433,6 +449,178 @@ function detectSchemeEdge(player: Player, statType: string, recommendation: "OVE
     }
   } catch {
     // Silently ignore
+  }
+
+  return null;
+}
+
+/**
+ * Detect rest days advantage.
+ * Players on 2+ rest days tend to perform better; B2B fatigue hurts.
+ * Also detects when the opponent is on a B2B (advantage to player).
+ */
+function detectRestDaysEdge(player: Player, recommendation: "OVER" | "UNDER"): Edge | null {
+  const gameLogs = player.game_logs || player.recent_games;
+  if (!gameLogs || gameLogs.length < 2) return null;
+
+  const lastGame = gameLogs[0];
+  if (!lastGame?.GAME_DATE) return null;
+
+  const lastDate = new Date(lastGame.GAME_DATE);
+  const today = new Date();
+  const restDays = Math.floor((today.getTime() - lastDate.getTime()) / (1000 * 60 * 60 * 24)) - 1;
+
+  // Well-rested player (3+ rest days) favors OVER
+  if (restDays >= 3 && recommendation === "OVER") {
+    return {
+      type: "REST_DAYS",
+      score: 5,
+      description: `Well-rested: ${restDays} days off (fresh legs boost)`,
+      tier: 3,
+    };
+  }
+
+  // Fatigued player (0 rest = B2B) favors UNDER - but don't double-count with B2B edge
+  // Only fire if this is a borderline case (1 day rest, not quite B2B)
+  if (restDays === 0 && recommendation === "UNDER") {
+    // B2B edge already handles the strongest case; this adds the rest-day signal mapping
+    return {
+      type: "REST_DAYS",
+      score: 4,
+      description: `No rest: Back-to-back game fatigue`,
+      tier: 3,
+    };
+  }
+
+  return null;
+}
+
+/**
+ * Detect minutes projection trend.
+ * Compares recent 5-game minutes average to 10-game baseline.
+ * A rising/falling minutes trend signals coach confidence changes.
+ */
+function detectMinutesProjectionEdge(player: Player, statType: string, recommendation: "OVER" | "UNDER"): Edge | null {
+  const gameLogs = player.game_logs || player.recent_games;
+  if (!gameLogs || gameLogs.length < 10) return null;
+
+  const recentMinutes = gameLogs.slice(0, 5)
+    .map(g => g.MIN)
+    .filter((m): m is number => typeof m === 'number' && m > 0);
+  const baselineMinutes = gameLogs.slice(0, 15)
+    .map(g => g.MIN)
+    .filter((m): m is number => typeof m === 'number' && m > 0);
+
+  if (recentMinutes.length < 4 || baselineMinutes.length < 8) return null;
+
+  const recentAvg = recentMinutes.reduce((s, m) => s + m, 0) / recentMinutes.length;
+  const baselineAvg = baselineMinutes.reduce((s, m) => s + m, 0) / baselineMinutes.length;
+
+  if (baselineAvg === 0) return null;
+  const deviationPct = ((recentAvg - baselineAvg) / baselineAvg) * 100;
+
+  // Minutes trending up significantly (>5%) favors OVER
+  if (deviationPct >= 5 && recommendation === "OVER") {
+    return {
+      type: "MINUTES_PROJECTION",
+      score: 6,
+      description: `Minutes trending UP: ${recentAvg.toFixed(1)} MPG last 5 vs ${baselineAvg.toFixed(1)} baseline (+${deviationPct.toFixed(0)}%)`,
+      tier: 2,
+    };
+  }
+
+  // Minutes trending down significantly (>5%) favors UNDER
+  if (deviationPct <= -5 && recommendation === "UNDER") {
+    return {
+      type: "MINUTES_PROJECTION",
+      score: 6,
+      description: `Minutes trending DOWN: ${recentAvg.toFixed(1)} MPG last 5 vs ${baselineAvg.toFixed(1)} baseline (${deviationPct.toFixed(0)}%)`,
+      tier: 2,
+    };
+  }
+
+  return null;
+}
+
+/**
+ * Detect usage redistribution from teammate injuries.
+ * When multiple teammates are out, the remaining players absorb usage.
+ * Similar to injury_alpha but focuses on cumulative multi-player absence.
+ */
+function detectUsageRedistributionEdge(player: Player, statType: string, recommendation: "OVER" | "UNDER"): Edge | null {
+  const onOffSplits = player.on_off_splits;
+  if (!onOffSplits || onOffSplits.length === 0) return null;
+
+  const teamOutPlayers = injuryWatcher.getTeamOutPlayers(player.team);
+  if (teamOutPlayers.length < 2) return null; // Need 2+ out for redistribution effect
+
+  const minSampleSize = BETTING_CONFIG.MIN_SPLIT_SAMPLE_SIZE;
+  let totalBoost = 0;
+  const outNames: string[] = [];
+
+  for (const split of onOffSplits) {
+    if (split.stat !== statType.toLowerCase()) continue;
+    if (split.sample_size < minSampleSize) continue;
+
+    const starIsOut = teamOutPlayers.some(playerName =>
+      playerName.toLowerCase().includes(split.without_player.toLowerCase()) ||
+      split.without_player.toLowerCase().includes(playerName.toLowerCase())
+    );
+
+    if (starIsOut && split.impact > 0) {
+      totalBoost += split.impact;
+      outNames.push(split.without_player);
+    }
+  }
+
+  // Cap at 30% of season average (matching Python signal)
+  const seasonAvg = player.season_averages[statType as keyof typeof player.season_averages];
+  const maxBoost = typeof seasonAvg === 'number' ? seasonAvg * 0.30 : Infinity;
+  totalBoost = Math.min(totalBoost, maxBoost);
+
+  if (totalBoost > 3 && recommendation === "OVER") {
+    const uniqueOut = [...new Set(outNames)];
+    return {
+      type: "USAGE_REDISTRIBUTION",
+      score: Math.min(8, Math.round(4 + totalBoost)),
+      description: `Usage redistribution: +${totalBoost.toFixed(1)} ${statType} projected (${uniqueOut.length} teammates out: ${uniqueOut.join(', ')})`,
+      tier: 2,
+    };
+  }
+
+  return null;
+}
+
+/**
+ * Detect positional defense matchup edge.
+ * If the opponent is bottom-10 defending the player's position, favor OVER.
+ * If top-10 defending, favor UNDER.
+ */
+function detectPositionalDefenseEdge(player: Player, statType: string, recommendation: "OVER" | "UNDER"): Edge | null {
+  // Only relevant for counting stats
+  if (!["PTS", "REB", "AST", "FG3M", "PRA", "PR", "PA"].includes(statType)) return null;
+  if (!player.position || !player.opp_def_vs_position_rank) return null;
+
+  const rank = player.opp_def_vs_position_rank;
+
+  // Bottom-10 defending (rank 21-30 = worst defense) favors OVER
+  if (rank >= 21 && recommendation === "OVER") {
+    return {
+      type: "POSITIONAL_DEFENSE",
+      score: Math.min(7, 4 + Math.floor((rank - 20) / 3)),
+      description: `Weak positional D: Opponent ranks #${rank} vs ${player.position} (bottom-10)`,
+      tier: 2,
+    };
+  }
+
+  // Top-10 defending (rank 1-10 = best defense) favors UNDER
+  if (rank <= 10 && recommendation === "UNDER") {
+    return {
+      type: "POSITIONAL_DEFENSE",
+      score: Math.min(7, 4 + Math.floor((11 - rank) / 3)),
+      description: `Strong positional D: Opponent ranks #${rank} vs ${player.position} (top-10)`,
+      tier: 2,
+    };
   }
 
   return null;
