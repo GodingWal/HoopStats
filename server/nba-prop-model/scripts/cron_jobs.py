@@ -37,6 +37,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from src.signals import registry, AVAILABLE_SIGNALS, SUPPORTED_STAT_TYPES
 from src.evaluation.backtest_engine import BacktestEngine, run_full_backtest
 from src.evaluation.weight_optimizer import WeightOptimizer, optimize_all_weights
+from src.data.context_enrichment import enrich_context
 from src.models.signal_projection_engine import (
     SignalProjectionEngine,
     BlendedProjection,
@@ -138,7 +139,9 @@ def capture_projections(target_date: Optional[str] = None) -> int:
                 p.home_averages,
                 p.away_averages,
                 p.position,
-                p.recent_games
+                p.recent_games,
+                p.game_logs,
+                p.vs_team
             FROM prizepicks_daily_lines pdl
             LEFT JOIN players p ON LOWER(pdl.player_name) = LOWER(p.player_name)
             WHERE pdl.game_date = %s
@@ -160,6 +163,13 @@ def capture_projections(target_date: Optional[str] = None) -> int:
                 context = build_context_from_player_data(data)
                 context['opponent'] = data.get('opponent', '')
                 context['game_date'] = target_date
+                context['stat_type'] = data.get('stat_type', '')
+                
+                # Enrich context with all data signals need
+                try:
+                    enrich_context(conn, context, data)
+                except Exception as enrich_err:
+                    logger.debug(f"Context enrichment partial: {enrich_err}")
 
                 # Generate projection
                 projection = engine.project(

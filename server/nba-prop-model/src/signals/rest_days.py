@@ -13,7 +13,7 @@ import logging
 from typing import Dict, Any, Optional
 from datetime import datetime, timedelta
 
-from .base import BaseSignal, SignalResult
+from .base import BaseSignal, SignalResult, registry
 
 logger = logging.getLogger(__name__)
 
@@ -151,3 +151,6 @@ class RestDaysSignal(BaseSignal):
             },
             sample_size=0,
         )
+
+# Register signal with global registry
+registry.register(RestDaysSignal())

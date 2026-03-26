@@ -11,7 +11,7 @@ import os
 from typing import Dict, Any, Optional
 from datetime import datetime
 
-from .base import BaseSignal, SignalResult
+from .base import BaseSignal, SignalResult, registry
 
 logger = logging.getLogger(__name__)
 
@@ -310,3 +310,6 @@ class PositionalDefenseSignal(BaseSignal):
         # League-wide hardcoded fallbacks (PPG allowed per position ~2022-23)
         LEAGUE_AVERAGES = {"pg": 24.5, "sg": 22.0, "sf": 20.5, "pf": 18.0, "c": 17.0}
         return LEAGUE_AVERAGES.get(pos, 20.0), {"sample_size": 0}
+
+# Register signal with global registry
+registry.register(PositionalDefenseSignal())

@@ -1,5 +1,5 @@
 from typing import Dict, Any, List, Optional
-from .base import BaseSignal, SignalResult
+from .base import BaseSignal, SignalResult, registry
 import logging
 
 logger = logging.getLogger(__name__)
@@ -94,3 +94,6 @@ class RefereeImpactSignal(BaseSignal):
             },
             sample_size=len(valid_refs) * 10 # heuristic
         )
+
+# Register signal with global registry
+registry.register(RefereeImpactSignal())

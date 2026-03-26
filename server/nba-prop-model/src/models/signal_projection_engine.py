@@ -592,6 +592,13 @@ class SignalProjectionEngine:
         return projections
 
 
+
+def _normalize_stat_keys(d):
+    """Normalize stat dictionary keys to lowercase."""
+    if not isinstance(d, dict):
+        return d
+    return {k.lower(): v for k, v in d.items()}
+
 def build_context_from_player_data(player_data: Dict[str, Any]) -> Dict[str, Any]:
     """
     Build context dictionary from player data (e.g., from database).
@@ -604,7 +611,7 @@ def build_context_from_player_data(player_data: Dict[str, Any]) -> Dict[str, Any
         'team': player_data.get('team', ''),
     }
 
-    # Parse JSON fields
+    # Parse JSON fields and normalize stat keys to lowercase
     for ctx_field in ['season_averages', 'last_5_averages', 'last_10_averages',
                       'home_averages', 'away_averages', 'recent_games']:
         value = player_data.get(ctx_field, {} if ctx_field != 'recent_games' else [])
@@ -613,6 +620,9 @@ def build_context_from_player_data(player_data: Dict[str, Any]) -> Dict[str, Any
                 value = json.loads(value)
             except:
                 value = {} if ctx_field != 'recent_games' else []
+        # Normalize dict keys to lowercase for signal compatibility
+        if isinstance(value, dict):
+            value = _normalize_stat_keys(value)
         context[ctx_field] = value
 
     # Position
