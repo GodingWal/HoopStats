@@ -743,8 +743,8 @@ export async function registerRoutes(
           INNER JOIN prizepicks_daily_lines pdl
             ON po.player_id::text = pdl.prizepicks_player_id::text
             AND po.prop_type = pdl.stat_type
-            AND pdl.game_date = CURRENT_DATE
-          WHERE po.game_date = CURRENT_DATE
+            AND pdl.game_date = (NOW() AT TIME ZONE 'America/New_York')::date
+          WHERE po.game_date = (NOW() AT TIME ZONE 'America/New_York')::date
             AND po.confidence_tier != 'SKIP'
             AND po.prizepicks_line IS NOT NULL AND po.prizepicks_line > 0.5
           ORDER BY pdl.player_name, po.prop_type, ABS(po.edge_pct) DESC
