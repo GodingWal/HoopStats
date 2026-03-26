@@ -203,6 +203,8 @@ export const playerSchema = z.object({
   next_game_location: z.enum(['home', 'away']).optional(),
   next_opponent: z.string().optional(),
   usage_rate: z.number().optional(),
+  // Positional defense rank of opponent vs player's position (1=best, 30=worst)
+  opp_def_vs_position_rank: z.number().optional(),
 });
 
 export type Player = z.infer<typeof playerSchema>;
