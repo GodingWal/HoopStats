@@ -43,6 +43,13 @@ const STAT_KEY_MAP: Record<string, string> = {
   Turnovers: "tov",
 };
 
+export interface ShapDriver {
+  feature: string;
+  shap_value: number;
+  feature_value: number;
+  direction: string; // "OVER" | "UNDER"
+}
+
 export interface XGBoostPrediction {
   prob_over: number;
   prob_under: number;
@@ -50,6 +57,13 @@ export interface XGBoostPrediction {
   predicted_hit: boolean;
   model_type: string;
   top_features: Array<[string, number]>;
+  // Calibration metadata
+  calibration_method: string; // "isotonic" | "none"
+  raw_prob_over: number; // Pre-calibration probability
+  calibration_shift: number; // calibrated - raw
+  // SHAP explanation (top drivers for this specific prediction)
+  shap_top_drivers: ShapDriver[];
+  shap_base_value: number | null;
 }
 
 /**
@@ -185,13 +199,38 @@ model.load("${modelName}")
 context = json.loads(sys.stdin.read())
 pred = model.predict(context, "${modelName}")
 importances = sorted(pred.feature_importances.items(), key=lambda x: x[1], reverse=True)[:5]
+
+# Calibration: get raw (uncalibrated) probability for comparison
+cal = model.calibrators.pop("${modelName}", None)
+raw_uncal = model.predict_proba(context, "${modelName}")
+if cal is not None:
+    model.calibrators["${modelName}"] = cal
+cal_method = "isotonic" if cal is not None else "none"
+cal_shift = round(pred.prob_over - raw_uncal, 4)
+
+# SHAP explanation
+shap_data = []
+shap_base = None
+if pred.shap_explanation:
+    shap_data = [
+        {"feature": f, "shap_value": round(sv, 4), "feature_value": round(fv, 4),
+         "direction": "OVER" if sv > 0 else "UNDER"}
+        for f, sv, fv in pred.shap_explanation.top_drivers[:8]
+    ]
+    shap_base = float(pred.shap_explanation.base_value) if pred.shap_explanation.base_value is not None else None
+
 print(json.dumps({
     "prob_over": pred.prob_over,
     "prob_under": pred.prob_under,
     "confidence": pred.confidence,
     "predicted_hit": pred.predicted_hit,
     "model_type": pred.model_type,
-    "top_features": importances
+    "top_features": importances,
+    "calibration_method": cal_method,
+    "raw_prob_over": round(raw_uncal, 4),
+    "calibration_shift": cal_shift,
+    "shap_top_drivers": shap_data,
+    "shap_base_value": shap_base
 }))
 `;
 
@@ -260,13 +299,38 @@ for item in batch:
     try:
         pred = model.predict(context, model_name)
         importances = sorted(pred.feature_importances.items(), key=lambda x: x[1], reverse=True)[:5]
+
+        # Calibration: get raw (uncalibrated) probability
+        cal = model.calibrators.pop(model_name, None)
+        raw_uncal = model.predict_proba(context, model_name)
+        if cal is not None:
+            model.calibrators[model_name] = cal
+        cal_method = "isotonic" if cal is not None else "none"
+        cal_shift = round(pred.prob_over - raw_uncal, 4)
+
+        # SHAP explanation
+        shap_data = []
+        shap_base = None
+        if pred.shap_explanation:
+            shap_data = [
+                {"feature": f, "shap_value": round(sv, 4), "feature_value": round(fv, 4),
+                 "direction": "OVER" if sv > 0 else "UNDER"}
+                for f, sv, fv in pred.shap_explanation.top_drivers[:8]
+            ]
+            shap_base = float(pred.shap_explanation.base_value) if pred.shap_explanation.base_value is not None else None
+
         results[key] = {
             "prob_over": pred.prob_over,
             "prob_under": pred.prob_under,
             "confidence": pred.confidence,
             "predicted_hit": pred.predicted_hit,
             "model_type": pred.model_type,
-            "top_features": importances
+            "top_features": importances,
+            "calibration_method": cal_method,
+            "raw_prob_over": round(raw_uncal, 4),
+            "calibration_shift": cal_shift,
+            "shap_top_drivers": shap_data,
+            "shap_base_value": shap_base
         }
     except Exception as e:
         pass

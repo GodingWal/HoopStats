@@ -52,7 +52,7 @@ import { generateBetExplanation, parseBetScreenshot } from "./services/openai";
 import { getPlayerStatsByName, getActivePlayersWithStats } from "./services/balldontlie";
 import { lineWatcher } from "./services/line-watcher";
 import { SAMPLE_PLAYERS } from "./data/sample-players-loader";
-import { batchXGBoostPredict, getAvailableModels, type XGBoostPrediction } from "./xgboost-service";
+import { batchXGBoostPredict, getAvailableModels, getXGBoostPrediction, type XGBoostPrediction } from "./xgboost-service";
 
 // Helper: ensure players are loaded in storage, fetching from ESPN if needed
 async function ensurePlayersLoaded(): Promise<Player[]> {
@@ -138,6 +138,12 @@ function generatePotentialBets(players: Player[], xgbPredictions?: Map<string, X
     xgb_prob_over: number | null;
     xgb_confidence: number | null;
     xgb_model_type: string | null;
+    ml_explanation: {
+      shap_drivers: Array<{ feature: string; shap_value: number; feature_value: number; direction: string }>;
+      calibration: string;
+      calibration_shift: number;
+      raw_prob_over: number | null;
+    } | null;
   }> = [];
 
   const statTypes = ["PTS", "REB", "AST", "PRA", "FG3M"];
@@ -220,6 +226,12 @@ function generatePotentialBets(players: Player[], xgbPredictions?: Map<string, X
             xgb_prob_over: xgbPred?.prob_over || null,
             xgb_confidence: xgbPred?.confidence || null,
             xgb_model_type: xgbPred?.model_type || null,
+            ml_explanation: xgbPred ? {
+              shap_drivers: (xgbPred.shap_top_drivers || []).slice(0, 3),
+              calibration: xgbPred.calibration_method || "none",
+              calibration_shift: xgbPred.calibration_shift || 0,
+              raw_prob_over: xgbPred.raw_prob_over ?? null,
+            } : null,
           });
         }
       }
@@ -3454,6 +3466,7 @@ export async function registerRoutes(
           signal_score, edge_total, predicted_direction, confidence_tier,
           actual_value, actual_minutes, hit,
           closing_line, closing_line_value,
+          model_prob, calibration_method, shap_top_drivers,
           captured_at, settled_at
         FROM xgboost_training_log
         WHERE game_date >= CURRENT_DATE - INTERVAL '${days} days'
@@ -3482,6 +3495,9 @@ export async function registerRoutes(
           hit: r.hit,
           closingLine: r.closing_line !== null ? parseFloat(r.closing_line) : null,
           closingLineValue: r.closing_line_value !== null ? parseFloat(r.closing_line_value) : null,
+          modelProb: r.model_prob !== null ? parseFloat(r.model_prob) : null,
+          calibrationMethod: r.calibration_method || null,
+          shapTopDrivers: r.shap_top_drivers || null,
           capturedAt: r.captured_at,
           settledAt: r.settled_at,
         })),
@@ -4612,6 +4628,62 @@ print(json.dumps(result.to_dict()))
       model_count: models.length,
       blend_weights: { xgboost: 0.4, analytical: 0.6 },
     });
+  });
+
+  // On-demand SHAP explanation for a specific player-prop prediction
+  app.get("/api/ml/explain", async (req, res) => {
+    try {
+      const playerName = req.query.player as string;
+      const statType = req.query.statType as string;
+      const line = parseFloat(req.query.line as string);
+
+      if (!playerName || !statType || isNaN(line)) {
+        return res.status(400).json({ error: "Required: player, statType, line" });
+      }
+
+      // Find the player
+      const players = await storage.getPlayers();
+      const player = players.find(
+        (p) => p.player_name.toLowerCase() === playerName.toLowerCase()
+      );
+      if (!player) {
+        return res.status(404).json({ error: `Player not found: ${playerName}` });
+      }
+
+      const prediction = await getXGBoostPrediction(player, statType, line);
+      if (!prediction) {
+        return res.json({
+          available: false,
+          message: "No XGBoost model available for this stat type",
+        });
+      }
+
+      res.json({
+        available: true,
+        player_name: player.player_name,
+        stat_type: statType,
+        line,
+        prob_over: prediction.prob_over,
+        prob_under: prediction.prob_under,
+        confidence: prediction.confidence,
+        predicted_hit: prediction.predicted_hit,
+        model_type: prediction.model_type,
+        calibration: {
+          method: prediction.calibration_method,
+          raw_prob_over: prediction.raw_prob_over,
+          calibrated_prob_over: prediction.prob_over,
+          shift: prediction.calibration_shift,
+        },
+        shap_explanation: {
+          base_value: prediction.shap_base_value,
+          top_drivers: prediction.shap_top_drivers,
+        },
+        top_features: prediction.top_features,
+      });
+    } catch (error: any) {
+      apiLogger.error("ML explain error:", error);
+      res.status(500).json({ error: "Failed to generate explanation" });
+    }
   });
 
   return httpServer;

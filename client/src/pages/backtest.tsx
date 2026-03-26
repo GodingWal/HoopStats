@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -161,6 +161,13 @@ interface XGBoostOverview {
   message?: string;
 }
 
+interface ShapDriver {
+  feature: string;
+  shap_value: number;
+  feature_value: number;
+  direction: string;
+}
+
 interface XGBoostPrediction {
   id: number;
   playerId: string;
@@ -178,6 +185,9 @@ interface XGBoostPrediction {
   closingLineValue: number | null;
   capturedAt: string;
   settledAt: string | null;
+  modelProb: number | null;
+  calibrationMethod: string | null;
+  shapTopDrivers: ShapDriver[] | null;
 }
 
 interface XGBoostFeature {
@@ -1654,7 +1664,42 @@ function XGBoostFeatureImportanceSection({ features, sampleSize }: { features: X
   );
 }
 
+function ShapDriversBar({ drivers }: { drivers: ShapDriver[] }) {
+  if (!drivers || drivers.length === 0) return null;
+  const maxAbs = Math.max(...drivers.map(d => Math.abs(d.shap_value)), 0.01);
+
+  return (
+    <div className="space-y-1 py-1">
+      {drivers.slice(0, 5).map((d, i) => {
+        const pct = Math.abs(d.shap_value) / maxAbs * 100;
+        const isOver = d.shap_value > 0;
+        return (
+          <div key={i} className="flex items-center gap-2 text-xs">
+            <span className="w-36 text-right text-muted-foreground truncate" title={d.feature}>
+              {d.feature.replace(/_/g, " ")}
+            </span>
+            <div className="flex-1 flex items-center gap-1">
+              <div
+                className={`h-3 rounded-sm ${isOver ? "bg-emerald-500/70" : "bg-rose-500/70"}`}
+                style={{ width: `${Math.max(pct, 4)}%` }}
+              />
+              <span className={`text-[10px] font-mono ${isOver ? "text-emerald-400" : "text-rose-400"}`}>
+                {d.shap_value > 0 ? "+" : ""}{d.shap_value.toFixed(3)}
+              </span>
+            </div>
+            <span className="text-[10px] text-muted-foreground font-mono w-10 text-right">
+              {d.feature_value.toFixed(1)}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function XGBoostPredictionLogSection({ predictions, isLoading }: { predictions: XGBoostPrediction[]; isLoading: boolean }) {
+  const [expandedId, setExpandedId] = React.useState<number | null>(null);
+
   if (isLoading) {
     return (
       <Card>
@@ -1690,6 +1735,7 @@ function XGBoostPredictionLogSection({ predictions, isLoading }: { predictions: 
                 <th className="text-center py-2 text-muted-foreground font-medium">Stat</th>
                 <th className="text-center py-2 text-muted-foreground font-medium">Line</th>
                 <th className="text-center py-2 text-muted-foreground font-medium">Dir</th>
+                <th className="text-center py-2 text-muted-foreground font-medium">Prob</th>
                 <th className="text-center py-2 text-muted-foreground font-medium">Tier</th>
                 <th className="text-center py-2 text-muted-foreground font-medium">Edge</th>
                 <th className="text-center py-2 text-muted-foreground font-medium">Actual</th>
@@ -1699,56 +1745,86 @@ function XGBoostPredictionLogSection({ predictions, isLoading }: { predictions: 
             <tbody>
               {predictions.slice(0, 40).map((pred) => {
                 const hasActual = pred.actualValue !== null;
+                const hasShap = pred.shapTopDrivers && pred.shapTopDrivers.length > 0;
+                const isExpanded = expandedId === pred.id;
 
                 return (
-                  <tr key={pred.id} className="border-b border-border/30 hover:bg-muted/30">
-                    <td className="py-2">
-                      <span className="font-medium text-sm">{pred.playerId}</span>
-                    </td>
-                    <td className="text-center py-2 text-xs text-muted-foreground">
-                      {new Date(pred.gameDate).toLocaleDateString("en-US", {
-                        month: "short",
-                        day: "numeric",
-                      })}
-                    </td>
-                    <td className="text-center py-2 text-xs">{pred.statType}</td>
-                    <td className="text-center py-2 font-mono">{safeFixed(pred.lineValue)}</td>
-                    <td className="text-center py-2">
-                      {pred.predictedDirection === "OVER" || pred.predictedDirection === "Over" ? (
-                        <ArrowUpRight className="w-4 h-4 text-emerald-400 inline" />
-                      ) : pred.predictedDirection === "UNDER" || pred.predictedDirection === "Under" ? (
-                        <ArrowDownRight className="w-4 h-4 text-rose-400 inline" />
-                      ) : (
-                        <Minus className="w-4 h-4 text-muted-foreground inline" />
-                      )}
-                    </td>
-                    <td className="text-center py-2">
-                      {pred.confidenceTier ? (
-                        <Badge className={`text-[10px] ${GRADE_COLORS[pred.confidenceTier] || "bg-muted/50 text-muted-foreground border-muted"}`}>
-                          {pred.confidenceTier}
-                        </Badge>
-                      ) : (
-                        <span className="text-xs text-muted-foreground">—</span>
-                      )}
-                    </td>
-                    <td className="text-center py-2 font-mono text-xs">
-                      {safeFixed(pred.edgeTotal, 1)}
-                    </td>
-                    <td className="text-center py-2 font-mono">
-                      {hasActual ? safeFixed(pred.actualValue) : "—"}
-                    </td>
-                    <td className="text-center py-2">
-                      {hasActual ? (
-                        pred.hit ? (
-                          <CheckCircle2 className="w-4 h-4 text-emerald-400 inline" />
+                  <React.Fragment key={pred.id}>
+                    <tr
+                      className={`border-b border-border/30 hover:bg-muted/30 ${hasShap ? "cursor-pointer" : ""}`}
+                      onClick={() => hasShap && setExpandedId(isExpanded ? null : pred.id)}
+                    >
+                      <td className="py-2">
+                        <span className="font-medium text-sm">{pred.playerId}</span>
+                      </td>
+                      <td className="text-center py-2 text-xs text-muted-foreground">
+                        {new Date(pred.gameDate).toLocaleDateString("en-US", {
+                          month: "short",
+                          day: "numeric",
+                        })}
+                      </td>
+                      <td className="text-center py-2 text-xs">{pred.statType}</td>
+                      <td className="text-center py-2 font-mono">{safeFixed(pred.lineValue)}</td>
+                      <td className="text-center py-2">
+                        {pred.predictedDirection === "OVER" || pred.predictedDirection === "Over" ? (
+                          <ArrowUpRight className="w-4 h-4 text-emerald-400 inline" />
+                        ) : pred.predictedDirection === "UNDER" || pred.predictedDirection === "Under" ? (
+                          <ArrowDownRight className="w-4 h-4 text-rose-400 inline" />
                         ) : (
-                          <XCircle className="w-4 h-4 text-rose-400 inline" />
-                        )
-                      ) : (
-                        <span className="text-xs text-muted-foreground">Pending</span>
-                      )}
-                    </td>
-                  </tr>
+                          <Minus className="w-4 h-4 text-muted-foreground inline" />
+                        )}
+                      </td>
+                      <td className="text-center py-2">
+                        {pred.modelProb != null ? (
+                          <span className="font-mono text-xs">
+                            {(pred.modelProb * 100).toFixed(0)}%
+                            {pred.calibrationMethod === "isotonic" && (
+                              <span className="ml-1 text-[9px] text-blue-400" title="Isotonic calibration applied">CAL</span>
+                            )}
+                          </span>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">—</span>
+                        )}
+                      </td>
+                      <td className="text-center py-2">
+                        {pred.confidenceTier ? (
+                          <Badge className={`text-[10px] ${GRADE_COLORS[pred.confidenceTier] || "bg-muted/50 text-muted-foreground border-muted"}`}>
+                            {pred.confidenceTier}
+                          </Badge>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">—</span>
+                        )}
+                      </td>
+                      <td className="text-center py-2 font-mono text-xs">
+                        {safeFixed(pred.edgeTotal, 1)}
+                      </td>
+                      <td className="text-center py-2 font-mono">
+                        {hasActual ? safeFixed(pred.actualValue) : "—"}
+                      </td>
+                      <td className="text-center py-2">
+                        {hasActual ? (
+                          pred.hit ? (
+                            <CheckCircle2 className="w-4 h-4 text-emerald-400 inline" />
+                          ) : (
+                            <XCircle className="w-4 h-4 text-rose-400 inline" />
+                          )
+                        ) : (
+                          <span className="text-xs text-muted-foreground">Pending</span>
+                        )}
+                      </td>
+                    </tr>
+                    {isExpanded && hasShap && (
+                      <tr className="bg-muted/20">
+                        <td colSpan={10} className="px-4 py-2">
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="text-xs font-medium text-muted-foreground">SHAP Drivers</span>
+                            <span className="text-[10px] text-muted-foreground">(what drove this prediction)</span>
+                          </div>
+                          <ShapDriversBar drivers={pred.shapTopDrivers!} />
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
                 );
               })}
             </tbody>

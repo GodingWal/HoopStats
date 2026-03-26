@@ -252,6 +252,9 @@ export async function logXGBoostPrediction(
     hitRate?: number;
     expectedValue?: number;
     edgeTotalScore?: number;
+    modelProb?: number;
+    calibrationMethod?: string;
+    shapTopDrivers?: Array<{ feature: string; shap_value: number; feature_value: number; direction: string }>;
   } = {},
 ): Promise<void> {
   if (!pool) return; // No database
@@ -277,8 +280,9 @@ export async function logXGBoostPrediction(
         player_id, game_date, stat_type, line_value,
         features, signal_score, edge_total,
         predicted_direction, confidence_tier,
+        model_prob, calibration_method, shap_top_drivers,
         captured_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW())
       ON CONFLICT (player_id, game_date, stat_type)
       DO UPDATE SET
         line_value = EXCLUDED.line_value,
@@ -287,6 +291,9 @@ export async function logXGBoostPrediction(
         edge_total = EXCLUDED.edge_total,
         predicted_direction = EXCLUDED.predicted_direction,
         confidence_tier = EXCLUDED.confidence_tier,
+        model_prob = EXCLUDED.model_prob,
+        calibration_method = EXCLUDED.calibration_method,
+        shap_top_drivers = EXCLUDED.shap_top_drivers,
         captured_at = NOW()`,
       [
         String(player.player_id),
@@ -298,6 +305,9 @@ export async function logXGBoostPrediction(
         extra.edgeTotalScore ?? 0,
         recommendation,
         confidence,
+        extra.modelProb ?? null,
+        extra.calibrationMethod ?? null,
+        JSON.stringify(extra.shapTopDrivers ?? []),
       ],
     );
   } catch (err) {

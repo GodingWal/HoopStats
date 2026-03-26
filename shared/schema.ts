@@ -268,6 +268,20 @@ export const potentialBetSchema = z.object({
   edge_description: z.string().optional(),
   expected_value: z.number().optional(),
   kelly_size: z.number().optional(),
+  xgb_prob_over: z.number().optional(),
+  xgb_confidence: z.number().optional(),
+  xgb_model_type: z.string().optional(),
+  ml_explanation: z.object({
+    shap_drivers: z.array(z.object({
+      feature: z.string(),
+      shap_value: z.number(),
+      feature_value: z.number(),
+      direction: z.string(),
+    })),
+    calibration: z.string(),
+    calibration_shift: z.number(),
+    raw_prob_over: z.number().nullable(),
+  }).optional(),
 });
 
 export type PotentialBet = z.infer<typeof potentialBetSchema>;
