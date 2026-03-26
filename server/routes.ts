@@ -717,11 +717,11 @@ export async function registerRoutes(
       if (!pool) return res.json([]);
       const result = await pool.query(`
         WITH ranked_picks AS (
-          SELECT DISTINCT ON (po.player_name, po.prop_type)
-            po.player_name,
+          SELECT DISTINCT ON (pdl.player_name, po.prop_type)
+            pdl.player_name,
             COALESCE(pdl.team, '') as team,
             po.prop_type as stat_type,
-            po.prizepicks_line as line,
+            COALESCE(pdl.closing_line, po.prizepicks_line) as line,
             CASE WHEN po.edge_pct > 0 THEN 'OVER' ELSE 'UNDER' END as recommendation,
             CASE
               WHEN ABS(po.edge_pct) >= 8 THEN 'HIGH'
@@ -730,7 +730,7 @@ export async function registerRoutes(
             END as confidence,
             'PROJECTION' as edge_type,
             ROUND(ABS(po.edge_pct)::numeric, 2) as edge_score,
-            'Model projects ' || ROUND(po.final_projection::numeric, 1) || ' vs line ' || po.prizepicks_line || ' (' || ROUND(ABS(po.edge_pct)::numeric, 1) || '% edge)' as edge_description,
+            'Model projects ' || ROUND(po.final_projection::numeric, 1) || ' vs line ' || COALESCE(pdl.closing_line, po.prizepicks_line) || ' (' || ROUND(ABS(po.edge_pct)::numeric, 1) || '% edge)' as edge_description,
             ROUND(po.final_projection::numeric, 2) as season_avg,
             ROUND(po.final_projection::numeric, 2) as last_5_avg,
             LEAST(50 + ABS(po.edge_pct) * 4, 95)::numeric as hit_rate,
@@ -740,15 +740,14 @@ export async function registerRoutes(
             10 as sample_size,
             ABS(po.edge_pct) as abs_edge
           FROM projection_outputs po
-          LEFT JOIN prizepicks_daily_lines pdl
-            ON LOWER(TRIM(po.player_name)) = LOWER(TRIM(pdl.player_name))
+          INNER JOIN prizepicks_daily_lines pdl
+            ON po.player_id::text = pdl.prizepicks_player_id::text
             AND po.prop_type = pdl.stat_type
             AND pdl.game_date = CURRENT_DATE
           WHERE po.game_date = CURRENT_DATE
-            AND po.player_name IS NOT NULL AND po.player_name != ''
             AND po.confidence_tier != 'SKIP'
             AND po.prizepicks_line IS NOT NULL AND po.prizepicks_line > 0.5
-          ORDER BY po.player_name, po.prop_type, ABS(po.edge_pct) DESC
+          ORDER BY pdl.player_name, po.prop_type, ABS(po.edge_pct) DESC
         )
         SELECT player_name, team, stat_type, line, recommendation, confidence,
                edge_type, edge_score, edge_description, season_avg, last_5_avg,
