@@ -14,6 +14,7 @@ Cron target: daily 10:30 AM (after projection_engine.run_daily())
 """
 
 import decimal
+import heapq
 import itertools
 import json
 import logging
@@ -47,9 +48,9 @@ ELIGIBLE_TIERS = ("SMASH", "STRONG", "LEAN")
 
 # ── Recommendation thresholds ────────────────────────────────────────────────
 RECOMMENDATION_THRESHOLDS = [
-    ("SMASH",  0.25),
-    ("STRONG", 0.15),
-    ("LEAN",   0.05),
+    ("SMASH",  0.15),   # 15%+ EV
+    ("STRONG", 0.08),   # 8-15% EV
+    ("LEAN",   0.02),   # 2-8% EV
     ("AVOID",  float("-inf")),  # negative EV — flag but record
 ]
 
@@ -160,19 +161,63 @@ class CorrelatedParlayBuilder:
             )
             return []
 
+        # Cap eligible props by parlay size to prevent combinatorial explosion
+        # C(40,3)=9880, C(25,4)=12650, C(18,5)=8568, C(15,6)=5005
+        MAX_PROPS_BY_SIZE = {2: 150, 3: 40, 4: 25, 5: 18, 6: 15}
+        max_eligible = MAX_PROPS_BY_SIZE.get(parlay_size, 15)
+        if len(props) > max_eligible:
+            props.sort(key=lambda p: float(p.get("edge_pct", 0) or 0), reverse=True)
+            props = props[:max_eligible]
+            logger.info(f"find_optimal_parlays: capped to top {max_eligible} props by edge (size={parlay_size})")
+
+        from math import comb
+        total_combos = comb(len(props), parlay_size)
         logger.info(
             f"find_optimal_parlays: scoring C({len(props)},{parlay_size}) = "
-            f"{len(list(itertools.combinations(range(len(props)), parlay_size)))} combos"
+            f"{total_combos} combos"
         )
 
-        scored: List[Dict[str, Any]] = []
-        for combo in itertools.combinations(props, parlay_size):
-            result = self._score_parlay(combo, game_date)
-            if result is not None:
-                scored.append(result)
+        # Use a heap to keep only top max_results in memory
+        TOP_N = max_results * 2  # keep extra for filtering
+        top_heap = []  # min-heap of (combined_ev, counter, result)
+        counter = 0
+        processed = 0
 
-        # Sort by EV and keep top results above min threshold
-        scored.sort(key=lambda x: x["combined_ev"], reverse=True)
+        # Reuse a single DB connection for all correlation lookups
+        import time as _time
+        scoring_conn = self._get_conn()
+        scoring_engine = CorrelationEngine(conn=scoring_conn)
+        _start = _time.time()
+        _TIMEOUT_SECS = 90  # hard cap to prevent zombie processes
+
+        for combo in itertools.combinations(props, parlay_size):
+            if processed % 1000 == 0 and _time.time() - _start > _TIMEOUT_SECS:
+                logger.warning(
+                    f"find_optimal_parlays: timeout after {processed}/{total_combos} "
+                    f"combos ({_TIMEOUT_SECS}s), returning partial results"
+                )
+                break
+            result = self._score_parlay(combo, game_date, engine=scoring_engine)
+            if result is not None:
+                counter += 1
+                ev = result["combined_ev"]
+                if len(top_heap) < TOP_N:
+                    heapq.heappush(top_heap, (ev, counter, result))
+                elif ev > top_heap[0][0]:
+                    heapq.heapreplace(top_heap, (ev, counter, result))
+            processed += 1
+            if processed % 10000 == 0:
+                elapsed = _time.time() - _start
+                logger.info(f"  processed {processed}/{total_combos} combos ({elapsed:.1f}s)")
+
+        # Release the shared scoring connection
+        try:
+            scoring_conn.close()
+        except Exception:
+            pass
+
+        # Extract results sorted by EV descending
+        scored = [item[2] for item in sorted(top_heap, key=lambda x: x[0], reverse=True)]
         top = [p for p in scored if p["combined_ev"] > min_ev][:max_results]
 
         # Write all scored parlays (including below threshold) so avoid reasons
@@ -189,7 +234,8 @@ class CorrelatedParlayBuilder:
     # ── Scoring ────────────────────────────────────────────────────────────
 
     def _score_parlay(
-        self, props_tuple: Tuple[Dict, ...], game_date: str
+        self, props_tuple: Tuple[Dict, ...], game_date: str,
+        engine=None,
     ) -> Optional[Dict[str, Any]]:
         """
         Score a single parlay combination.
@@ -217,7 +263,8 @@ class CorrelatedParlayBuilder:
                         leg_a.get("stat_type", "pts"),
                         leg_b.get("stat_type", "pts"),
                     )
-                    corr = self._engine.get_correlation(
+                    _eng = engine or self._engine
+                    corr = _eng.get_correlation(
                         str(leg_a["player_id"]),
                         str(leg_b["player_id"]),
                         stat,
@@ -477,7 +524,11 @@ class CorrelatedParlayBuilder:
                 prop = dict(zip(cols, row))
                 # Derive hit_prob from edge_pct
                 edge = float(prop.get("edge_pct") or 0.0)
-                prop["hit_prob"] = max(0.01, min(0.99, 0.5 + edge / 200.0))
+                # Logistic mapping: edge_pct -> hit probability
+                # edge=0 -> 0.50, edge=10 -> 0.57, edge=25 -> 0.65
+                # edge=50 -> 0.73, edge=100 -> 0.82
+                import math
+                prop["hit_prob"] = max(0.01, min(0.99, 1.0 / (1.0 + math.exp(-edge / 50.0))))
                 props.append(prop)
 
             return props
@@ -492,7 +543,7 @@ class CorrelatedParlayBuilder:
 
         Preference: pts > reb > ast > 3pm > pra
         """
-        priority = {"pts": 0, "reb": 1, "ast": 2, "3pm": 3, "pra": 4}
+        priority = {"pts": 0, "reb": 1, "ast": 2, "3pm": 3, "pra": 4, "ptsrebs": 5, "ptsasts": 6, "rebsasts": 7, "blksstls": 8}
         a = stat_a.lower().replace("-", "").replace("+", "").replace(" ", "")
         b = stat_b.lower().replace("-", "").replace("+", "").replace(" ", "")
         # Normalise common aliases
@@ -500,6 +551,8 @@ class CorrelatedParlayBuilder:
             "points": "pts", "rebounds": "reb", "assists": "ast",
             "3pointersm": "3pm", "3pointersmade": "3pm",
             "ptsrebsasts": "pra", "pra": "pra",
+            "ptsrebs": "ptsrebs", "ptsasts": "ptsasts",
+            "rebsasts": "rebsasts", "blksstls": "blksstls",
         }
         a = alias.get(a, a)
         b = alias.get(b, b)

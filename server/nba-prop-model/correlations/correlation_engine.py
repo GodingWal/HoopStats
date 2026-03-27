@@ -37,6 +37,11 @@ COMBO_STATS: Dict[str, List[str]] = {
     "pr": ["pts", "reb"],
     "pa": ["pts", "ast"],
     "ra": ["reb", "ast"],
+    "ptsrebsasts": ["pts", "reb", "ast"],
+    "ptsrebs": ["pts", "reb"],
+    "ptsasts": ["pts", "ast"],
+    "rebsasts": ["reb", "ast"],
+    "blksstls": ["blk", "stl"],
 }
 
 MIN_SHARED_GAMES = 20
