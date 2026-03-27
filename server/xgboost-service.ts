@@ -190,11 +190,18 @@ function runPythonInference(
   return new Promise((resolve) => {
     const script = `
 import sys, json, os
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath("${MODEL_DIR}")), '..'))
-os.chdir(os.path.join("${path.join(__dirname, "nba-prop-model")}"))
+import numpy as np
+class NpEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, (np.integer,)): return int(obj)
+        if isinstance(obj, (np.floating,)): return float(obj)
+        if isinstance(obj, np.ndarray): return obj.tolist()
+        return super().default(obj)
+sys.path.insert(0, "/var/www/courtsideedge/server")
+os.chdir("/var/www/courtsideedge/server/nba-prop-model")
 
 from src.models.xgboost_model import XGBoostPropModel
-model = XGBoostPropModel(model_dir="${MODEL_DIR}")
+model = XGBoostPropModel(model_dir="/var/www/courtsideedge/server/nba-prop-model/models/xgboost")
 model.load("${modelName}")
 context = json.loads(sys.stdin.read())
 pred = model.predict(context, "${modelName}")
@@ -231,13 +238,13 @@ print(json.dumps({
     "calibration_shift": cal_shift,
     "shap_top_drivers": shap_data,
     "shap_base_value": shap_base
-}))
+}, cls=NpEncoder))
 `;
 
     const pythonCmd =
       process.platform === "win32" ? "python" : path.join(__dirname, "nba-prop-model", "venv", "bin", "python");
     const proc = spawn(pythonCmd, ["-c", script], {
-      cwd: path.join(__dirname, "nba-prop-model"),
+      cwd: "/var/www/courtsideedge/server/nba-prop-model",
     });
 
     let stdout = "";
@@ -280,11 +287,18 @@ function runPythonBatchInference(
   return new Promise((resolve) => {
     const script = `
 import sys, json, os
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath("${MODEL_DIR}")), '..'))
-os.chdir("${path.join(__dirname, "nba-prop-model")}")
+import numpy as np
+class NpEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, (np.integer,)): return int(obj)
+        if isinstance(obj, (np.floating,)): return float(obj)
+        if isinstance(obj, np.ndarray): return obj.tolist()
+        return super().default(obj)
+sys.path.insert(0, "/var/www/courtsideedge/server")
+os.chdir("/var/www/courtsideedge/server/nba-prop-model")
 
 from src.models.xgboost_model import XGBoostPropModel
-model = XGBoostPropModel(model_dir="${MODEL_DIR}")
+model = XGBoostPropModel(model_dir="/var/www/courtsideedge/server/nba-prop-model/models/xgboost")
 
 # Load all available models
 for stat in ['Points', 'Rebounds', 'Assists', '3-Pointers Made', 'Steals', 'Blocks', 'Turnovers']:
@@ -335,13 +349,13 @@ for item in batch:
     except Exception as e:
         pass
 
-print(json.dumps(results))
+print(json.dumps(results, cls=NpEncoder))
 `;
 
     const pythonCmd =
       process.platform === "win32" ? "python" : path.join(__dirname, "nba-prop-model", "venv", "bin", "python");
     const proc = spawn(pythonCmd, ["-c", script], {
-      cwd: path.join(__dirname, "nba-prop-model"),
+      cwd: "/var/www/courtsideedge/server/nba-prop-model",
     });
 
     let stdout = "";
