@@ -22,6 +22,7 @@ import { useMutation } from "@tanstack/react-query";
 import { useParlayCart } from "@/contexts/parlay-cart";
 import { ParlayCart } from "@/components/parlay-cart";
 import { ImportBetsDialog } from "@/components/bets/import-bets-dialog";
+import { ShapExplainer } from "@/components/shap-explainer";
 
 interface LiveGame {
   id: string;
@@ -187,6 +188,16 @@ function BetRow({ bet }: { bet: PotentialBet }) {
             <div className={`text-xs italic mt-1 ${isInjuryEdge ? 'text-purple-300 font-medium' : 'text-muted-foreground'}`}>
               {bet.edge_description}
             </div>
+          )}
+          {/* SHAP AI Prediction Breakdown */}
+          {bet.ml_explanation && bet.ml_explanation.shap_drivers && bet.ml_explanation.shap_drivers.length > 0 && (
+            <ShapExplainer
+              drivers={bet.ml_explanation.shap_drivers}
+              calibration={bet.ml_explanation.calibration}
+              calibrationShift={bet.ml_explanation.calibration_shift}
+              rawProbOver={bet.ml_explanation.raw_prob_over}
+              probOver={bet.xgb_prob_over}
+            />
           )}
         </div>
 
