@@ -33,7 +33,7 @@ function StatComparison({
   );
 }
 
-export function HomeAwaySplits({ homeAverages: rawHome, awayAverages }: HomeAwaySplitsProps) {
+export function HomeAwaySplits({ homeAverages, awayAverages }: HomeAwaySplitsProps) {
   return (
     <div className="bg-muted/20 rounded-md border border-border">
       <div className="flex items-center border-b border-border px-3 py-2">
