@@ -4706,6 +4706,7 @@ print(json.dumps(result.to_dict()))
         "cron_jobs.py"
       );
 
+      // Spawn Python script in background (non-blocking) to avoid browser timeout
       const child = spawn(pythonCmd, [
         scriptPath,
         "parlays",
@@ -4713,52 +4714,42 @@ print(json.dumps(result.to_dict()))
         targetDate,
         "--size",
         String(size),
-      ]);
+      ], { detached: true, stdio: ["ignore", "pipe", "pipe"] });
 
-      let stdout = "";
-      let stderr = "";
-      child.stdout?.on("data", (d: Buffer) => { stdout += d.toString(); });
-      child.stderr?.on("data", (d: Buffer) => { stderr += d.toString(); });
-
-      child.on("close", async (code: number) => {
-        try {
-          if (code !== 0) {
-            apiLogger.error(`[Parlays] generate script exited ${code}: ${stderr}`);
-            return res.status(500).json({
-              error: "Parlay generation failed",
-              stderr: stderr.slice(0, 500),
-            });
-          }
-
-          // Return the freshly generated parlays
-          if (!pool) {
-            return res.status(503).json({ error: "Database not available" });
-          }
-          const result = await pool.query(
-            `SELECT id, legs, correlations, parlay_type, parlay_template,
-                    leg_count, base_hit_prob, true_hit_prob, payout,
-                    combined_ev, recommendation, avoid_reason, game_date
-             FROM parlay_results
-             WHERE game_date = $1
-               AND leg_count = $2
-             ORDER BY combined_ev DESC
-             LIMIT 20`,
-            [targetDate, size]
-          );
-
-          res.json({
-            date: targetDate,
-            parlay_size: size,
-            parlays: result.rows,
-            count: result.rows.length,
-            stdout: stdout.trim(),
-          });
-        } catch (err: any) {
-          apiLogger.error("[Parlays] Error after script completion:", err);
-          if (!res.headersSent) {
-            res.status(500).json({ error: err.message });
-          }
+      let bgStderr = "";
+      child.stderr?.on("data", (d: Buffer) => { bgStderr += d.toString(); });
+      child.on("close", (code: number) => {
+        if (code !== 0) {
+          apiLogger.error(`[Parlays] background generate script exited ${code}: ${bgStderr}`);
+        } else {
+          apiLogger.info(`[Parlays] background generate completed for ${targetDate} size=${size}`);
         }
+      });
+      child.unref();
+
+      // Return existing data immediately — frontend will auto-refetch for fresh results
+      if (!pool) {
+        return res.status(503).json({ error: "Database not available" });
+      }
+      const result = await pool.query(
+        `SELECT id, legs, correlations, parlay_type, parlay_template,
+                leg_count, base_hit_prob, true_hit_prob, payout,
+                combined_ev, recommendation, avoid_reason, game_date
+         FROM parlay_results
+         WHERE game_date = $1
+           AND leg_count = $2
+         ORDER BY combined_ev DESC
+         LIMIT 20`,
+        [targetDate, size]
+      );
+
+      res.json({
+        date: targetDate,
+        parlay_size: size,
+        parlays: result.rows,
+        count: result.rows.length,
+        generating: true,
+        message: "Parlay generation started in background. Results will auto-refresh.",
       });
     } catch (error: any) {
       apiLogger.error("[Parlays] Error triggering generation:", error);
