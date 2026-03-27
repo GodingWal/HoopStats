@@ -355,7 +355,7 @@ def project_player(player_id, game_date, prop_type, prizepicks_line,
 
     engine_result = signal_engine.run(ctx)
     signal_delta = engine_result.weighted_delta
-    final = round(baseline * (1 + signal_delta), 2)
+    final = round(baseline + signal_delta, 2)
     edge_pct = round((final - prizepicks_line) / prizepicks_line * 100, 2) if prizepicks_line else 0.0
 
     over_c = sum(1 for s in engine_result.signals_fired if s["direction"] == "OVER")

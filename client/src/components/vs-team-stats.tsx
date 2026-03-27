@@ -221,19 +221,19 @@ export function VsTeamStats({ vsTeam, seasonAvg }: VsTeamStatsProps) {
                 </div>
                 <div className="text-center">
                   <div className="text-muted-foreground mb-0.5">3PM</div>
-                  <div className="font-mono font-semibold">{stats.FG3M?.toFixed(1) ?? "-"}</div>
+                  <div className="font-mono font-semibold">{Number(stats.FG3M ?? 0).toFixed(1) ?? "-"}</div>
                 </div>
                 <div className="text-center">
                   <div className="text-muted-foreground mb-0.5">STL</div>
-                  <div className="font-mono font-semibold">{stats.STL?.toFixed(1) ?? "-"}</div>
+                  <div className="font-mono font-semibold">{Number(stats.STL ?? 0).toFixed(1) ?? "-"}</div>
                 </div>
                 <div className="text-center">
                   <div className="text-muted-foreground mb-0.5">BLK</div>
-                  <div className="font-mono font-semibold">{stats.BLK?.toFixed(1) ?? "-"}</div>
+                  <div className="font-mono font-semibold">{Number(stats.BLK ?? 0).toFixed(1) ?? "-"}</div>
                 </div>
                 <div className="text-center">
                   <div className="text-muted-foreground mb-0.5">TOV</div>
-                  <div className="font-mono font-semibold">{stats.TOV?.toFixed(1) ?? "-"}</div>
+                  <div className="font-mono font-semibold">{Number(stats.TOV ?? 0).toFixed(1) ?? "-"}</div>
                 </div>
               </div>
             </div>

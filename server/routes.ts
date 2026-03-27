@@ -221,7 +221,7 @@ function generatePotentialBets(players: Player[], xgbPredictions?: Map<string, X
             edge_type: edgeAnalysis.bestEdge?.type || (xgbEdgeBonus > 0 ? "ML_MODEL" : null),
             edge_score: (edgeAnalysis.totalScore || 0) + xgbEdgeBonus,
             edge_description: xgbEdgeBonus > 0
-              ? `${edgeAnalysis.bestEdge?.description || ""} | XGBoost: ${((xgbPred?.prob_over || 0) * 100).toFixed(0)}% over (conf: ${((xgbPred?.confidence || 0) * 100).toFixed(0)}%)`.trim()
+              ? `${edgeAnalysis.bestEdge?.description || ""} | XGBoost: ${Number(((xgbPred?.prob_over || 0) * 100).toFixed(0))}% over (conf: ${Number(((xgbPred?.confidence || 0) * 100).toFixed(0))}%)`.trim()
               : edgeAnalysis.bestEdge?.description || null,
             xgb_prob_over: xgbPred?.prob_over || null,
             xgb_confidence: xgbPred?.confidence || null,
@@ -3495,7 +3495,7 @@ export async function registerRoutes(
           success: validationResult.success,
           message: validationResult.output.trim() || (validationResult.success ? "Completed" : validationResult.error),
         },
-        duration: `${(duration / 1000).toFixed(1)}s`,
+        duration: `${Number((duration / 1000).toFixed(1))}s`,
       };
 
       apiLogger.info(`[Backtest Refresh] Completed in ${lastRefreshResult.duration}`);
@@ -3843,14 +3843,14 @@ export async function registerRoutes(
         const inBin = probs.map((p: number, i: number) => ({p, o: outcomes[i]}))
           .filter((x: {p: number; o: number}) => x.p >= low && x.p < high);
         if (inBin.length === 0) {
-          calibrationBins.push({ binRange: `${(low*100).toFixed(0)}-${(high*100).toFixed(0)}%`, predicted: 0, actual: 0, count: 0 });
+          calibrationBins.push({ binRange: `${Number((low*100).toFixed(0))}-${Number((high*100).toFixed(0))}%`, predicted: 0, actual: 0, count: 0 });
           continue;
         }
         const avgPred = inBin.reduce((s: number, x: {p: number; o: number}) => s + x.p, 0) / inBin.length;
         const avgTrue = inBin.reduce((s: number, x: {p: number; o: number}) => s + x.o, 0) / inBin.length;
         ece += (inBin.length / probs.length) * Math.abs(avgTrue - avgPred);
         calibrationBins.push({
-          binRange: `${(low*100).toFixed(0)}-${(high*100).toFixed(0)}%`,
+          binRange: `${Number((low*100).toFixed(0))}-${Number((high*100).toFixed(0))}%`,
           predicted: Math.round(avgPred * 1000) / 1000,
           actual: Math.round(avgTrue * 1000) / 1000,
           count: inBin.length,
@@ -4513,7 +4513,7 @@ print(json.dumps(result.to_dict()))
         let cumUnits = 0;
         for (const row of rows) {
           cumUnits += parseFloat(row.daily_units || "0");
-          row.cumulative_units = parseFloat(cumUnits.toFixed(2));
+          row.cumulative_units = Number(cumUnits.toFixed(2));
         }
       }
 

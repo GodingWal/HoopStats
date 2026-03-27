@@ -688,7 +688,7 @@ function ParlayCard({ parlay, liveScores }: { parlay: Parlay; liveScores?: LiveS
                 <div className="text-sm">
                   <span className="text-muted-foreground">P&L:</span>
                   <span className={`font-bold ml-2 ${parlay.profit! > 0 ? 'text-emerald-400' : parlay.profit! < 0 ? 'text-rose-400' : 'text-muted-foreground'}`}>
-                    {parlay.profit! > 0 ? '+' : ''}{parlay.profit?.toFixed(2)}
+                    {parlay.profit! > 0 ? '+' : ''}{Number(parlay.profit ?? 0).toFixed(2)}
                   </span>
                 </div>
               )}

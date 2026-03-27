@@ -1684,11 +1684,11 @@ function ShapDriversBar({ drivers }: { drivers: ShapDriver[] }) {
                 style={{ width: `${Math.max(pct, 4)}%` }}
               />
               <span className={`text-[10px] font-mono ${isOver ? "text-emerald-400" : "text-rose-400"}`}>
-                {d.shap_value > 0 ? "+" : ""}{d.shap_value.toFixed(3)}
+                {d.shap_value > 0 ? "+" : ""}{Number(d.shap_value).toFixed(3)}
               </span>
             </div>
             <span className="text-[10px] text-muted-foreground font-mono w-10 text-right">
-              {d.feature_value.toFixed(1)}
+              {Number(d.feature_value).toFixed(1)}
             </span>
           </div>
         );
@@ -1777,7 +1777,7 @@ function XGBoostPredictionLogSection({ predictions, isLoading }: { predictions: 
                       <td className="text-center py-2">
                         {pred.modelProb != null ? (
                           <span className="font-mono text-xs">
-                            {(pred.modelProb * 100).toFixed(0)}%
+                            {Number((pred.modelProb * 100).toFixed(0))}%
                             {pred.calibrationMethod === "isotonic" && (
                               <span className="ml-1 text-[9px] text-blue-400" title="Isotonic calibration applied">CAL</span>
                             )}
