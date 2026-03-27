@@ -218,6 +218,55 @@ export async function registerLegacyRoutes(
     }
   });
 
+  // =============== LIVE SCORES FOR MY BETS ===============
+
+  app.get("/api/live-scores", async (req, res) => {
+    try {
+      const dateStr = req.query.date as string | undefined;
+      const games = await fetchLiveGames(dateStr);
+
+      // Return simplified score data optimized for My Bets display
+      const scores = games.map((game) => {
+        const home = game.competitors.find((c) => c.homeAway === "home");
+        const away = game.competitors.find((c) => c.homeAway === "away");
+
+        if (!home || !away) return null;
+
+        const state = game.status?.type?.state || "pre";
+        const completed = game.status?.type?.completed || false;
+
+        return {
+          gameId: game.id,
+          state, // "pre" | "in" | "post"
+          completed,
+          statusDetail: game.status?.type?.shortDetail || game.status?.type?.detail || "",
+          period: game.status?.period || 0,
+          clock: game.status?.displayClock || "",
+          home: {
+            abbreviation: home.team?.abbreviation || "",
+            name: home.team?.shortDisplayName || home.team?.name || "",
+            displayName: home.team?.displayName || "",
+            score: home.score || "0",
+            logo: home.team?.logo || "",
+          },
+          away: {
+            abbreviation: away.team?.abbreviation || "",
+            name: away.team?.shortDisplayName || away.team?.name || "",
+            displayName: away.team?.displayName || "",
+            score: away.score || "0",
+            logo: away.team?.logo || "",
+          },
+        };
+      }).filter(Boolean);
+
+      res.json(scores);
+    } catch (error) {
+      apiLogger.error("Error fetching live scores", error);
+      res.status(500).json({ error: "Failed to fetch live scores" });
+    }
+  });
+
+
   app.get("/api/games/:gameId", async (req, res) => {
     try {
       const { gameId } = req.params;
