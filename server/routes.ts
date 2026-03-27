@@ -1457,6 +1457,26 @@ export async function registerRoutes(
     }
   });
 
+  // Serve latest daily email summary as HTML page
+  app.get("/api/daily-summary", async (req, res) => {
+    try {
+      const fs = await import("fs");
+      const path = "/var/log/courtsideedge/last_email.html";
+      if (fs.existsSync(path)) {
+        const html = fs.readFileSync(path, "utf-8");
+        res.setHeader("Content-Type", "text/html");
+        res.send(html);
+      } else {
+        res.status(404).json({ error: "No daily summary available yet" });
+      }
+    } catch (error) {
+      apiLogger.error("Error serving daily summary:", error);
+      res.status(500).json({ error: "Failed to load daily summary" });
+    }
+  });
+
+
+
   // =============== LINE TRACKING ROUTES ===============
 
   // Get all sportsbooks

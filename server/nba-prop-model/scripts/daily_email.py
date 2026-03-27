@@ -364,25 +364,44 @@ def build_html_email(picks, results, overall, streak, tiers):
 
 
 def send_email(html_content, to_email, subject):
-    """Send email via local postfix."""
+    """Send email via Gmail SMTP relay or local postfix fallback."""
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
     msg["From"] = FROM_EMAIL
     msg["To"] = to_email
+    msg["Reply-To"] = FROM_EMAIL
 
     # Plain text fallback
     plain_text = "CourtSideEdge Daily Summary - View in HTML email client for full experience."
     msg.attach(MIMEText(plain_text, "plain"))
     msg.attach(MIMEText(html_content, "html"))
 
+    # Try Gmail SMTP if app password is configured
+    gmail_user = os.environ.get("GMAIL_USER")
+    gmail_app_password = os.environ.get("GMAIL_APP_PASSWORD")
+
+    if gmail_user and gmail_app_password:
+        try:
+            with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+                server.login(gmail_user, gmail_app_password)
+                msg.replace_header("From", gmail_user)
+                server.sendmail(gmail_user, [to_email], msg.as_string())
+            logger.info(f"Email sent via Gmail SMTP to {to_email}")
+            return True
+        except Exception as e:
+            logger.error(f"Gmail SMTP failed: {e}, trying local postfix...")
+
+    # Fallback: local postfix
     try:
         with smtplib.SMTP("localhost", 25) as server:
             server.sendmail(FROM_EMAIL, [to_email], msg.as_string())
-        logger.info(f"Email sent to {to_email}")
+        logger.info(f"Email sent via local postfix to {to_email}")
         return True
     except Exception as e:
-        logger.error(f"Failed to send email: {e}")
-        return False
+        logger.error(f"Local postfix also failed: {e}")
+
+    logger.warning("Email delivery failed. HTML saved to /var/log/courtsideedge/last_email.html")
+    return False
 
 
 def main():
