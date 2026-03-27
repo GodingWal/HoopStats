@@ -14,12 +14,10 @@ import type { Player } from "@shared/schema";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const MODEL_DIR = path.join(
-  __dirname,
-  "nba-prop-model",
-  "models",
-  "xgboost"
-);
+// Hardcoded paths - avoids esbuild __dirname resolving to dist/
+const NBA_PROP_DIR = "/var/www/courtsideedge/server/nba-prop-model";
+const MODEL_DIR = "/var/www/courtsideedge/server/nba-prop-model/models/xgboost";
+const VENV_PYTHON = "/var/www/courtsideedge/server/nba-prop-model/venv/bin/python";
 
 // Map frontend stat types to XGBoost model names
 const STAT_TYPE_MAP: Record<string, string> = {
