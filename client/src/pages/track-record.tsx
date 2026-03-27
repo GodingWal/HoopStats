@@ -26,12 +26,135 @@ async function fetchTrackRecord(days: number = 30): Promise<TrackRecord> {
   return response.json();
 }
 
+
+interface RollingAccuracyPoint {
+  date: string;
+  total: number;
+  wins: number;
+  dailyAccuracy: number;
+  rolling7: number;
+  rolling30: number;
+}
+
+async function fetchRollingAccuracy(days: number = 90): Promise<RollingAccuracyPoint[]> {
+  const response = await fetch(`/api/rolling-accuracy?days=${days}`);
+  if (!response.ok) throw new Error('Failed to fetch rolling accuracy');
+  return response.json();
+}
+
 function StatCard({ label, value, highlight = false }: { label: string; value: string; highlight?: boolean }) {
   return (
     <div className={`p-4 rounded-lg border ${highlight ? 'border-primary bg-primary/5' : 'border-border'}`}>
       <p className="text-sm text-muted-foreground mb-1">{label}</p>
       <p className={`text-2xl font-bold ${highlight ? 'text-primary' : ''}`}>{value}</p>
     </div>
+  );
+}
+
+
+function RollingAccuracyChart() {
+  const { data: rollingData, isLoading } = useQuery({
+    queryKey: ['rolling-accuracy', 90],
+    queryFn: () => fetchRollingAccuracy(90),
+    refetchInterval: 300000,
+  });
+
+  if (isLoading) {
+    return (
+      <Card>
+        <CardHeader><CardTitle>Rolling Accuracy</CardTitle></CardHeader>
+        <CardContent className="flex justify-center py-12">
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (!rollingData || rollingData.length === 0) {
+    return (
+      <Card>
+        <CardHeader><CardTitle>Rolling Accuracy</CardTitle></CardHeader>
+        <CardContent>
+          <p className="text-center py-12 text-muted-foreground">Not enough data for rolling accuracy chart</p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Rolling Accuracy Over Time</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <ResponsiveContainer width="100%" height={350}>
+          <LineChart data={rollingData}>
+            <CartesianGrid strokeDasharray="3 3" />
+            <XAxis
+              dataKey="date"
+              tick={{ fontSize: 12 }}
+              tickFormatter={(value) => {
+                const date = new Date(value);
+                return `${date.getMonth() + 1}/${date.getDate()}`;
+              }}
+            />
+            <YAxis
+              tick={{ fontSize: 12 }}
+              domain={[40, 70]}
+              tickFormatter={(value) => `${Number(value).toFixed(0)}%`}
+            />
+            <Tooltip
+              labelFormatter={(value) => new Date(value).toLocaleDateString()}
+              formatter={(value: number, name: string) => {
+                const label = name === 'rolling7' ? '7-Day Rolling'
+                  : name === 'rolling30' ? '30-Day Rolling'
+                  : 'Daily';
+                return [`${Number(value).toFixed(1)}%`, label];
+              }}
+            />
+            <Line
+              type="monotone"
+              dataKey="dailyAccuracy"
+              stroke="#6b7280"
+              strokeWidth={1}
+              dot={false}
+              strokeDasharray="3 3"
+              name="dailyAccuracy"
+            />
+            <Line
+              type="monotone"
+              dataKey="rolling7"
+              stroke="#3b82f6"
+              strokeWidth={2.5}
+              dot={false}
+              name="rolling7"
+            />
+            <Line
+              type="monotone"
+              dataKey="rolling30"
+              stroke="#10b981"
+              strokeWidth={2.5}
+              dot={false}
+              name="rolling30"
+            />
+          </LineChart>
+        </ResponsiveContainer>
+        <div className="flex justify-center gap-6 mt-4 text-sm">
+          <div className="flex items-center gap-2">
+            <div className="w-4 h-0.5 bg-gray-500" style={{ borderTop: '2px dashed #6b7280' }}></div>
+            <span className="text-muted-foreground">Daily</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-4 h-0.5" style={{ backgroundColor: '#3b82f6' }}></div>
+            <span className="text-muted-foreground">7-Day Rolling</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-4 h-0.5" style={{ backgroundColor: '#10b981' }}></div>
+            <span className="text-muted-foreground">30-Day Rolling</span>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -102,6 +225,9 @@ export default function TrackRecord() {
           highlight={record.roi > 0}
         />
       </div>
+
+            {/* Rolling Accuracy Chart */}
+      <RollingAccuracyChart />
 
       {/* Equity Curve */}
       <Card>

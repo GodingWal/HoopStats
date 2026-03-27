@@ -653,6 +653,57 @@ export async function registerRoutes(
         bets = await storage.getPotentialBets();
       }
 
+
+      // --- XGBoost / SHAP enrichment ---
+      apiLogger.info("Starting XGBoost/SHAP enrichment for " + bets.length + " bets");
+      try {
+        const players = await ensurePlayersLoaded();
+        const playerMap = new Map<string, Player>();
+        for (const p of players) {
+          playerMap.set(p.player_name.toLowerCase(), p);
+        }
+
+        // Build batch request for XGBoost
+        const xgbRequests: Array<{ player: Player; statType: string; line: number }> = [];
+        const betIndices: number[] = [];
+        for (let i = 0; i < bets.length; i++) {
+          const bet = bets[i];
+          const player = playerMap.get((bet.player_name || "").toLowerCase());
+          if (player && bet.stat_type && bet.line) {
+            // Only request for stat types XGBoost supports
+            const supportedStats = ["PTS", "REB", "AST", "FG3M", "STL", "BLK", "TOV"];
+            if (supportedStats.includes(bet.stat_type)) {
+              xgbRequests.push({ player, statType: bet.stat_type, line: Number(bet.line) });
+              betIndices.push(i);
+            }
+          }
+        }
+
+        apiLogger.info("XGBoost enrichment: " + xgbRequests.length + " requests from " + playerMap.size + " players");
+        if (xgbRequests.length > 0) {
+          const xgbResults = await batchXGBoostPredict(xgbRequests);
+          for (let j = 0; j < xgbRequests.length; j++) {
+            const req = xgbRequests[j];
+            const idx = betIndices[j];
+            const key = `${req.player.player_name}_${req.statType}_${req.line}`;
+            const pred = xgbResults.get(key);
+            if (pred) {
+              (bets[idx] as any).xgb_prob_over = pred.prob_over;
+              (bets[idx] as any).xgb_confidence = pred.confidence;
+              (bets[idx] as any).xgb_model_type = pred.model_type;
+              (bets[idx] as any).ml_explanation = {
+                shap_drivers: (pred.shap_top_drivers || []).slice(0, 8),
+                calibration: pred.calibration_method || "none",
+                calibration_shift: pred.calibration_shift || 0,
+                raw_prob_over: pred.raw_prob_over ?? null,
+              };
+            }
+          }
+        }
+      } catch (xgbErr: any) {
+        apiLogger.error("XGBoost enrichment error (non-fatal):", xgbErr?.message || xgbErr);
+      }
+
       // Enrich bets with signal scores if not already present
       const enrichedBets = bets.map(bet => {
         // If bet already has signal_score, return as-is
@@ -1334,6 +1385,75 @@ export async function registerRoutes(
     } catch (error) {
       apiLogger.error("Error fetching track record:", error);
       res.status(500).json({ error: "Failed to fetch track record" });
+    }
+  });
+
+
+  // Get rolling accuracy data for chart
+  app.get("/api/rolling-accuracy", async (req, res) => {
+    try {
+      const days = parseInt(req.query.days as string) || 90;
+      const result = await pool.query(`
+        WITH daily_stats AS (
+          SELECT
+            po.game_date::text as game_date,
+            COUNT(*) as total,
+            SUM(CASE
+              WHEN (po.final_projection > po.prizepicks_line AND pdl.actual_value > pdl.opening_line)
+                OR (po.final_projection < po.prizepicks_line AND pdl.actual_value < pdl.opening_line)
+              THEN 1 ELSE 0
+            END) as wins
+          FROM projection_outputs po
+          JOIN prizepicks_daily_lines pdl
+            ON po.player_id = pdl.prizepicks_player_id
+            AND po.game_date = pdl.game_date
+            AND po.prop_type = pdl.stat_type
+          WHERE pdl.actual_value IS NOT NULL
+            AND po.confidence_tier != 'SKIP'
+            AND po.game_date >= CURRENT_DATE - $1 * INTERVAL '1 day'
+          GROUP BY po.game_date
+          ORDER BY po.game_date ASC
+        )
+        SELECT
+          game_date,
+          total,
+          wins,
+          CASE WHEN total > 0
+            THEN ROUND(100.0 * wins / total, 1)
+            ELSE 0
+          END as daily_accuracy
+        FROM daily_stats
+      `, [days]);
+
+      const rows = result.rows.map(r => ({
+        date: r.game_date,
+        total: Number(r.total),
+        wins: Number(r.wins),
+        dailyAccuracy: Number(Number(r.daily_accuracy).toFixed(1)),
+        rolling7: 0,
+        rolling30: 0,
+      }));
+
+      for (let i = 0; i < rows.length; i++) {
+        let w7 = 0, t7 = 0;
+        for (let j = Math.max(0, i - 6); j <= i; j++) {
+          w7 += rows[j].wins;
+          t7 += rows[j].total;
+        }
+        rows[i].rolling7 = t7 > 0 ? Number((100 * w7 / t7).toFixed(1)) : 0;
+
+        let w30 = 0, t30 = 0;
+        for (let j = Math.max(0, i - 29); j <= i; j++) {
+          w30 += rows[j].wins;
+          t30 += rows[j].total;
+        }
+        rows[i].rolling30 = t30 > 0 ? Number((100 * w30 / t30).toFixed(1)) : 0;
+      }
+
+      res.json(rows);
+    } catch (error) {
+      apiLogger.error("Error fetching rolling accuracy:", error);
+      res.status(500).json({ error: "Failed to fetch rolling accuracy" });
     }
   });
 
@@ -3978,7 +4098,7 @@ export async function registerRoutes(
         "cron_jobs.py"
       );
       const proc = spawn(pythonCmd, [scriptPath, ...scriptArgs], {
-        cwd: path.join(__dirname, "nba-prop-model"),
+        cwd: "/var/www/courtsideedge/server/nba-prop-model",
         env: { ...process.env },
       });
 
@@ -4206,8 +4326,8 @@ export async function registerRoutes(
 
       const pyScript = `
 import sys, json, os
-sys.path.insert(0, '${path.join(__dirname, "nba-prop-model")}')
-os.chdir('${path.join(__dirname, "nba-prop-model")}')
+sys.path.insert(0, "/var/www/courtsideedge/server/nba-prop-model")
+os.chdir("/var/www/courtsideedge/server/nba-prop-model")
 from src.signals.signal_engine import SignalEngine, GameContext
 ctx_data = json.loads(${JSON.stringify(JSON.stringify(contextArg))})
 if isinstance(ctx_data, str): ctx_data = json.loads(ctx_data)
@@ -4231,7 +4351,7 @@ print(json.dumps(result.to_dict()))
       const { execSync } = require("child_process");
       try {
         const output = execSync(`${pythonCmd} -c "${pyScript.replace(/"/g, '\\"').replace(/\n/g, ' ')}"`, {
-          cwd: path.join(__dirname, "nba-prop-model"),
+          cwd: "/var/www/courtsideedge/server/nba-prop-model",
           env: { ...process.env },
           timeout: 15000,
         });
