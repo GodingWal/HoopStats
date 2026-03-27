@@ -36,7 +36,7 @@ class MatchupHistorySignal(BaseSignal):
     default_confidence = 0.55
 
     # Minimum games vs this opponent to fire
-    MIN_GAMES_VS = 3
+    MIN_GAMES_VS = 1
 
     # Minimum deviation from baseline to fire signal
     MIN_DEVIATION_PCT = 0.08  # 8% above/below season average

@@ -129,10 +129,119 @@ def _enrich_injury_data(conn, team_id: str, game_date: str) -> Dict[str, Any]:
     return result
 
 
-def _enrich_referee_data(conn, game_date: str, home_team: str, away_team: str) -> List[str]:
-    # games table has: game_date, home_team, visitor_team, spread - NO referee column
-    # For now return empty until referee data source is added
-    return []
+def _enrich_referee_data(conn, game_date: str, home_team: str, away_team: str) -> Dict[str, Any]:
+    """Query referee_assignments table for referee crew and stats."""
+    result = {"referee_crew": [], "referee_names": [], "game_referees": []}
+    if not conn:
+        return result
+    rows = _safe_query(conn, """
+        SELECT referee_name, avg_fouls_per_game
+        FROM referee_assignments
+        WHERE game_date = %s
+          AND ((UPPER(home_team) = UPPER(%s) AND UPPER(away_team) = UPPER(%s))
+            OR (UPPER(home_team) = UPPER(%s) AND UPPER(away_team) = UPPER(%s)))
+    """, (game_date, home_team, away_team, away_team, home_team))
+    for row in (rows or []):
+        ref_name = row[0]
+        avg_fouls = float(row[1]) if row[1] else None
+        result["referee_crew"].append(ref_name)
+        result["referee_names"].append(ref_name)
+        result["game_referees"].append({
+            "name": ref_name,
+            "avg_fouls_per_game": avg_fouls,
+            "avg_fouls": avg_fouls,
+        })
+    return result
+
+
+def _enrich_matchup_history(conn, player_name: str, opp_team_id: str, game_date: str) -> List[Dict]:
+    """Get player's historical performance vs opponent from players.vs_team JSONB."""
+    if not conn or not player_name or not opp_team_id:
+        return []
+    row = _safe_query(conn, """
+        SELECT vs_team FROM players
+        WHERE LOWER(player_name) = LOWER(%s)
+        LIMIT 1
+    """, (player_name,), fetch="one")
+    if not row or not row[0]:
+        return []
+    vs_team = row[0] if isinstance(row[0], dict) else json.loads(row[0]) if row[0] else {}
+    # NBA team abbreviation variants (PrizePicks uses 3-letter, vs_team may use 2-3 letter)
+    TEAM_ALIASES = {
+        "GSW": "GS", "GS": "GSW", "NOP": "NO", "NO": "NOP", "NYK": "NY", "NY": "NYK",
+        "SAS": "SA", "SA": "SAS", "OKC": "OKC", "PHX": "PHX", "WAS": "WSH", "WSH": "WAS",
+        "BKN": "BK", "BK": "BKN", "LAL": "LAL", "LAC": "LAC", "CHA": "CHA", "CHI": "CHI",
+        "UTA": "UTAH", "UTAH": "UTA",
+    }
+    opp_key = opp_team_id.upper()
+    team_data = vs_team.get(opp_key)
+    if not team_data:
+        alt_key = TEAM_ALIASES.get(opp_key, "")
+        team_data = vs_team.get(alt_key)
+    if not team_data:
+        team_data = vs_team.get(opp_team_id) or vs_team.get(opp_team_id.lower())
+    if not team_data:
+        return []
+    n_games = int(team_data.get("games", 1))
+    if n_games < 1:
+        return []
+    # Build synthetic game entries from aggregate vs_team data
+    # The matchup_history signal uses recency-weighted averaging,
+    # so we create n_games entries with the per-game averages
+    avg_pts = float(team_data.get("PTS", 0))
+    avg_reb = float(team_data.get("REB", 0))
+    avg_ast = float(team_data.get("AST", 0))
+    avg_fg3m = float(team_data.get("FG3M", 0))
+    avg_pra = float(team_data.get("PRA", 0))
+    history = []
+    for i in range(n_games):
+        history.append({
+            "game_date": game_date, "GAME_DATE": game_date,
+            "pts": avg_pts, "PTS": avg_pts,
+            "reb": avg_reb, "REB": avg_reb,
+            "ast": avg_ast, "AST": avg_ast,
+            "fg3m": avg_fg3m, "FG3M": avg_fg3m,
+            "stl": 0, "STL": 0, "blk": 0, "BLK": 0,
+            "tov": 0, "TOV": 0, "min": 30, "MIN": 30,
+            "pra": avg_pra, "PRA": avg_pra,
+        })
+    return history
+
+
+def _enrich_defender_data(conn, player_name: str, opp_team_id: str, position: str) -> Dict[str, Any]:
+    """Get likely primary defender info from team_defense_by_position."""
+    result = {"primary_defender": "", "defender_stats": {}}
+    if not conn or not opp_team_id:
+        return result
+    # Map player position codes to team_defense_by_position position codes
+    # The table uses: PG, SG, SF, PF, C
+    pos_map = {"G": "PG", "F": "SF", "C": "C", "G-F": "SG", "F-G": "SG",
+               "F-C": "PF", "C-F": "PF", "PG": "PG", "SG": "SG", "SF": "SF", "PF": "PF"}
+    mapped_pos = pos_map.get(position, "")
+    if mapped_pos:
+        row = _safe_query(conn, """
+            SELECT pts_allowed, fg_pct_allowed, reb_allowed, ast_allowed
+            FROM team_defense_by_position
+            WHERE UPPER(team_id) = UPPER(%s)
+              AND UPPER(position) = UPPER(%s)
+            ORDER BY updated_at DESC NULLS LAST
+            LIMIT 1
+        """, (opp_team_id, mapped_pos), fetch="one")
+        if row:
+            pts_allowed = float(row[0] or 0)
+            # League avg pts allowed per position varies; use ~20 as baseline
+            league_avg_pts = 20.0
+            if pts_allowed > 0:
+                factor = pts_allowed / league_avg_pts
+                reb_allowed = float(row[2] or 0)
+                ast_allowed = float(row[3] or 0)
+                result["defender_stats"] = {
+                    "pts": factor,
+                    "reb": reb_allowed / 5.0 if reb_allowed > 0 else 1.0,
+                    "ast": ast_allowed / 4.0 if ast_allowed > 0 else 1.0,
+                    "fg3m": float(row[1] or 0.45) / 0.45 if row[1] else 1.0,
+                }
+    return result
 
 
 def _enrich_b2b_and_rest(conn, team_id: str, game_date: str) -> Dict[str, Any]:
@@ -179,7 +288,7 @@ def _enrich_recent_stats(conn, player_name: str, game_date: str) -> Dict[str, An
     rows = _safe_query(conn, """
         SELECT pgs.pts, pgs.reb, pgs.ast, pgs.fg3m, pgs.stl, pgs.blk, pgs.tov, pgs.minutes_played
         FROM player_game_stats pgs
-        JOIN players p ON pgs.player_id = p.id
+        JOIN players p ON pgs.player_id = p.player_id::text
         WHERE LOWER(p.player_name) = LOWER(%s)
           AND pgs.game_date < %s
         ORDER BY pgs.game_date DESC LIMIT 10
@@ -469,6 +578,20 @@ def run_daily(target_date=None, db_conn=None):
                 player_stats_cache[player_name] = _enrich_recent_stats(conn, player_name, target_date)
             recent_stats = player_stats_cache[player_name]
 
+            # Enrich referee data for this game
+            ref_key = f"{target_date}_{team_id}_{opp_team_id}"
+            if ref_key not in getattr(run_daily, '_ref_cache', {}):
+                if not hasattr(run_daily, '_ref_cache'):
+                    run_daily._ref_cache = {}
+                run_daily._ref_cache[ref_key] = _enrich_referee_data(conn, target_date, team_id, opp_team_id)
+            ref_data = run_daily._ref_cache.get(ref_key, {})
+
+            # Enrich matchup history
+            matchup_hist = _enrich_matchup_history(conn, player_name, opp_team_id, target_date)
+
+            # Enrich defender data
+            defender_info = _enrich_defender_data(conn, player_name, opp_team_id, data.get("position", ""))
+
             ck = f"{team_id}_{opp_team_id}"
             if ck not in game_ctx_cache:
                 game_ctx_cache[ck] = _enrich_game_context_data(conn, target_date, team_id)
@@ -490,8 +613,13 @@ def run_daily(target_date=None, db_conn=None):
                 "last_10_averages": _normalize_averages(data.get("last_10_averages") or recent_stats.get("last_10_averages") or {}),
                 "spread": game_ctx.get("spread"),
                 "projected_total": game_ctx.get("projected_total"),
-                "referee_crew": [],
+                "referee_crew": ref_data.get("referee_crew", []),
                 # Home/away splits (feeds home_away signal)
+                "referee_names": ref_data.get("referee_names", []),
+                "game_referees": ref_data.get("game_referees", []),
+                "vs_team_history": matchup_hist,
+                "primary_defender": defender_info.get("primary_defender", ""),
+                "defender_stats": defender_info.get("defender_stats", {}),
                 "home_averages": _normalize_averages(data.get("home_averages") or recent_stats.get("home_averages") or {}),
                 "away_averages": _normalize_averages(data.get("away_averages") or recent_stats.get("away_averages") or {}),
                 # Minutes load (feeds fatigue signal)
