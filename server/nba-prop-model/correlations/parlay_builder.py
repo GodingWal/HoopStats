@@ -223,7 +223,7 @@ class CorrelatedParlayBuilder:
         # Write all scored parlays (including below threshold) so avoid reasons
         # are available for analysis
         all_to_write = scored[:max_results * 3]  # write up to 3x for coverage
-        self._write_parlay_results(all_to_write, game_date)
+        self._write_parlay_results(all_to_write, game_date, leg_count=parlay_size)
 
         logger.info(
             f"find_optimal_parlays: {len(top)} parlays above EV>{min_ev:.0%} "
@@ -580,7 +580,8 @@ class CorrelatedParlayBuilder:
         return "SKIP"
 
     def _write_parlay_results(
-        self, parlays: List[Dict[str, Any]], game_date: str
+        self, parlays: List[Dict[str, Any]], game_date: str,
+        leg_count: int = 0,
     ) -> int:
         """Upsert parlay results into parlay_results table. Returns rows written."""
         if not parlays:
@@ -595,10 +596,16 @@ class CorrelatedParlayBuilder:
         try:
             cursor = conn.cursor()
             # Clear existing results for this date to avoid duplicates on re-run
-            cursor.execute(
-                "DELETE FROM parlay_results WHERE game_date = %s AND outcome IS NULL",
-                (game_date,),
-            )
+            if leg_count > 0:
+                cursor.execute(
+                    "DELETE FROM parlay_results WHERE game_date = %s AND leg_count = %s AND outcome IS NULL",
+                    (game_date, leg_count),
+                )
+            else:
+                cursor.execute(
+                    "DELETE FROM parlay_results WHERE game_date = %s AND outcome IS NULL",
+                    (game_date,),
+                )
             for p in parlays:
                 cursor.execute(
                     """

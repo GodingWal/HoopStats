@@ -4714,7 +4714,7 @@ print(json.dumps(result.to_dict()))
         targetDate,
         "--size",
         String(size),
-      ], { detached: true, stdio: ["ignore", "pipe", "pipe"] });
+      ], { detached: true, stdio: ["ignore", "pipe", "pipe"], env: { ...process.env } });
 
       let bgStderr = "";
       child.stderr?.on("data", (d: Buffer) => { bgStderr += d.toString(); });
