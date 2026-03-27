@@ -239,8 +239,7 @@ print(json.dumps({
 }, cls=NpEncoder))
 `;
 
-    const pythonCmd =
-      process.platform === "win32" ? "python" : path.join(__dirname, "nba-prop-model", "venv", "bin", "python");
+    const pythonCmd = VENV_PYTHON;
     const proc = spawn(pythonCmd, ["-c", script], {
       cwd: "/var/www/courtsideedge/server/nba-prop-model",
     });
@@ -350,8 +349,7 @@ for item in batch:
 print(json.dumps(results, cls=NpEncoder))
 `;
 
-    const pythonCmd =
-      process.platform === "win32" ? "python" : path.join(__dirname, "nba-prop-model", "venv", "bin", "python");
+    const pythonCmd = VENV_PYTHON;
     const proc = spawn(pythonCmd, ["-c", script], {
       cwd: "/var/www/courtsideedge/server/nba-prop-model",
     });
