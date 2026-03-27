@@ -235,7 +235,7 @@ print(json.dumps({
 `;
 
     const pythonCmd =
-      process.platform === "win32" ? "python" : "python3";
+      process.platform === "win32" ? "python" : path.join(__dirname, "nba-prop-model", "venv", "bin", "python");
     const proc = spawn(pythonCmd, ["-c", script], {
       cwd: path.join(__dirname, "nba-prop-model"),
     });
@@ -339,7 +339,7 @@ print(json.dumps(results))
 `;
 
     const pythonCmd =
-      process.platform === "win32" ? "python" : "python3";
+      process.platform === "win32" ? "python" : path.join(__dirname, "nba-prop-model", "venv", "bin", "python");
     const proc = spawn(pythonCmd, ["-c", script], {
       cwd: path.join(__dirname, "nba-prop-model"),
     });

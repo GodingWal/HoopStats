@@ -245,6 +245,10 @@ class XGBoostPropModel:
 
         model = self.models[stat_type]
         if HAS_XGBOOST and isinstance(model, xgb.XGBClassifier):
+            # Truncate features to match model's expected count
+            n_expected = getattr(model, 'n_features_in_', X.shape[1])
+            if X.shape[1] > n_expected:
+                X = X[:, :n_expected]
             proba = model.predict_proba(X)[0]
             raw_prob = float(proba[1])  # Probability of class 1 (hit)
         else:
@@ -354,6 +358,11 @@ class XGBoostPropModel:
             fv = self.feature_builder.build(context)
             X = fv.to_array().reshape(1, -1)
 
+            # Truncate features to match model's expected count
+            n_expected = getattr(model, 'n_features_in_', X.shape[1])
+            if X.shape[1] > n_expected:
+                X = X[:, :n_expected]
+
             shap_values = explainer.shap_values(X)
 
             # For binary classification, shap_values may be a list [class_0, class_1]
@@ -372,7 +381,10 @@ class XGBoostPropModel:
                 base_value = float(base_value)
 
             # Build feature name -> SHAP value mapping
-            feature_names = list(XGBOOST_FEATURE_NAMES)
+            # Use only the features the model was trained with
+            model_m = self.models[stat_type]
+            n_exp = getattr(model_m, 'n_features_in_', len(XGBOOST_FEATURE_NAMES))
+            feature_names = list(XGBOOST_FEATURE_NAMES)[:n_exp]
             shap_dict = {}
             feature_values = X[0]
             drivers = []
@@ -438,6 +450,11 @@ class XGBoostPropModel:
                 X = X[indices]
 
             explainer = self._get_shap_explainer(stat_type)
+            # Truncate if needed
+            model_s = self.models[stat_type]
+            n_exp_s = getattr(model_s, 'n_features_in_', X.shape[1])
+            if X.shape[1] > n_exp_s:
+                X = X[:, :n_exp_s]
             shap_values = explainer.shap_values(X)
 
             if isinstance(shap_values, list):
@@ -449,7 +466,10 @@ class XGBoostPropModel:
 
             # Mean absolute SHAP value per feature
             mean_abs = np.mean(np.abs(sv), axis=0)
-            feature_names = list(XGBOOST_FEATURE_NAMES)
+            # Use only the features the model was trained with
+            model_m = self.models[stat_type]
+            n_exp = getattr(model_m, 'n_features_in_', len(XGBOOST_FEATURE_NAMES))
+            feature_names = list(XGBOOST_FEATURE_NAMES)[:n_exp]
 
             return dict(zip(feature_names, [float(v) for v in mean_abs]))
 
