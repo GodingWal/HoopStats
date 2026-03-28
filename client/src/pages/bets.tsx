@@ -16,7 +16,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { TrendingUp, TrendingDown, RefreshCw, Target, Flame, ArrowLeft, Swords, Clock, Loader2, Plus, ShoppingCart, AlertCircle } from "lucide-react";
+import { TrendingUp, TrendingDown, RefreshCw, Target, Flame, ArrowLeft, Swords, Clock, Loader2, Plus, ShoppingCart, AlertCircle, Shield, Zap, ChevronDown } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useMutation } from "@tanstack/react-query";
 import { useParlayCart } from "@/contexts/parlay-cart";
@@ -145,7 +145,35 @@ function parsePrizePicksLog(text: string): Array<{
 
 
 
+
+// Confidence tier color mapping
+function getTierBadge(tier: string | undefined) {
+  switch (tier) {
+    case "SMASH":
+      return { bg: "bg-amber-500/20 text-amber-300 border-amber-500/40", label: "SMASH", icon: "zap" };
+    case "STRONG":
+      return { bg: "bg-emerald-500/20 text-emerald-400 border-emerald-500/40", label: "STRONG", icon: "shield" };
+    case "LEAN":
+      return { bg: "bg-blue-500/20 text-blue-400 border-blue-500/40", label: "LEAN", icon: "shield" };
+    case "AVOID":
+      return { bg: "bg-zinc-500/20 text-zinc-400 border-zinc-500/40", label: "AVOID", icon: "shield" };
+    default:
+      return null;
+  }
+}
+
+function getTierGradient(tier: string | undefined) {
+  switch (tier) {
+    case "SMASH": return "bg-gradient-to-r from-amber-500/20 to-transparent border border-amber-500/50";
+    case "STRONG": return "bg-gradient-to-r from-emerald-500/15 to-transparent border border-emerald-500/40";
+    case "LEAN": return "bg-gradient-to-r from-blue-500/10 to-transparent border border-blue-500/30";
+    case "AVOID": return "bg-muted/20 border border-zinc-500/20 opacity-60";
+    default: return "bg-muted/30";
+  }
+}
+
 function BetRow({ bet }: { bet: PotentialBet }) {
+
   const isOver = bet.recommendation === "OVER";
   const hasEdge = bet.edge_score && bet.edge_score > 0;
   const isInjuryEdge = bet.edge_type === "STAR_OUT" || bet.edge_type === "STAR_OUT_POTENTIAL";
@@ -169,7 +197,7 @@ function BetRow({ bet }: { bet: PotentialBet }) {
   };
 
   return (
-    <div className={`p-3 rounded-lg transition-all ${hasEdge ? isInjuryEdge ? 'bg-gradient-to-r from-purple-500/15 to-transparent border border-purple-500/40' : 'bg-gradient-to-r from-primary/10 to-transparent border border-primary/30' : 'bg-muted/30'} hover:bg-muted/50`}>
+    <div className={`p-3 rounded-lg transition-all ${(bet as any).confidence_tier ? getTierGradient((bet as any).confidence_tier) : hasEdge ? isInjuryEdge ? 'bg-gradient-to-r from-purple-500/15 to-transparent border border-purple-500/40' : 'bg-gradient-to-r from-primary/10 to-transparent border border-primary/30' : 'bg-muted/30'} hover:bg-muted/50`}>
       <div className="flex items-start justify-between gap-3">
         <div className="flex-1 min-w-0 space-y-1">
           <div className="flex items-center gap-2">
@@ -187,6 +215,18 @@ function BetRow({ bet }: { bet: PotentialBet }) {
           {hasEdge && bet.edge_description && (
             <div className={`text-xs italic mt-1 ${isInjuryEdge ? 'text-purple-300 font-medium' : 'text-muted-foreground'}`}>
               {bet.edge_description}
+            </div>
+          )}
+          {(bet as any).signal_agreement > 0 && (
+            <div className="flex items-center gap-2 mt-1">
+              <div className="text-[10px] text-muted-foreground">
+                {(bet as any).agreeing_signals}/{(bet as any).total_signals} signals agree
+              </div>
+              {(bet as any).calibrated_probability && (
+                <div className="text-[10px] font-mono text-muted-foreground">
+                  {Number((bet as any).calibrated_probability * 100).toFixed(0)}% cal. prob
+                </div>
+              )}
             </div>
           )}
           {/* SHAP AI Prediction Breakdown */}
@@ -213,11 +253,22 @@ function BetRow({ bet }: { bet: PotentialBet }) {
               </Badge>
             )}
 
-            {bet.confidence === "HIGH" && (
-              <Badge className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30 text-xs px-1.5">
-                <Flame className="w-3 h-3" />
-              </Badge>
-            )}
+            {(() => {
+              const tier = (bet as any).confidence_tier;
+              const badge = getTierBadge(tier);
+              if (badge) return (
+                <Badge className={`${badge.bg} text-xs px-1.5 font-bold`}>
+                  {tier === "SMASH" ? <Zap className="w-3 h-3 mr-0.5" /> : <Shield className="w-3 h-3 mr-0.5" />}
+                  {badge.label}
+                </Badge>
+              );
+              if (bet.confidence === "HIGH") return (
+                <Badge className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30 text-xs px-1.5">
+                  <Flame className="w-3 h-3" />
+                </Badge>
+              );
+              return null;
+            })()}
 
             <div className={`flex items-center gap-0.5 px-1.5 py-0.5 rounded text-xs font-bold ${isOver ? "text-emerald-400 bg-emerald-500/10" : "text-rose-400 bg-rose-500/10"}`}>
               {isOver ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
@@ -704,6 +755,7 @@ export default function Bets() {
   const [selectedGame, setSelectedGame] = useState<{ home: string; away: string } | null>(null);
   const [generatedSearch, setGeneratedSearch] = useState<string>("");
   const [showImportDialog, setShowImportDialog] = useState(false);
+  const [tierFilter, setTierFilter] = useState<string>("all");
 
   const { data: bets, isLoading: betsLoading } = useQuery<PotentialBet[]>({
     queryKey: ["/api/bets"],
@@ -726,9 +778,10 @@ export default function Bets() {
   });
 
   const gameMatchups = useMemo(() => {
-    if (!bets) return [];
+    const activeBets = tierFilteredBets || bets;
+    if (!activeBets) return [];
 
-    const teamSet = new Set(bets.map(b => b.team));
+    const teamSet = new Set(activeBets.map(b => b.team));
     const teams = Array.from(teamSet);
 
     if (games && games.length > 0) {
@@ -737,7 +790,7 @@ export default function Bets() {
         const away = game.competitors.find(c => c.homeAway === "away");
         if (!home || !away) return null;
 
-        const gameBets = bets.filter(b =>
+        const gameBets = activeBets.filter(b =>
           b.team === home.team.abbreviation || b.team === away.team.abbreviation
         );
 
@@ -755,9 +808,9 @@ export default function Bets() {
     return teams.map(team => ({
       homeTeam: team,
       awayTeam: "TBD",
-      bets: bets.filter(b => b.team === team),
+      bets: activeBets.filter(b => b.team === team),
     })).filter(g => g.bets.length > 0);
-  }, [bets, games]);
+  }, [tierFilteredBets, bets, games]);
 
   const selectedBets = useMemo(() => {
     if (!selectedGame || !bets) return [];
@@ -772,10 +825,11 @@ export default function Bets() {
 
   // Search results for generated bets
   const generatedSearchResults = useMemo(() => {
-    if (!bets || !generatedSearch.trim()) return [];
+    const searchBets = tierFilteredBets || bets;
+    if (!searchBets || !generatedSearch.trim()) return [];
 
     const searchTerm = generatedSearch.toLowerCase().trim();
-    return bets.filter(b =>
+    return searchBets.filter(b =>
       b.player_name.toLowerCase().includes(searchTerm) ||
       b.team.toLowerCase().includes(searchTerm)
     ).sort((a, b) => {
@@ -787,6 +841,17 @@ export default function Bets() {
 
   const totalBets = bets?.length || 0;
   const highConfidenceBets = bets?.filter(b => b.confidence === "HIGH").length || 0;
+
+  // Confidence tier counts
+  const smashCount = bets?.filter(b => (b as any).confidence_tier === "SMASH").length || 0;
+  const strongCount = bets?.filter(b => (b as any).confidence_tier === "STRONG").length || 0;
+  const leanCount = bets?.filter(b => (b as any).confidence_tier === "LEAN").length || 0;
+
+  // Filter bets by tier
+  const tierFilteredBets = useMemo(() => {
+    if (!bets || tierFilter === "all") return bets;
+    return bets.filter(b => (b as any).confidence_tier === tierFilter.toUpperCase());
+  }, [bets, tierFilter]);
 
   if (selectedGame && dataSource === "generated") {
     return (
@@ -851,10 +916,10 @@ export default function Bets() {
                 {totalBets > 0 && (
                   <div className="text-right text-sm">
                     <div className="text-muted-foreground">{totalBets} bets</div>
-                    {highConfidenceBets > 0 && (
-                      <div className="text-emerald-400 flex items-center gap-1 justify-end">
-                        <Flame className="w-3 h-3" />
-                        {highConfidenceBets} high
+                    {smashCount > 0 && (
+                      <div className="text-amber-300 flex items-center gap-1 justify-end">
+                        <Zap className="w-3 h-3" />
+                        {smashCount} SMASH
                       </div>
                     )}
                   </div>
@@ -891,6 +956,34 @@ export default function Bets() {
             <BetsSkeleton />
           ) : (
             <div className="space-y-4">
+              {/* Confidence Tier Filter */}
+              <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  onClick={() => setTierFilter("all")}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${tierFilter === "all" ? "bg-primary/20 text-primary border border-primary/40" : "bg-muted/30 text-muted-foreground hover:bg-muted/50"}`}
+                >
+                  All ({totalBets})
+                </button>
+                <button
+                  onClick={() => setTierFilter("SMASH")}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1 ${tierFilter === "SMASH" ? "bg-amber-500/20 text-amber-300 border border-amber-500/40" : "bg-muted/30 text-muted-foreground hover:bg-muted/50"}`}
+                >
+                  <Zap className="w-3 h-3" /> SMASH ({smashCount})
+                </button>
+                <button
+                  onClick={() => setTierFilter("STRONG")}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1 ${tierFilter === "STRONG" ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/40" : "bg-muted/30 text-muted-foreground hover:bg-muted/50"}`}
+                >
+                  <Shield className="w-3 h-3" /> STRONG ({strongCount})
+                </button>
+                <button
+                  onClick={() => setTierFilter("LEAN")}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1 ${tierFilter === "LEAN" ? "bg-blue-500/20 text-blue-400 border border-blue-500/40" : "bg-muted/30 text-muted-foreground hover:bg-muted/50"}`}
+                >
+                  <Shield className="w-3 h-3" /> LEAN ({leanCount})
+                </button>
+              </div>
+
               {/* Player Search Bar for Generated Bets */}
               <div className="relative">
                 <Input

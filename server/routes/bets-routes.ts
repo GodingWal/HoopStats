@@ -309,7 +309,8 @@ router.post("/refresh", async (req, res) => {
       });
     }
 
-    const generatedBets = await generateBetsFromPrizePicks(players);
+    let generatedBets = await generateBetsFromPrizePicks(players);
+    generatedBets = await enrichBetsWithCalibration(generatedBets, players);
 
     await storage.clearPotentialBets();
     for (const bet of generatedBets) {
@@ -345,7 +346,8 @@ router.get("/", async (req, res) => {
       if (players.length === 0) {
         return res.json([]);
       }
-      const generatedBets = await generateBetsFromPrizePicks(players);
+      let generatedBets = await generateBetsFromPrizePicks(players);
+      generatedBets = await enrichBetsWithCalibration(generatedBets, players);
       await storage.clearPotentialBets();
       for (const bet of generatedBets) {
         await storage.createPotentialBet(bet);
