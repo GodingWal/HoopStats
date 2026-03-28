@@ -24,6 +24,7 @@ import numpy as np
 
 # Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from config.db_config import get_connection as _shared_get_connection, DATABASE_URL
 
 from src.models.xgboost_model import XGBoostPropModel, HAS_XGBOOST, XGBOOST_FEATURE_NAMES
 from src.evaluation.outcome_logger import OutcomeLogger
@@ -47,23 +48,9 @@ logger = logging.getLogger(__name__)
 TRAINABLE_STATS = ['Points', 'Rebounds', 'Assists', '3-Pointers Made', 'Steals', 'Blocks', 'Turnovers']
 
 
-def get_db_connection():
-    """Get database connection from environment."""
-    try:
-        import psycopg2
-        db_url = os.environ.get('DATABASE_URL')
-        if db_url:
-            return psycopg2.connect(db_url)
-        return psycopg2.connect(
-            host=os.environ.get('DB_HOST', 'localhost'),
-            port=os.environ.get('DB_PORT', 5432),
-            database=os.environ.get('DB_NAME', 'courtsideedge'),
-            user=os.environ.get('DB_USER', 'postgres'),
-            password=os.environ.get('DB_PASSWORD', ''),
-        )
-    except Exception as e:
-        logger.error(f"Database connection failed: {e}")
-        return None
+def get_connection():
+    return _shared_get_connection()
+
 
 
 def get_training_stats(conn) -> Dict[str, Any]:

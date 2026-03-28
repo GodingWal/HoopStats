@@ -11,6 +11,7 @@ from datetime import datetime, timedelta
 from src.signals.signal_engine import SignalEngine, GameContext
 
 logger = logging.getLogger(__name__)
+from config.db_config import get_connection as _shared_get_connection, DATABASE_URL
 PRIZEPICKS_PAYOUT = 0.85
 
 def _normalize_averages(avgs):
@@ -36,25 +37,13 @@ def _normalize_averages(avgs):
 
 def _get_db_connection(autocommit=False):
     try:
-        import psycopg2
-        db_url = os.environ.get("DATABASE_URL")
-        if db_url:
-            conn = psycopg2.connect(db_url)
-        else:
-            conn = psycopg2.connect(
-                host=os.environ.get("DB_HOST", "localhost"),
-                port=int(os.environ.get("DB_PORT", 5432)),
-                database=os.environ.get("DB_NAME", "courtsideedge"),
-                user=os.environ.get("DB_USER", "postgres"),
-                password=os.environ.get("DB_PASSWORD", ""),
-            )
+        conn = _shared_get_connection()
         if autocommit:
             conn.autocommit = True
         return conn
     except Exception as e:
         logger.error(f"DB connection failed: {e}")
         return None
-
 
 def _safe_query(conn, sql, params=None, fetch="all"):
     """Execute a query safely - rollback on error, return empty on failure."""

@@ -7,16 +7,16 @@ Run after projections are generated in the daily pipeline.
 import psycopg2
 import os
 from datetime import date
+import sys
+sys.path.insert(0, '/var/www/courtsideedge/server/nba-prop-model')
+from config.db_config import get_connection as _shared_get_connection, DATABASE_URL
 
-DATABASE_URL = os.environ.get(
-    "DATABASE_URL",
-    "postgres://courtsideedge_user:CourtSideEdge2026Secure!@localhost:5432/courtsideedge"
-)
 
 TIER_LEVELS = {"SMASH": 3, "STRONG": 2, "LEAN": 1}
 
 def get_connection():
-    return psycopg2.connect(DATABASE_URL)
+    return _shared_get_connection()
+
 
 def check_alerts():
     conn = get_connection()

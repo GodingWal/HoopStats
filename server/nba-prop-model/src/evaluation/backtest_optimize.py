@@ -40,7 +40,9 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ── DB connection ──────────────────────────────────────────────────────
-DB_DSN = "dbname=courtsideedge user=courtsideedge_user password=CourtSideEdge2026Secure! host=localhost port=5432"
+# DB credentials loaded from shared config
+from config.db_config import DATABASE_URL
+DB_DSN = DATABASE_URL
 
 
 # ── Signal name mapping (DB signal_type -> internal names) ─────────────

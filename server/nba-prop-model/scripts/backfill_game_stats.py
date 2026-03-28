@@ -5,6 +5,7 @@ import psycopg2
 from dotenv import load_dotenv
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+from config.db_config import get_connection as _shared_get_connection, DATABASE_URL
 from src.data.nba_api_client import NBADataClient
 
 load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
@@ -12,7 +13,6 @@ load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
 logger = logging.getLogger('backfill_game_stats')
 
-DB_URL = os.environ.get('DATABASE_URL', 'postgres://courtsideedge_user:CourtSideEdge2026Secure!@localhost:5432/courtsideedge')
 
 def get_players(conn):
     cur = conn.cursor()
@@ -26,7 +26,7 @@ def get_players(conn):
     return rows
 
 def backfill():
-    conn = psycopg2.connect(DB_URL)
+    conn = psycopg2.connect(DATABASE_URL)
     conn.autocommit = True
     client = NBADataClient()
     players = get_players(conn)

@@ -10,12 +10,13 @@ import os, sys, json, logging, re, time
 from datetime import datetime, date, timedelta
 import psycopg2
 import requests
+import sys
+sys.path.insert(0, '/var/www/courtsideedge/server/nba-prop-model')
+from config.db_config import get_connection as _shared_get_connection, DATABASE_URL
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
 logger = logging.getLogger(__name__)
 
-DATABASE_URL = os.environ.get('DATABASE_URL',
-    'postgres://courtsideedge_user:CourtSideEdge2026Secure!@localhost:5432/courtsideedge')
 
 HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',

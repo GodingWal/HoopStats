@@ -2,9 +2,10 @@
 """Fix: populate player positions matching by name."""
 import os, sys, time, unicodedata
 import psycopg2
+import sys
+sys.path.insert(0, '/var/www/courtsideedge/server/nba-prop-model')
+from config.db_config import get_connection as _shared_get_connection, DATABASE_URL
 
-DB = os.environ.get('DATABASE_URL',
-    'postgres://courtsideedge_user:CourtSideEdge2026Secure!@localhost:5432/courtsideedge')
 
 from nba_api.stats.endpoints import playerindex
 
@@ -17,7 +18,7 @@ def normalize(name):
     return name.lower().strip()
 
 # Get all DB players
-conn = psycopg2.connect(DB)
+conn = psycopg2.connect(DATABASE_URL)
 cur = conn.cursor()
 cur.execute("SELECT id, player_name FROM players WHERE position IS NULL OR position = ''")
 db_players = cur.fetchall()

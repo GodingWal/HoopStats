@@ -20,12 +20,10 @@ from email.mime.multipart import MIMEMultipart
 from datetime import datetime, timedelta
 import psycopg2
 import psycopg2.extras
+sys.path.insert(0, '/var/www/courtsideedge/server/nba-prop-model')
+from config.db_config import get_connection as _shared_get_connection, DATABASE_URL
 
 # Configuration
-DATABASE_URL = os.environ.get(
-    "DATABASE_URL",
-    "postgres://courtsideedge_user:CourtSideEdge2026Secure!@localhost:5432/courtsideedge"
-)
 TO_EMAIL = os.environ.get("TO_EMAIL", "gwal325@gmail.com")
 FROM_EMAIL = os.environ.get("FROM_EMAIL", "gwal325@gmail.com")
 GMAIL_USER = os.environ.get("GMAIL_USER", "gwal325@gmail.com")
@@ -45,8 +43,9 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def get_db_connection():
-    return psycopg2.connect(DATABASE_URL)
+def get_connection():
+    return _shared_get_connection()
+
 
 
 def get_todays_picks(conn):

@@ -18,6 +18,7 @@ from datetime import datetime, date
 import requests
 
 logger = logging.getLogger(__name__)
+from config.db_config import get_connection as _shared_get_connection, DATABASE_URL
 
 PERPLEXITY_API_URL = "https://api.perplexity.ai/chat/completions"
 PERPLEXITY_MODEL = "sonar"
@@ -31,21 +32,10 @@ INJURY_PROMPT = (
 
 def _get_db_connection():
     try:
-        import psycopg2
-        db_url = os.environ.get("DATABASE_URL")
-        if db_url:
-            return psycopg2.connect(db_url)
-        return psycopg2.connect(
-            host=os.environ.get("DB_HOST", "localhost"),
-            port=int(os.environ.get("DB_PORT", 5432)),
-            database=os.environ.get("DB_NAME", "courtsideedge"),
-            user=os.environ.get("DB_USER", "postgres"),
-            password=os.environ.get("DB_PASSWORD", ""),
-        )
+        return _shared_get_connection()
     except Exception as e:
         logger.error(f"DB connection failed: {e}")
         return None
-
 
 def _call_perplexity(api_key: str) -> List[Dict[str, Any]]:
     """
