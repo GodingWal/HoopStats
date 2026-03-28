@@ -102,6 +102,7 @@ def enrich_context(conn, context: Dict[str, Any], player_data: Dict[str, Any]) -
     _enrich_matchup_from_vs_team(context, opponent)  # No DB needed
     _safe_enrich(conn, cursor, "referee", _enrich_referee_data, context, team, opponent, game_date)
     _safe_enrich(conn, cursor, "defense_vs_pos", _enrich_defense_vs_position, context, opponent, position)
+    _safe_enrich(conn, cursor, "team_win_data", _enrich_team_win_data, context, team, opponent)
     
     # Clean up internal fields
     context.pop('_game_logs', None)
@@ -392,3 +393,44 @@ def _enrich_referee_data(cursor, context, team, opponent, game_date):
             context['referee_names'] = referee_names
             context['game_referees'] = game_referees
             context['referee_crew'] = referee_names
+
+
+def _enrich_team_win_data(cursor, context, team, opponent):
+    """Enrich context with team net ratings and win% for win_probability signal."""
+    if not team:
+        return
+    cursor.execute(
+        """SELECT net_rating, off_rating, def_rating, wins, losses
+        FROM team_stats WHERE UPPER(team_id) = UPPER(%s) LIMIT 1""",
+        (team,)
+    )
+    row = cursor.fetchone()
+    if row:
+        net_r, off_r, def_r, wins, losses = row
+        context['team_net_rating'] = float(net_r or 0)
+        context['team_stats'] = {
+            'net_rating': float(net_r or 0),
+            'off_rating': float(off_r or 110),
+            'def_rating': float(def_r or 110),
+        }
+        total_games = (wins or 0) + (losses or 0)
+        if total_games > 0:
+            context['team_win_pct'] = float(wins or 0) / total_games
+        else:
+            context['team_win_pct'] = 0.5
+
+    if not context.get('opp_net_rating'):
+        cursor.execute(
+            """SELECT net_rating, wins, losses
+            FROM team_stats WHERE UPPER(team_id) = UPPER(%s) LIMIT 1""",
+            (opponent,)
+        )
+        row = cursor.fetchone()
+        if row:
+            context['opp_net_rating'] = float(row[0] or 0)
+            total_games = (row[1] or 0) + (row[2] or 0)
+            if total_games > 0:
+                context['opp_win_pct'] = float(row[1] or 0) / total_games
+            else:
+                context['opp_win_pct'] = 0.5
+
