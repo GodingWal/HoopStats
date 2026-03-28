@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/dialog";
 import { TrendingUp, TrendingDown, DollarSign, Target, Trophy, Loader2, CheckCircle, XCircle, MinusCircle, ChevronDown, ChevronUp, Plus, AlertCircle, RefreshCw, Upload, Image as ImageIcon, FileText, Radio, Activity, Clock } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { BankrollSummaryCard } from "@/components/bets/bankroll-tracker";
 
 interface ParlayPick {
   id: number;
@@ -947,6 +948,9 @@ export default function MyBets() {
           />
         </div>
 
+        {/* Bankroll Tracker */}
+        <BankrollSummaryCard />
+
         {/* Live Scores Banner */}
         <LiveScoreErrorBoundary>
           <LiveScoresBanner liveScores={liveScores || []} />
@@ -1000,3 +1004,4 @@ export default function MyBets() {
     </div>
   );
 }
+

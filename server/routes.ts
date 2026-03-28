@@ -17,6 +17,7 @@ function parseHitRateEntry(entry: HitRateEntry): { rate: number; sampleSize: num
   return { rate: entry.rate, sampleSize: entry.sampleSize };
 }
 import { apiLogger } from "./logger";
+import bankrollRoutes from "./routes/bankroll-routes";
 import { fetchAndBuildAllPlayers } from "./nba-api";
 import { analyzeEdges } from "./edge-detection";
 import { loadSignalWeights, calculateSignalScore, hasStrongSignalSupport, getSignalDescription } from "./signal-scoring";
@@ -446,6 +447,9 @@ export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
+
+  // Mount bankroll management routes
+  app.use("/api/bankroll", bankrollRoutes);
 
   app.get("/api/players", async (req, res) => {
     try {
