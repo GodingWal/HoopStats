@@ -777,6 +777,20 @@ export default function Bets() {
     },
   });
 
+  const totalBets = bets?.length || 0;
+  const highConfidenceBets = bets?.filter(b => b.confidence === "HIGH").length || 0;
+
+  // Confidence tier counts
+  const smashCount = bets?.filter(b => (b as any).confidence_tier === "SMASH").length || 0;
+  const strongCount = bets?.filter(b => (b as any).confidence_tier === "STRONG").length || 0;
+  const leanCount = bets?.filter(b => (b as any).confidence_tier === "LEAN").length || 0;
+
+  // Filter bets by tier (must be before gameMatchups and generatedSearchResults which use it)
+  const tierFilteredBets = useMemo(() => {
+    if (!bets || tierFilter === "all") return bets;
+    return bets.filter(b => (b as any).confidence_tier === tierFilter.toUpperCase());
+  }, [bets, tierFilter]);
+
   const gameMatchups = useMemo(() => {
     const activeBets = tierFilteredBets || bets;
     if (!activeBets) return [];
@@ -838,20 +852,6 @@ export default function Bets() {
       return b.hit_rate - a.hit_rate;
     });
   }, [bets, generatedSearch]);
-
-  const totalBets = bets?.length || 0;
-  const highConfidenceBets = bets?.filter(b => b.confidence === "HIGH").length || 0;
-
-  // Confidence tier counts
-  const smashCount = bets?.filter(b => (b as any).confidence_tier === "SMASH").length || 0;
-  const strongCount = bets?.filter(b => (b as any).confidence_tier === "STRONG").length || 0;
-  const leanCount = bets?.filter(b => (b as any).confidence_tier === "LEAN").length || 0;
-
-  // Filter bets by tier
-  const tierFilteredBets = useMemo(() => {
-    if (!bets || tierFilter === "all") return bets;
-    return bets.filter(b => (b as any).confidence_tier === tierFilter.toUpperCase());
-  }, [bets, tierFilter]);
 
   if (selectedGame && dataSource === "generated") {
     return (
