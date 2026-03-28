@@ -159,8 +159,8 @@ app.use((req, res, next) => {
 
       // Start PrizePicks line tracking (polls every 5 minutes by default)
       prizePicksLineTracker.setStorage(prizePicksStorage);
-      prizePicksLineTracker.start(300000); // 5 minutes
-      serverLogger.info("PrizePicks line tracker started - capturing historical line data");
+      prizePicksLineTracker.start(900000); // 15 minutes
+      serverLogger.info("PrizePicks line tracker started (15-min interval) - capturing historical line data");
 
       // Log significant line movements
       prizePicksLineTracker.on('significant-movement', (movement) => {
