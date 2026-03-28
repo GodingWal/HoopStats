@@ -21,6 +21,7 @@ import bankrollRoutes from "./routes/bankroll-routes";
 import { fetchAndBuildAllPlayers } from "./nba-api";
 import { analyzeEdges } from "./edge-detection";
 import { loadSignalWeights, calculateSignalScore, hasStrongSignalSupport, getSignalDescription } from "./signal-scoring";
+import { calibrateBet } from "./confidence-calibration";
 import {
   fetchLiveGames,
   fetchPlayerGamelog,
@@ -443,6 +444,69 @@ async function generateBetsFromPrizePicks(players: Player[]) {
   }
 }
 
+
+/**
+ * Enrich generated bets with calibration data (confidence tier, signal agreement, etc.)
+ */
+async function enrichBetsWithCalibration(
+  bets: Array<Record<string, any>>,
+  players: Player[],
+): Promise<Array<Record<string, any>>> {
+  const playerMap = new Map(players.map(p => [p.player_id, p]));
+  const enrichedBets = [];
+
+  for (const bet of bets) {
+    const player = playerMap.get(bet.player_id);
+    if (!player) {
+      enrichedBets.push(bet);
+      continue;
+    }
+
+    try {
+      const calibration = await calibrateBet(
+        player,
+        bet.stat_type,
+        bet.line,
+        bet.recommendation as 'OVER' | 'UNDER',
+        bet.hit_rate,
+        bet.season_avg,
+        bet.last_5_avg,
+      );
+
+      enrichedBets.push({
+        ...bet,
+        confidence_tier: calibration.confidenceTier,
+        signal_agreement: calibration.signalAgreement,
+        calibrated_probability: calibration.calibratedProbability,
+        agreeing_signals: calibration.agreeingSignals,
+        total_signals: calibration.totalSignals,
+        signal_details: calibration.signalDetails,
+      });
+    } catch (err) {
+      console.error('[Calibration] Error for', bet.player_name, ':', err instanceof Error ? err.message : err);
+      enrichedBets.push(bet);
+    }
+  }
+
+  // Sort by tier priority
+  const tierOrder: Record<string, number> = { SMASH: 0, STRONG: 1, LEAN: 2, AVOID: 3 };
+  enrichedBets.sort((a, b) => {
+    const aTier = tierOrder[a.confidence_tier || 'AVOID'] ?? 3;
+    const bTier = tierOrder[b.confidence_tier || 'AVOID'] ?? 3;
+    if (aTier !== bTier) return aTier - bTier;
+    return (b.calibrated_probability ?? 0) - (a.calibrated_probability ?? 0);
+  });
+
+  const tiers = { SMASH: 0, STRONG: 0, LEAN: 0, AVOID: 0 };
+  for (const b of enrichedBets) {
+    const t = b.confidence_tier || 'AVOID';
+    if (t in tiers) tiers[t] += 1;
+  }
+  console.log(`[Calibration] Enriched ${enrichedBets.length} bets: SMASH=${tiers['SMASH']}, STRONG=${tiers['STRONG']}, LEAN=${tiers['LEAN']}, AVOID=${tiers['AVOID']}`);
+
+  return enrichedBets;
+}
+
 export async function registerRoutes(
   httpServer: Server,
   app: Express
@@ -598,11 +662,37 @@ export async function registerRoutes(
 
       let players = await ensurePlayersLoaded();
 
-      const generatedBets = await generateBetsFromPrizePicks(players);
+      let generatedBets = await generateBetsFromPrizePicks(players);
+      generatedBets = await enrichBetsWithCalibration(generatedBets, players);
 
       await storage.clearPotentialBets();
       for (const bet of generatedBets) {
         await storage.createPotentialBet(bet);
+      }
+
+      
+      // Persist calibration data via raw SQL (bypasses Drizzle type restrictions)
+      if (pool) {
+        let updatedCount = 0;
+        for (const bet of generatedBets) {
+          if (bet.confidence_tier) {
+            try {
+              await pool.query(
+                `UPDATE potential_bets SET 
+                  confidence_tier = $1, signal_agreement = $2, calibrated_probability = $3,
+                  agreeing_signals = $4, total_signals = $5, signal_details = $6
+                WHERE player_name = $7 AND stat_type = $8 AND line = $9`,
+                [bet.confidence_tier, bet.signal_agreement, bet.calibrated_probability,
+                 bet.agreeing_signals, bet.total_signals, JSON.stringify(bet.signal_details || []),
+                 bet.player_name, bet.stat_type, Number(bet.line)]
+              );
+              updatedCount++;
+            } catch (e: any) {
+              // Ignore individual update failures
+            }
+          }
+        }
+        apiLogger.info(`[Calibration] Persisted calibration data for ${updatedCount}/${generatedBets.length} bets to DB`);
       }
 
       apiLogger.info(`Refreshed ${generatedBets.length} bets from PrizePicks`);
@@ -649,7 +739,8 @@ export async function registerRoutes(
       let bets = await storage.getPotentialBets();
       if (bets.length === 0) {
         let players = await ensurePlayersLoaded();
-        const generatedBets = await generateBetsFromPrizePicks(players);
+        let generatedBets = await generateBetsFromPrizePicks(players);
+        generatedBets = await enrichBetsWithCalibration(generatedBets, players);
         await storage.clearPotentialBets();
         for (const bet of generatedBets) {
           await storage.createPotentialBet(bet);

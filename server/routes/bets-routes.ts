@@ -17,6 +17,7 @@ import type { Player, HitRateEntry } from "@shared/schema";
 import { adjustedHitRate } from "../utils/statistics";
 import { evaluateBetValue } from "../utils/ev-calculator";
 import { logXGBoostPrediction } from "../services/xgboost-logger";
+import { calibrateBet } from "../confidence-calibration";
 
 const router = Router();
 
@@ -290,6 +291,69 @@ async function generateBetsFromPrizePicks(players: Player[]) {
     apiLogger.info("Falling back to generating bets from all hit rates");
     return generatePotentialBets(players);
   }
+}
+
+
+/**
+ * Enrich generated bets with calibration data (confidence tier, signal agreement, etc.)
+ * This is a post-processing step that runs after bets are generated.
+ */
+async function enrichBetsWithCalibration(
+  bets: Array<Record<string, any>>,
+  players: Player[],
+): Promise<Array<Record<string, any>>> {
+  const playerMap = new Map(players.map(p => [p.player_id, p]));
+
+  const enrichedBets = [];
+  for (const bet of bets) {
+    const player = playerMap.get(bet.player_id);
+    if (!player) {
+      enrichedBets.push(bet);
+      continue;
+    }
+
+    try {
+      const calibration = await calibrateBet(
+        player,
+        bet.stat_type,
+        bet.line,
+        bet.recommendation as 'OVER' | 'UNDER',
+        bet.hit_rate,
+        bet.season_avg,
+        bet.last_5_avg,
+      );
+
+      enrichedBets.push({
+        ...bet,
+        confidence_tier: calibration.confidenceTier,
+        signal_agreement: calibration.signalAgreement,
+        calibrated_probability: calibration.calibratedProbability,
+        agreeing_signals: calibration.agreeingSignals,
+        total_signals: calibration.totalSignals,
+        signal_details: calibration.signalDetails,
+      });
+    } catch (err) {
+      // If calibration fails for a bet, keep it without calibration
+      console.error('[Calibration] Error for', bet.player_name, bet.stat_type, ':', err instanceof Error ? err.message : err);
+      enrichedBets.push(bet);
+    }
+  }
+
+  // Re-sort: SMASH first, then STRONG, then LEAN, then AVOID
+  const tierOrder: Record<string, number> = { SMASH: 0, STRONG: 1, LEAN: 2, AVOID: 3 };
+  enrichedBets.sort((a, b) => {
+    const aTier = tierOrder[a.confidence_tier || 'AVOID'] ?? 3;
+    const bTier = tierOrder[b.confidence_tier || 'AVOID'] ?? 3;
+    if (aTier !== bTier) return aTier - bTier;
+    // Within same tier, sort by calibrated probability
+    const aProb = a.calibrated_probability ?? 0;
+    const bProb = b.calibrated_probability ?? 0;
+    return bProb - aProb;
+  });
+
+  console.log(`[Calibration] Enriched ${enrichedBets.length} bets. Tiers: SMASH=${enrichedBets.filter(b => b.confidence_tier === 'SMASH').length}, STRONG=${enrichedBets.filter(b => b.confidence_tier === 'STRONG').length}, LEAN=${enrichedBets.filter(b => b.confidence_tier === 'LEAN').length}, AVOID=${enrichedBets.filter(b => b.confidence_tier === 'AVOID').length}`);
+
+  return enrichedBets;
 }
 
 /**

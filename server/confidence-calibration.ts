@@ -1,11 +1,11 @@
 /**
- * Confidence Calibration Layer
+ * Confidence Calibration Layer v2
  *
- * Maps signal agreement, edge size, and historical accuracy
+ * Maps existing bet data (signal_score, hit_rate, edge, season_avg, last_5_avg)
  * into calibrated confidence tiers: SMASH, STRONG, LEAN, AVOID.
  *
- * Uses the existing signal scoring system and edge detection
- * to count how many independent signals agree on a direction.
+ * Instead of relying on edge detection (which fires sparsely),
+ * this version uses the rich signal scoring data already computed.
  */
 
 import type { Player } from "@shared/schema";
@@ -16,17 +16,11 @@ import { pool } from "./db";
 export type ConfidenceTier = 'SMASH' | 'STRONG' | 'LEAN' | 'AVOID';
 
 export interface CalibrationResult {
-  /** SMASH / STRONG / LEAN / AVOID */
   confidenceTier: ConfidenceTier;
-  /** 0-1: fraction of signals agreeing on the direction */
   signalAgreement: number;
-  /** Calibrated win probability (0-1) */
   calibratedProbability: number;
-  /** Number of signals that agree with the recommendation */
   agreeingSignals: number;
-  /** Total number of signals evaluated */
   totalSignals: number;
-  /** Details per signal for transparency */
   signalDetails: Array<{
     name: string;
     agrees: boolean;
@@ -36,110 +30,171 @@ export interface CalibrationResult {
 }
 
 /**
- * All signal types we evaluate, mapped from edge detection types
+ * Evaluate individual signals based on available data.
+ * Each signal checks a different aspect of the bet quality.
  */
-const ALL_SIGNAL_TYPES = [
-  'STAR_OUT', 'BACK_TO_BACK', 'BLOWOUT_RISK', 'PACE_MATCHUP',
-  'BAD_DEFENSE', 'MINUTES_STABILITY', 'RECENT_FORM', 'HOME_ROAD_SPLIT',
-  'REST_DAYS', 'MINUTES_PROJECTION', 'USAGE_REDISTRIBUTION', 'POSITIONAL_DEFENSE',
-] as const;
+function evaluateSignals(
+  player: Player,
+  statType: string,
+  line: number,
+  recommendation: 'OVER' | 'UNDER',
+  hitRate: number,
+  seasonAvg: number,
+  last5Avg: number | null | undefined,
+  signalScore: SignalScore,
+  edgeCount: number,
+): Array<{ name: string; agrees: boolean; weight: number; accuracy: number }> {
+  const signals: Array<{ name: string; agrees: boolean; weight: number; accuracy: number }> = [];
 
-/**
- * Calculate the edge percentage between the projected value and the line
- */
-function calculateEdgePct(seasonAvg: number, last5Avg: number | null | undefined, line: number, recommendation: 'OVER' | 'UNDER'): number {
-  // Use a weighted blend of season and recent averages
+  // 1. Hit Rate Signal - historical accuracy on this stat type
+  const hitRateAgrees = hitRate >= 55;
+  signals.push({
+    name: 'HIT_RATE',
+    agrees: hitRateAgrees,
+    weight: hitRate >= 65 ? 1.0 : hitRate >= 55 ? 0.7 : 0.3,
+    accuracy: Number((hitRate / 100).toFixed(3)),
+  });
+
+  // 2. Season Average Signal - does season avg support the direction?
+  const seasonDiff = seasonAvg - line;
+  const seasonAgrees = recommendation === 'OVER' ? seasonDiff > 0 : seasonDiff < 0;
+  const seasonEdgePct = Math.abs(seasonDiff / Math.max(line, 0.1)) * 100;
+  signals.push({
+    name: 'SEASON_AVG',
+    agrees: seasonAgrees,
+    weight: seasonEdgePct >= 10 ? 1.0 : seasonEdgePct >= 5 ? 0.7 : 0.4,
+    accuracy: 0.56,
+  });
+
+  // 3. Recent Form Signal - last 5 games trend
+  if (last5Avg && last5Avg > 0) {
+    const recentDiff = last5Avg - line;
+    const recentAgrees = recommendation === 'OVER' ? recentDiff > 0 : recentDiff < 0;
+    const recentEdgePct = Math.abs(recentDiff / Math.max(line, 0.1)) * 100;
+    signals.push({
+      name: 'RECENT_FORM',
+      agrees: recentAgrees,
+      weight: recentEdgePct >= 15 ? 1.0 : recentEdgePct >= 7 ? 0.7 : 0.4,
+      accuracy: 0.58,
+    });
+
+    // 4. Trend Alignment - are season and recent both agreeing?
+    const trendAligned = (seasonAvg - line > 0) === (last5Avg - line > 0);
+    signals.push({
+      name: 'TREND_ALIGNMENT',
+      agrees: trendAligned && seasonAgrees,
+      weight: trendAligned ? 0.8 : 0.2,
+      accuracy: 0.55,
+    });
+  }
+
+  // 5. Signal Score Confidence - from the signal scoring system
+  const highSignalConf = signalScore.signalConfidence === 'HIGH' || signalScore.signalConfidence === 'MEDIUM';
+  signals.push({
+    name: 'SIGNAL_CONFIDENCE',
+    agrees: highSignalConf,
+    weight: signalScore.signalConfidence === 'HIGH' ? 1.0 : signalScore.signalConfidence === 'MEDIUM' ? 0.6 : 0.2,
+    accuracy: Number(signalScore.avgAccuracy.toFixed(3)),
+  });
+
+  // 6. Signal Score Value - weighted score from all signals
+  const goodSignalScore = signalScore.weightedScore >= 6;
+  signals.push({
+    name: 'SIGNAL_SCORE',
+    agrees: goodSignalScore,
+    weight: signalScore.weightedScore >= 8 ? 1.0 : signalScore.weightedScore >= 6 ? 0.7 : 0.3,
+    accuracy: Number(signalScore.avgAccuracy.toFixed(3)),
+  });
+
+  // 7. Edge Detection Signal - fires when matchup-based edges exist
+  const hasEdges = edgeCount >= 2;
+  signals.push({
+    name: 'EDGE_DETECTION',
+    agrees: hasEdges,
+    weight: edgeCount >= 4 ? 1.0 : edgeCount >= 2 ? 0.6 : 0.2,
+    accuracy: 0.57,
+  });
+
+  // 8. Edge Size Signal - how far is the projected value from the line?
   const projectedValue = last5Avg && last5Avg > 0
     ? seasonAvg * 0.4 + last5Avg * 0.6
     : seasonAvg;
+  const edgePct = Math.abs((projectedValue - line) / Math.max(line, 0.1)) * 100;
+  const directionCorrect = recommendation === 'OVER'
+    ? projectedValue > line
+    : projectedValue < line;
+  signals.push({
+    name: 'EDGE_SIZE',
+    agrees: directionCorrect && edgePct >= 3,
+    weight: edgePct >= 15 ? 1.0 : edgePct >= 8 ? 0.7 : edgePct >= 3 ? 0.5 : 0.1,
+    accuracy: 0.55,
+  });
 
-  if (line === 0) return 0;
-
-  const rawEdge = ((projectedValue - line) / line) * 100;
-
-  // Edge is positive when it aligns with recommendation
-  if (recommendation === 'OVER') {
-    return rawEdge; // Positive means projected > line (good for OVER)
-  } else {
-    return -rawEdge; // Positive means projected < line (good for UNDER)
-  }
+  return signals;
 }
 
 /**
- * Determine confidence tier from signal agreement and edge size.
- *
- * Tiers:
- *   SMASH  - 80%+ signals agree, edge > 10%
- *   STRONG - 65%+ signals agree, edge > 5%
- *   LEAN   - 50%+ signals agree, edge > 2%
- *   AVOID  - signals disagree or edge < 2%
+ * Classify tier based on agreement percentage and edge.
+ * Tuned for realistic distributions (not all AVOID).
  */
 function classifyTier(
-  signalAgreementPct: number,
+  agreementPct: number,
   edgePct: number,
+  hitRate: number,
   signalScore: SignalScore,
 ): ConfidenceTier {
   const absEdge = Math.abs(edgePct);
 
-  // SMASH: overwhelming agreement + large edge
-  if (signalAgreementPct >= 80 && absEdge >= 10 && signalScore.signalConfidence !== 'LOW') {
+  // SMASH: Strong agreement + good edge + solid hit rate
+  if (agreementPct >= 75 && absEdge >= 8 && hitRate >= 58) {
+    return 'SMASH';
+  }
+  // Also SMASH if exceptional agreement even with moderate edge
+  if (agreementPct >= 85 && absEdge >= 5 && hitRate >= 55) {
     return 'SMASH';
   }
 
-  // STRONG: solid agreement + meaningful edge
-  if (signalAgreementPct >= 65 && absEdge >= 5 && signalScore.avgAccuracy >= 0.54) {
+  // STRONG: Good agreement + meaningful edge
+  if (agreementPct >= 60 && absEdge >= 5 && hitRate >= 52) {
+    return 'STRONG';
+  }
+  // Also STRONG with high hit rate even with moderate agreement
+  if (agreementPct >= 50 && absEdge >= 5 && hitRate >= 60) {
     return 'STRONG';
   }
 
-  // LEAN: majority agreement + some edge
-  if (signalAgreementPct >= 50 && absEdge >= 2) {
+  // LEAN: Majority agreeing + some edge
+  if (agreementPct >= 40 && absEdge >= 2) {
+    return 'LEAN';
+  }
+  // Also LEAN if strong hit rate regardless
+  if (hitRate >= 55 && absEdge >= 2) {
     return 'LEAN';
   }
 
-  // AVOID: anything else
+  // AVOID: weak signals
   return 'AVOID';
 }
 
 /**
- * Map signal agreement percentage to a calibrated probability.
- *
- * Based on empirical findings from signal_results:
- *   - matchup_history (3434 picks): 62.9% win rate
- *   - rest_days (10068 picks): 50.2%
- *   - defender_matchup (3386 picks): 48.9%
- *
- * When multiple signals agree the probability compounds.
- * This is a logistic-style calibration curve.
+ * Calibrate probability based on multiple factors
  */
 function calibrateProbability(
-  signalAgreementPct: number,
+  agreementPct: number,
   edgePct: number,
-  signalScore: SignalScore,
   hitRate: number,
+  signalScore: SignalScore,
 ): number {
-  // Start from base hit-rate probability
-  const baseProb = Math.max(0.3, Math.min(0.85, hitRate / 100));
-
-  // Signal agreement boost: each 10% agreement above 50% adds confidence
-  const agreementBoost = Math.max(0, (signalAgreementPct - 50) / 100) * 0.12;
-
-  // Edge size boost: larger edges are more reliable
-  const edgeBoost = Math.min(0.10, Math.abs(edgePct) / 100 * 0.5);
-
-  // Signal accuracy boost
-  const accuracyBoost = Math.max(0, (signalScore.avgAccuracy - 0.5)) * 0.15;
-
-  // Combine with ceiling
-  const calibrated = Math.min(0.85, baseProb + agreementBoost + edgeBoost + accuracyBoost);
-
+  const baseProb = Math.max(0.35, Math.min(0.80, hitRate / 100));
+  const agreementBoost = Math.max(0, (agreementPct - 40) / 100) * 0.10;
+  const edgeBoost = Math.min(0.08, Math.abs(edgePct) / 100 * 0.4);
+  const accuracyBoost = Math.max(0, (signalScore.avgAccuracy - 0.5)) * 0.10;
+  const calibrated = Math.min(0.82, baseProb + agreementBoost + edgeBoost + accuracyBoost);
   return Number(calibrated.toFixed(4));
 }
 
 /**
- * Main calibration function - calculates confidence tier for a bet.
- *
- * Integrates signal scoring, edge detection, and hit rate data
- * to produce a calibrated confidence assessment.
+ * Main calibration function
  */
 export async function calibrateBet(
   player: Player,
@@ -150,79 +205,58 @@ export async function calibrateBet(
   seasonAvg: number,
   last5Avg: number | null | undefined,
 ): Promise<CalibrationResult> {
-  // Ensure signal weights are loaded
   await loadSignalWeights(pool);
 
-  // Run edge detection to see which signals fire
+  // Run edge detection
   const edgeAnalysis = analyzeEdges(player, statType, recommendation, hitRate);
 
-  // Calculate signal score using the existing system
+  // Calculate signal score
   const signalScore = calculateSignalScore(
     player, statType, recommendation, hitRate, edgeAnalysis.edges,
   );
 
-  // Count agreeing vs total signals
-  const firedSignals = new Set(edgeAnalysis.edges.map(e => e.type));
-  const totalEvaluated = ALL_SIGNAL_TYPES.length;
-  const agreeingCount = firedSignals.size; // All fired signals agree (they only fire when they support the direction)
+  // Evaluate all signals
+  const signals = evaluateSignals(
+    player, statType, line, recommendation,
+    hitRate, seasonAvg, last5Avg, signalScore, edgeAnalysis.edges.length,
+  );
 
-  // Signal agreement as a percentage (of total possible signals)
-  // We weight this: fired signals with high scores count more
-  let weightedAgreement = 0;
-  let totalPossibleWeight = totalEvaluated; // Each signal could contribute 1
+  // Count agreeing signals (weighted)
+  const agreeingSignals = signals.filter(s => s.agrees);
+  const totalSignals = signals.length;
+  
+  // Weighted agreement: sum of weights for agreeing / sum of all weights
+  const totalWeight = signals.reduce((sum, s) => sum + s.weight, 0);
+  const agreeingWeight = agreeingSignals.reduce((sum, s) => sum + s.weight, 0);
+  const agreementPct = totalWeight > 0 ? (agreeingWeight / totalWeight) * 100 : 0;
 
-  for (const edge of edgeAnalysis.edges) {
-    // Score is 1-10; normalize to 0-1 contribution
-    weightedAgreement += Math.min(1, edge.score / 5);
-  }
+  // Calculate edge
+  const projectedValue = last5Avg && last5Avg > 0
+    ? seasonAvg * 0.4 + last5Avg * 0.6
+    : seasonAvg;
+  const edgePct = ((projectedValue - line) / Math.max(line, 0.1)) * 100;
+  const effectiveEdge = recommendation === 'OVER' ? edgePct : -edgePct;
 
-  const signalAgreementPct = totalPossibleWeight > 0
-    ? (weightedAgreement / totalPossibleWeight) * 100
-    : 0;
-
-  // Also compute a simpler ratio for display
-  const simpleAgreementPct = totalEvaluated > 0
-    ? (agreeingCount / totalEvaluated) * 100
-    : 0;
-
-  // Use the higher of weighted and simple agreement (weighted rewards strong signals)
-  const effectiveAgreement = Math.max(signalAgreementPct, simpleAgreementPct);
-
-  // Calculate edge percentage
-  const edgePct = calculateEdgePct(seasonAvg, last5Avg, line, recommendation);
-
-  // Classify into tier
-  const confidenceTier = classifyTier(effectiveAgreement, edgePct, signalScore);
+  // Classify tier
+  const confidenceTier = classifyTier(agreementPct, effectiveEdge, hitRate, signalScore);
 
   // Calibrate probability
   const calibratedProbability = calibrateProbability(
-    effectiveAgreement, edgePct, signalScore, hitRate,
+    agreementPct, effectiveEdge, hitRate, signalScore,
   );
-
-  // Build signal details
-  const signalDetails = ALL_SIGNAL_TYPES.map(sigType => {
-    const edge = edgeAnalysis.edges.find(e => e.type === sigType);
-    return {
-      name: sigType,
-      agrees: !!edge,
-      weight: edge ? edge.score / 10 : 0,
-      accuracy: signalScore.avgAccuracy,
-    };
-  });
 
   return {
     confidenceTier,
-    signalAgreement: Number((effectiveAgreement / 100).toFixed(4)),
+    signalAgreement: Number((agreementPct / 100).toFixed(4)),
     calibratedProbability,
-    agreeingSignals: agreeingCount,
-    totalSignals: totalEvaluated,
-    signalDetails: signalDetails.filter(s => s.agrees), // Only return active signals
+    agreeingSignals: agreeingSignals.length,
+    totalSignals,
+    signalDetails: agreeingSignals,
   };
 }
 
 /**
- * Batch calibrate multiple bets efficiently.
- * Loads signal weights once, then calibrates each bet.
+ * Batch calibrate multiple bets
  */
 export async function calibrateBets(
   bets: Array<{
@@ -235,16 +269,13 @@ export async function calibrateBets(
     last5Avg: number | null | undefined;
   }>,
 ): Promise<CalibrationResult[]> {
-  // Load weights once
   await loadSignalWeights(pool);
-
   const results: CalibrationResult[] = [];
   for (const bet of bets) {
-    const result = await calibrateBet(
+    results.push(await calibrateBet(
       bet.player, bet.statType, bet.line,
       bet.recommendation, bet.hitRate, bet.seasonAvg, bet.last5Avg,
-    );
-    results.push(result);
+    ));
   }
   return results;
 }

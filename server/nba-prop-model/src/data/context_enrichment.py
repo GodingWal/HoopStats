@@ -100,6 +100,7 @@ def enrich_context(conn, context: Dict[str, Any], player_data: Dict[str, Any]) -
     _safe_enrich(conn, cursor, "line_movement", _enrich_line_movement, context, player_name, game_date, stat_type)
     _safe_enrich(conn, cursor, "injuries", _enrich_injuries, context, team, player_name, game_date)
     _enrich_matchup_from_vs_team(context, opponent)  # No DB needed
+    _safe_enrich(conn, cursor, "referee", _enrich_referee_data, context, team, opponent, game_date)
     _safe_enrich(conn, cursor, "defense_vs_pos", _enrich_defense_vs_position, context, opponent, position)
     
     # Clean up internal fields
@@ -361,3 +362,33 @@ def _enrich_defense_vs_position(cursor, context, opponent, position):
             'ast_allowed': float(row[2] or 0), 'fg_pct_allowed': float(row[3] or 0),
             'defensive_rating': 110.0, 'sample_size': 20,
         }
+
+
+def _enrich_referee_data(cursor, context, team, opponent, game_date):
+    """Load referee assignments for this game and add to context."""
+    if not game_date:
+        return
+    if not team and not opponent:
+        return
+    teams = [t for t in [team, opponent] if t]
+    placeholders = ' OR '.join(['home_team = %s OR away_team = %s'] * len(teams))
+    params = [game_date]
+    for t in teams:
+        params.extend([t, t])
+    cursor.execute(f"""
+        SELECT DISTINCT referee_name, avg_fouls_per_game
+        FROM referee_assignments
+        WHERE game_date = %s::date AND ({placeholders})
+        LIMIT 5
+    """, params)
+    rows = cursor.fetchall()
+    if rows:
+        referee_names = [r[0] for r in rows if r[0] and r[0] != 'TBD']
+        game_referees = [
+            {'name': r[0], 'avg_fouls_per_game': float(r[1]) if r[1] else 42.0}
+            for r in rows if r[0] and r[0] != 'TBD'
+        ]
+        if referee_names:
+            context['referee_names'] = referee_names
+            context['game_referees'] = game_referees
+            context['referee_crew'] = referee_names

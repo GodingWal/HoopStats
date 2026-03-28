@@ -546,12 +546,68 @@ class SignalProjectionEngine:
 
             self.db_connection.commit()
             cursor.close()
+            
+            # Save individual signal results
+            self._save_signal_results(projection)
+            
             return True
 
         except Exception as e:
             logger.error(f"Error saving projection: {e}")
-            self.db_connection.rollback()
+            try:
+                self.db_connection.rollback()
+            except:
+                pass
             return False
+
+
+    def _save_signal_results(self, projection: BlendedProjection) -> None:
+        """Save individual signal firing data to signal_results table."""
+        if self.db_connection is None or not projection.signals:
+            return
+        try:
+            cursor = self.db_connection.cursor()
+            saved = 0
+            for signal_name, adjustment in projection.signals.items():
+                if adjustment == 0:
+                    continue
+                sig_direction = projection.predicted_direction or 'OVER'
+                strength = 'strong' if abs(adjustment) > 0.5 else 'moderate'
+                edge_pct = float(projection.predicted_edge) if projection.predicted_edge else 0.0
+                line_val = float(projection.line) if projection.line else 0.0
+                try:
+                    cursor.execute("""
+                        INSERT INTO signal_results
+                            (signal_type, signal_strength, player_id, game_date, prop_type,
+                             model_projection, prizepicks_line, edge_pct, direction, created_at)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                    """, (
+                        str(signal_name)[:50],
+                        str(strength)[:20],
+                        str(projection.player_id)[:20],
+                        projection.game_date,
+                        str(projection.stat_type)[:30],
+                        round(float(projection.final_projection), 2),
+                        round(line_val, 2),
+                        round(edge_pct, 2),
+                        str(sig_direction)[:10],
+                    ))
+                    saved += 1
+                except Exception as inner_e:
+                    logger.warning(f"Signal result insert failed for {signal_name}: {inner_e}")
+                    try:
+                        self.db_connection.rollback()
+                    except:
+                        pass
+            if saved > 0:
+                self.db_connection.commit()
+            cursor.close()
+        except Exception as e:
+            logger.warning(f"Save signal results failed: {e}")
+            try:
+                self.db_connection.rollback()
+            except:
+                pass
 
     def batch_project(
         self,

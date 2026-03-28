@@ -114,25 +114,25 @@ class FatigueSignal(BaseSignal):
         fatigue_factors = {}
 
         # 1. Schedule density
-        schedule_fatigue = self._calculate_schedule_fatigue(game_date, context)
+        schedule_fatigue = self._calculate_schedule_fatigue(game_date, context) or 0.0
         if schedule_fatigue > 0:
             fatigue_score += schedule_fatigue
             fatigue_factors['schedule_density'] = schedule_fatigue
 
         # 2. Minutes load
-        minutes_fatigue = self._calculate_minutes_fatigue(context)
+        minutes_fatigue = self._calculate_minutes_fatigue(context) or 0.0
         if minutes_fatigue > 0:
             fatigue_score += minutes_fatigue
             fatigue_factors['minutes_load'] = minutes_fatigue
 
         # 3. Travel burden
-        travel_fatigue = self._calculate_travel_fatigue(context)
+        travel_fatigue = self._calculate_travel_fatigue(context) or 0.0
         if travel_fatigue > 0:
             fatigue_score += travel_fatigue
             fatigue_factors['travel'] = travel_fatigue
 
         # 4. Altitude
-        altitude_fatigue = self._calculate_altitude_fatigue(context)
+        altitude_fatigue = self._calculate_altitude_fatigue(context) or 0.0
         if altitude_fatigue > 0:
             fatigue_score += altitude_fatigue
             fatigue_factors['altitude'] = altitude_fatigue
@@ -246,8 +246,8 @@ class FatigueSignal(BaseSignal):
 
     def _calculate_minutes_fatigue(self, context: Dict[str, Any]) -> float:
         """Calculate fatigue from minutes accumulation."""
-        minutes_7 = context.get('minutes_last_7', 0)
-        minutes_14 = context.get('minutes_last_14', 0)
+        minutes_7 = context.get('minutes_last_7') or 0
+        minutes_14 = context.get('minutes_last_14') or 0
 
         fatigue = 0.0
 
@@ -263,7 +263,7 @@ class FatigueSignal(BaseSignal):
 
     def _calculate_travel_fatigue(self, context: Dict[str, Any]) -> float:
         """Calculate fatigue from travel distance."""
-        travel_distance = context.get('travel_distance', 0)
+        travel_distance = context.get('travel_distance') or 0
 
         if travel_distance >= self.HEAVY_TRAVEL:
             return 0.4
@@ -273,7 +273,7 @@ class FatigueSignal(BaseSignal):
 
     def _calculate_altitude_fatigue(self, context: Dict[str, Any]) -> float:
         """Calculate fatigue from altitude change."""
-        altitude_change = context.get('altitude_change', 0)
+        altitude_change = context.get('altitude_change') or 0
         opponent_team = context.get('opponent_team', context.get('opponent', ''))
 
         # Check if playing at high altitude
