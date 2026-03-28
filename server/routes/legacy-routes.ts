@@ -979,6 +979,112 @@ export async function registerLegacyRoutes(
     }
   });
 
+
+
+  // ============================================================
+  // Email Test Endpoint
+  // ============================================================
+  app.post("/api/email/test", async (req, res) => {
+    try {
+      apiLogger.info("Test email triggered via API");
+      const scriptPath = path.resolve(__dirname, "../nba-prop-model/scripts/daily_email.py");
+      const venvPython = path.resolve(__dirname, "../nba-prop-model/venv/bin/python");
+      
+      const child = spawn(venvPython, [scriptPath, "--test"], {
+        env: {
+          ...process.env,
+          DATABASE_URL: process.env.DATABASE_URL || "postgres://courtsideedge_user:CourtSideEdge2026Secure!@localhost:5432/courtsideedge",
+        },
+        timeout: 60000,
+      });
+
+      let stdout = "";
+      let stderr = "";
+      child.stdout.on("data", (data: Buffer) => { stdout += data.toString(); });
+      child.stderr.on("data", (data: Buffer) => { stderr += data.toString(); });
+
+      child.on("close", (code: number) => {
+        if (code === 0) {
+          let result = {};
+          try { result = JSON.parse(stdout.trim().split("\n").pop() || "{}"); } catch {}
+          res.json({ 
+            success: true, 
+            message: "Test email processed",
+            details: result,
+            log: stderr.slice(-500)
+          });
+        } else {
+          apiLogger.error("Email script failed", { code, stderr: stderr.slice(-500) });
+          res.status(500).json({ 
+            success: false, 
+            error: "Email script failed",
+            code,
+            log: stderr.slice(-500)
+          });
+        }
+      });
+
+      child.on("error", (err: Error) => {
+        apiLogger.error("Failed to spawn email script", err);
+        res.status(500).json({ success: false, error: err.message });
+      });
+    } catch (error) {
+      apiLogger.error("Error triggering test email", error);
+      res.status(500).json({ error: "Failed to trigger test email" });
+    }
+  });
+
+  app.post("/api/email/dry-run", async (req, res) => {
+    try {
+      apiLogger.info("Email dry-run triggered via API");
+      const scriptPath = path.resolve(__dirname, "../nba-prop-model/scripts/daily_email.py");
+      const venvPython = path.resolve(__dirname, "../nba-prop-model/venv/bin/python");
+      
+      const child = spawn(venvPython, [scriptPath, "--dry-run"], {
+        env: {
+          ...process.env,
+          DATABASE_URL: process.env.DATABASE_URL || "postgres://courtsideedge_user:CourtSideEdge2026Secure!@localhost:5432/courtsideedge",
+        },
+        timeout: 60000,
+      });
+
+      let stdout = "";
+      let stderr = "";
+      child.stdout.on("data", (data: Buffer) => { stdout += data.toString(); });
+      child.stderr.on("data", (data: Buffer) => { stderr += data.toString(); });
+
+      child.on("close", (code: number) => {
+        if (code === 0) {
+          let result = {};
+          try { result = JSON.parse(stdout.trim().split("\n").pop() || "{}"); } catch {}
+          res.json({ 
+            success: true, 
+            message: "Dry run complete - email generated but not sent",
+            details: result,
+            log: stderr.slice(-500)
+          });
+        } else {
+          res.status(500).json({ success: false, error: "Dry run failed", log: stderr.slice(-500) });
+        }
+      });
+    } catch (error) {
+      apiLogger.error("Error in email dry-run", error);
+      res.status(500).json({ error: "Failed to run email dry-run" });
+    }
+  });
+
+  app.get("/api/email/status", async (_req, res) => {
+    const hasPassword = !!process.env.GMAIL_APP_PASSWORD;
+    const gmailUser = process.env.GMAIL_USER || "not configured";
+    res.json({
+      gmail_configured: hasPassword,
+      gmail_user: gmailUser,
+      to_email: process.env.TO_EMAIL || "gwal325@gmail.com",
+      cron_schedule: "Daily at 7:00 AM PDT / 10:00 AM ET",
+      hint: hasPassword ? "Gmail SMTP ready" : "Set GMAIL_APP_PASSWORD in .env to enable sending"
+    });
+  });
+
   // Note: Additional routes from original routes.ts would go here
   // For brevity, this covers the main patterns - the rest follow the same structure
 }

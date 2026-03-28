@@ -3,12 +3,18 @@
 CourtSideEdge Daily Email Summary
 Sends a daily email with today's top picks, yesterday's results,
 and overall accuracy stats.
+
+Usage:
+  python daily_email.py           # Normal send
+  python daily_email.py --dry-run # Generate HTML only, don't send
+  python daily_email.py --test    # Send a test email with sample data
 """
 
 import os
 import sys
 import smtplib
 import logging
+import json
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from datetime import datetime, timedelta
@@ -21,7 +27,12 @@ DATABASE_URL = os.environ.get(
     "postgres://courtsideedge_user:CourtSideEdge2026Secure!@localhost:5432/courtsideedge"
 )
 TO_EMAIL = os.environ.get("TO_EMAIL", "gwal325@gmail.com")
-FROM_EMAIL = "picks@courtsideedge.com"
+FROM_EMAIL = os.environ.get("FROM_EMAIL", "gwal325@gmail.com")
+GMAIL_USER = os.environ.get("GMAIL_USER", "gwal325@gmail.com")
+GMAIL_APP_PASSWORD = os.environ.get("GMAIL_APP_PASSWORD", "")
+
+# Ensure log directory exists
+os.makedirs("/var/log/courtsideedge", exist_ok=True)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -201,10 +212,10 @@ def build_html_email(picks, results, overall, streak, tiers):
     today = datetime.now().strftime("%A, %B %d, %Y")
     yesterday = (datetime.now() - timedelta(days=1)).strftime("%A, %B %d")
 
-    total_picks = int(overall["total_picks"] or 0)
-    total_wins = int(overall["total_wins"] or 0)
-    accuracy = float(overall["overall_accuracy"] or 0)
-    days_tracked = int(overall["days_tracked"] or 0)
+    total_picks = int(overall["total_picks"] or 0) if overall and overall["total_picks"] else 0
+    total_wins = int(overall["total_wins"] or 0) if overall and overall["total_wins"] else 0
+    accuracy = float(overall["overall_accuracy"] or 0) if overall and overall["overall_accuracy"] else 0
+    days_tracked = int(overall["days_tracked"] or 0) if overall and overall["days_tracked"] else 0
 
     # Yesterday results summary
     y_wins = sum(1 for r in results if r["hit"])
@@ -282,9 +293,6 @@ def build_html_email(picks, results, overall, streak, tiers):
         html += "</table>"
     html += "  </div>"
 
-    return html
-
-
     # Yesterday's Results
     if results:
         html += f"""
@@ -300,7 +308,6 @@ def build_html_email(picks, results, overall, streak, tiers):
             result_txt = "W" if r["hit"] else "L"
             actual = round(float(r["actual_value"]), 1)
             line = round(float(r["prizepicks_line"]), 1)
-            tier_cls = r["confidence_tier"].lower()
             html += f"""      <tr>
         <td>{r["player_name"]}</td>
         <td>{r["prop_type"]}</td>
@@ -364,69 +371,77 @@ def build_html_email(picks, results, overall, streak, tiers):
 
 
 def send_email(html_content, to_email, subject):
-    """Send email via Gmail SMTP relay or local postfix fallback."""
+    """Send email via Gmail SMTP. Returns dict with status info."""
+    result = {"success": False, "method": None, "error": None}
+
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
-    msg["From"] = FROM_EMAIL
+    msg["From"] = GMAIL_USER
     msg["To"] = to_email
-    msg["Reply-To"] = FROM_EMAIL
+    msg["Reply-To"] = GMAIL_USER
 
     # Plain text fallback
     plain_text = "CourtSideEdge Daily Summary - View in HTML email client for full experience."
     msg.attach(MIMEText(plain_text, "plain"))
     msg.attach(MIMEText(html_content, "html"))
 
-    # Try Gmail SMTP if app password is configured
-    gmail_user = os.environ.get("GMAIL_USER")
-    gmail_app_password = os.environ.get("GMAIL_APP_PASSWORD")
+    if not GMAIL_APP_PASSWORD:
+        msg = "GMAIL_APP_PASSWORD not configured in .env. Email not sent."
+        logger.warning(msg)
+        logger.warning("To fix: Generate an App Password at https://myaccount.google.com/apppasswords")
+        logger.warning("Then add GMAIL_APP_PASSWORD=xxxx to /var/www/courtsideedge/.env")
+        result["error"] = msg
+        return result
 
-    if gmail_user and gmail_app_password:
-        try:
-            with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
-                server.login(gmail_user, gmail_app_password)
-                msg.replace_header("From", gmail_user)
-                server.sendmail(gmail_user, [to_email], msg.as_string())
-            logger.info(f"Email sent via Gmail SMTP to {to_email}")
-            return True
-        except Exception as e:
-            logger.error(f"Gmail SMTP failed: {e}, trying local postfix...")
-
-    # Fallback: local postfix
     try:
-        with smtplib.SMTP("localhost", 25) as server:
-            server.sendmail(FROM_EMAIL, [to_email], msg.as_string())
-        logger.info(f"Email sent via local postfix to {to_email}")
-        return True
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+            server.login(GMAIL_USER, GMAIL_APP_PASSWORD)
+            server.sendmail(GMAIL_USER, [to_email], msg.as_string())
+        logger.info(f"Email sent via Gmail SMTP to {to_email}")
+        result["success"] = True
+        result["method"] = "gmail_smtp"
+        return result
+    except smtplib.SMTPAuthenticationError as e:
+        error_msg = f"Gmail authentication failed. Check GMAIL_APP_PASSWORD. Error: {e}"
+        logger.error(error_msg)
+        result["error"] = error_msg
+        return result
     except Exception as e:
-        logger.error(f"Local postfix also failed: {e}")
+        error_msg = f"Gmail SMTP failed: {e}"
+        logger.error(error_msg)
+        result["error"] = error_msg
+        return result
 
-    logger.warning("Email delivery failed. HTML saved to /var/log/courtsideedge/last_email.html")
-    return False
 
-
-def main():
-    logger.info("Starting daily email summary generation...")
+def run_daily_email(dry_run=False, test_mode=False):
+    """Main entry point. Returns a dict with status for API usage."""
+    logger.info(f"Starting daily email (dry_run={dry_run}, test={test_mode})...")
+    status = {"success": False, "picks_count": 0, "results_count": 0, "email_sent": False, "error": None}
 
     try:
         conn = get_db_connection()
     except Exception as e:
-        logger.error(f"Database connection failed: {e}")
-        sys.exit(1)
+        status["error"] = f"Database connection failed: {e}"
+        logger.error(status["error"])
+        return status
 
     try:
-        # Gather data
         picks = get_todays_picks(conn)
         results = get_yesterdays_results(conn)
         overall, streak, tiers = get_accuracy_stats(conn)
 
+        status["picks_count"] = len(picks)
+        status["results_count"] = len(results)
+
         logger.info(f"Today's picks: {len(picks)}")
         logger.info(f"Yesterday's results: {len(results)}")
-        logger.info(f"Overall stats: {dict(overall) if overall else 'None'}")
         logger.info(f"Streak: {streak} days")
 
         # Build email
         today_str = datetime.now().strftime("%m/%d")
         subject = f"CourtSideEdge Daily Picks - {today_str}"
+        if test_mode:
+            subject = f"[TEST] {subject}"
         if results:
             y_wins = sum(1 for r in results if r["hit"])
             y_total = len(results)
@@ -435,26 +450,52 @@ def main():
 
         html = build_html_email(picks, results, overall, streak, tiers)
 
-        # Also save a local HTML copy for debugging
+        # Save debug copy
         debug_path = "/var/log/courtsideedge/last_email.html"
         with open(debug_path, "w") as f:
             f.write(html)
         logger.info(f"Saved debug copy to {debug_path}")
+        status["html_path"] = debug_path
+
+        if dry_run:
+            logger.info("Dry run - email not sent. HTML saved.")
+            status["success"] = True
+            status["email_sent"] = False
+            return status
 
         # Send
-        success = send_email(html, TO_EMAIL, subject)
-        if success:
+        send_result = send_email(html, TO_EMAIL, subject)
+        status["email_sent"] = send_result["success"]
+        status["send_method"] = send_result.get("method")
+        if send_result["success"]:
+            status["success"] = True
             logger.info("Daily email sent successfully!")
         else:
-            logger.error("Failed to send daily email")
-            sys.exit(1)
+            status["error"] = send_result.get("error", "Unknown send failure")
+            logger.error(f"Failed to send: {status['error']}")
 
     except Exception as e:
+        status["error"] = str(e)
         logger.error(f"Error generating email: {e}", exc_info=True)
-        sys.exit(1)
     finally:
         conn.close()
+
+    return status
+
+
+def main():
+    dry_run = "--dry-run" in sys.argv
+    test_mode = "--test" in sys.argv
+    status = run_daily_email(dry_run=dry_run, test_mode=test_mode)
+
+    if not status["success"]:
+        logger.error(f"Daily email failed: {status.get('error')}")
+        sys.exit(1)
+
+    # Output JSON for API consumption
+    print(json.dumps(status, default=str))
 
 
 if __name__ == "__main__":
     main()
+
