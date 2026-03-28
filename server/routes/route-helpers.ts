@@ -228,6 +228,75 @@ export function generatePotentialBets(players: Player[], xgbPredictions?: Map<st
  * Generate potential bets from actual PrizePicks projections
  * This syncs our analysis with what's actually available on PrizePicks
  */
+
+// Load today's projection outputs from the Python ML pipeline
+// Joins via player_id since player_name is not stored in projection_outputs
+async function loadTodayProjections(): Promise<Map<string, any>> {
+  const projMap = new Map<string, any>();
+  if (!pool) return projMap;
+
+  // Map projection prop_type (full names) to PrizePicks abbreviations
+  const PROP_TYPE_MAP: Record<string, string> = {
+    "Points": "PTS",
+    "Rebounds": "REB",
+    "Assists": "AST",
+    "3-Pointers Made": "FG3M",
+    "Pts+Rebs+Asts": "PRA",
+    "Pts+Rebs": "PR",
+    "Pts+Asts": "PA",
+    "Rebs+Asts": "RA",
+    "Steals": "STL",
+    "Blocks": "BLK",
+    "Turnovers": "TO",
+    "Blks+Stls": "Blks+Stls",
+    "Fantasy Score": "FPTS",
+  };
+
+  try {
+    const etOptions = { timeZone: "America/New_York" as const, year: "numeric" as const, month: "2-digit" as const, day: "2-digit" as const };
+    const today = new Intl.DateTimeFormat("en-CA", etOptions).format(new Date());
+
+    // Join projection_outputs with prizepicks_daily_lines to resolve player names
+    // direction derived from sign of edge_pct (positive = OVER, negative = UNDER)
+    const result = await pool.query(
+      `SELECT DISTINCT ON (pdl.player_name, po.prop_type)
+          pdl.player_name,
+          po.prop_type,
+          po.confidence_tier,
+          CASE WHEN po.edge_pct >= 0 THEN 'OVER' ELSE 'UNDER' END AS direction,
+          po.edge_pct,
+          po.final_projection,
+          po.baseline_projection,
+          po.kelly_stake,
+          po.signals_fired,
+          po.signals_detail
+       FROM projection_outputs po
+       JOIN prizepicks_daily_lines pdl
+         ON po.player_id = pdl.prizepicks_player_id
+         AND po.game_date = pdl.game_date
+         AND pdl.player_name NOT LIKE '% + %'
+       WHERE po.game_date = $1
+         AND po.confidence_tier NOT IN ('SKIP')
+       ORDER BY pdl.player_name, po.prop_type, po.edge_pct DESC`,
+      [today]
+    );
+
+    for (const row of result.rows) {
+      const abbr = PROP_TYPE_MAP[row.prop_type] || row.prop_type;
+      const key = (row.player_name + "|" + abbr).toLowerCase();
+      projMap.set(key, { ...row, statTypeAbbr: abbr });
+    }
+
+    apiLogger.info("[Projections] Loaded " + projMap.size + " ML projections for " + today +
+      " (SMASH=" + result.rows.filter((r: any) => r.confidence_tier === "SMASH").length +
+      " STRONG=" + result.rows.filter((r: any) => r.confidence_tier === "STRONG").length +
+      " LEAN=" + result.rows.filter((r: any) => r.confidence_tier === "LEAN").length + ")");
+  } catch (e: any) {
+    apiLogger.warn("[Projections] Could not load projection_outputs: " + e.message);
+  }
+  return projMap;
+}
+
 export async function generateBetsFromPrizePicks(players: Player[]) {
   const bets: Array<{
     player_id: number;
@@ -252,6 +321,10 @@ export async function generateBetsFromPrizePicks(players: Player[]) {
   try {
     // Load signal weights from database
     await loadSignalWeights(pool);
+
+    // Load today's ML projections from Python pipeline output
+    const todayProjections = await loadTodayProjections();
+
 
     // Fetch current PrizePicks projections
     const projections = await fetchPrizePicksProjections();
@@ -357,7 +430,17 @@ export async function generateBetsFromPrizePicks(players: Player[]) {
         signalDesc = getSignalDescription(signalResult) || null;
       }
 
-      bets.push({
+      // Override with ML model projections if available for today
+      const mlKey = (proj.playerName + "|" + statType).toLowerCase();
+      const mlProj = todayProjections ? todayProjections.get(mlKey) : null;
+
+      if (mlProj) {
+        recommendation = mlProj.direction === "OVER" ? "OVER" : mlProj.direction === "UNDER" ? "UNDER" : recommendation;
+        confidence = (mlProj.confidence_tier === "SMASH" || mlProj.confidence_tier === "STRONG") ? "HIGH" :
+                     mlProj.confidence_tier === "LEAN" ? "MEDIUM" : confidence;
+      }
+
+            bets.push({
         player_id: player?.player_id || 0,
         player_name: proj.playerName,
         team: proj.teamAbbr || player?.team || "",
@@ -368,15 +451,18 @@ export async function generateBetsFromPrizePicks(players: Player[]) {
         last_5_avg: last5Avg,
         recommendation,
         confidence,
-        edge_type: edgeType,
-        edge_score: edgeScore,
-        edge_description: edgeDescription,
+        edge_type: mlProj ? "ml_model" : edgeType,
+        edge_score: mlProj && mlProj.edge_pct ? parseFloat(mlProj.edge_pct) : edgeScore,
+        edge_description: mlProj ? ("ML: " + (mlProj.confidence_tier || "") + " " + (mlProj.direction || "") + " edge=" + (parseFloat(mlProj.edge_pct || 0).toFixed(1)) + "%") : edgeDescription,
         signal_score: signalScoreVal,
         signal_confidence: signalConfidence,
         active_signals: activeSignals,
         signal_description: signalDesc,
       });
     }
+
+    const mlMatchedCount = bets.filter(b => b.edge_type === "ml_model").length;
+    if (mlMatchedCount > 0) apiLogger.info("[ML Projections] Applied to " + mlMatchedCount + "/" + bets.length + " bets for today");
 
     // Sort by signal score first (backtest-backed), then edge score, then hit rate
     return bets.sort((a, b) => {
