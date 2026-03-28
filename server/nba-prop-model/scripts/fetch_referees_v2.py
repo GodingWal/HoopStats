@@ -58,16 +58,87 @@ def get_db():
 
 
 def fetch_games_for_date(target_date):
-    """Fetch today's games from NBA scoreboard API."""
+    """Fetch today's games - prioritize games that have PrizePicks lines."""
     games = []
     date_str = target_date.strftime('%Y-%m-%d')
 
-    # Try NBA CDN scoreboard first
+    # Step 1: Get games from PrizePicks lines (these are the games we care about)
+    conn = get_db()
+    pp_matchups = set()
+    if conn:
+        try:
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT DISTINCT team, opponent
+                FROM prizepicks_daily_lines
+                WHERE game_date = %s
+                  AND team IS NOT NULL AND opponent IS NOT NULL
+                  AND LENGTH(team) BETWEEN 2 AND 3
+                  AND LENGTH(opponent) BETWEEN 2 AND 3
+            """, (target_date,))
+            seen = set()
+            for row in cur.fetchall():
+                ta, tb = row[0].strip(), row[1].strip()
+                key = tuple(sorted([ta, tb]))
+                if key not in seen:
+                    seen.add(key)
+                    pp_matchups.add(key)
+                    games.append({'game_id': f'pp_{ta}_{tb}', 'home_team': tb, 'away_team': ta})
+            cur.close()
+            if games:
+                logger.info(f"Got {len(games)} PrizePicks matchups")
+        except Exception as e:
+            logger.warning(f"PrizePicks query failed: {e}")
+        finally:
+            conn.close()
+
+    # Step 2: Enrich with NBA game IDs from scoreboard
+    if games:
+        nba_games = _fetch_nba_scoreboard(date_str)
+        for ng in nba_games:
+            ht, at = ng.get('home_team', ''), ng.get('away_team', '')
+            key = tuple(sorted([ht, at]))
+            if key in pp_matchups:
+                # Replace placeholder with real game ID
+                for g in games:
+                    gkey = tuple(sorted([g['home_team'], g['away_team']]))
+                    if gkey == key:
+                        g['game_id'] = ng['game_id']
+                        g['home_team'] = ht
+                        g['away_team'] = at
+                        break
+        return games
+
+    # Step 3: Fallback to NBA scoreboard if no PrizePicks lines
+    games = _fetch_nba_scoreboard(date_str)
+    if games:
+        return games
+
+    # Step 4: Fallback to local games table
+    conn = get_db()
+    if conn:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT game_id, home_team, visitor_team FROM games
+            WHERE game_date = %s
+        """, (target_date,))
+        for row in cur.fetchall():
+            games.append({'game_id': row[0], 'home_team': row[1], 'away_team': row[2]})
+        cur.close()
+        conn.close()
+        if games:
+            logger.info(f"Got {len(games)} games from local DB")
+
+    return games
+
+
+def _fetch_nba_scoreboard(date_str):
+    """Fetch games from NBA scoreboard API."""
+    games = []
     urls = [
         "https://cdn.nba.com/static/json/liveData/scoreboard/todaysScoreboard_00.json",
         f"https://stats.nba.com/stats/scoreboardv3?GameDate={date_str}&LeagueID=00",
     ]
-
     for url in urls:
         try:
             r = requests.get(url, headers=HEADERS, timeout=15)
@@ -86,22 +157,6 @@ def fetch_games_for_date(target_date):
                     return games
         except Exception as e:
             logger.warning(f"Scoreboard URL failed: {e}")
-
-    # Fallback: check our games table
-    conn = get_db()
-    if conn:
-        cur = conn.cursor()
-        cur.execute("""
-            SELECT game_id, home_team, visitor_team FROM games
-            WHERE game_date = %s
-        """, (target_date,))
-        for row in cur.fetchall():
-            games.append({'game_id': row[0], 'home_team': row[1], 'away_team': row[2]})
-        cur.close()
-        conn.close()
-        if games:
-            logger.info(f"Got {len(games)} games from local DB")
-
     return games
 
 
