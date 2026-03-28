@@ -749,6 +749,20 @@ export async function registerRoutes(
       }
 
 
+      
+      // --- Calibration enrichment (ensure tiers are present) ---
+      try {
+        const players = await ensurePlayersLoaded();
+        const betsAsAny = bets as any[];
+        if (betsAsAny.length > 0 && !betsAsAny[0].confidence_tier) {
+          const enriched = await enrichBetsWithCalibration(betsAsAny, players);
+          bets = enriched as any;
+          apiLogger.info(`[Calibration] GET enriched ${bets.length} bets`);
+        }
+      } catch (calErr: any) {
+        apiLogger.error(`[Calibration] GET enrichment failed: ${calErr.message}`);
+      }
+
       // --- XGBoost / SHAP enrichment ---
       apiLogger.info("Starting XGBoost/SHAP enrichment for " + bets.length + " bets");
       try {
