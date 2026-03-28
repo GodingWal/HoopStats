@@ -233,6 +233,12 @@ class SignalEngine:
         # NEW: Minutes projection signal
         _try_import("src.signals.minutes_projection", "MinutesProjectionSignal", "minutes_projection")
 
+        # NEW: Win probability signal (game-level W/L model)
+        _try_import("src.signals.win_probability", "WinProbabilitySignal", "win_probability")
+
+        # NEW: Opponent recent form signal (signal #20)
+        _try_import("src.signals.opponent_recent_form", "OpponentRecentFormSignal", "opponent_recent_form")
+
         logger.info(f"Loaded {len(signals)} signals: {list(signals.keys())}")
         return signals
 
@@ -258,6 +264,8 @@ class SignalEngine:
             "blowout_risk": 0.0,       # FIX #2: disabled - 43% accuracy
             "clv_tracker": 0.0,        # FIX #2: disabled - 40% accuracy
             "minutes_projection": 0.75, # new signal - high expected value
+            "win_probability": 0.70,   # game-level win prob model
+            "opponent_recent_form": 0.65, # new signal - opponent defensive form
         }
 
         if self.db_conn is None:
