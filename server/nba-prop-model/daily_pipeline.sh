@@ -63,4 +63,9 @@ for PSIZE in 2 3 4 5 6; do
   fi
 done
 
+# Trigger the web API to refresh potential_bets from latest data
+log "Step 4: Triggering API bets refresh..."
+REFRESH_RESULT=$(curl -s -X POST http://localhost:5000/api/bets/refresh 2>&1 || echo "FAILED")
+log "Step 4: API refresh result: $REFRESH_RESULT"
+
 log "========== PIPELINE COMPLETE =========="

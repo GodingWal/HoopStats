@@ -12,6 +12,12 @@ import { parseBetScreenshot } from "../services/openai";
 import { batchXGBoostPredict, type XGBoostPrediction } from "../xgboost-service";
 import { ensurePlayersLoaded, generatePotentialBets, generateBetsFromPrizePicks, enrichBetsWithCalibration } from "./route-helpers";
 
+
+// Track when bets were last refreshed so GET can detect staleness
+let lastBetsRefreshTime = 0;
+const BETS_STALE_MS = 20 * 60 * 1000; // 20 minutes - auto-refresh if older
+const AUTO_REFRESH_INTERVAL_MS = 15 * 60 * 1000; // 15 minutes
+
 export function registerBetsRoutes(app: Express): void {
   app.post("/api/bets/refresh", async (req, res) => {
     try {
@@ -52,6 +58,7 @@ export function registerBetsRoutes(app: Express): void {
         apiLogger.info(`[Calibration] Persisted calibration data for ${updatedCount}/${generatedBets.length} bets to DB`);
       }
 
+      lastBetsRefreshTime = Date.now();
       apiLogger.info(`Refreshed ${generatedBets.length} bets from PrizePicks`);
 
       res.json({
@@ -94,15 +101,26 @@ export function registerBetsRoutes(app: Express): void {
       await loadSignalWeights(pool);
 
       let bets = await storage.getPotentialBets();
-      if (bets.length === 0) {
-        let players = await ensurePlayersLoaded();
-        let generatedBets = await generateBetsFromPrizePicks(players);
-        generatedBets = await enrichBetsWithCalibration(generatedBets, players);
-        await storage.clearPotentialBets();
-        for (const bet of generatedBets) {
-          await storage.createPotentialBet(bet);
+      const isStale = lastBetsRefreshTime === 0 || (Date.now() - lastBetsRefreshTime > BETS_STALE_MS);
+      if (bets.length === 0 || isStale) {
+        try {
+          apiLogger.info("Auto-refreshing stale bets (last refresh: " + (lastBetsRefreshTime ? new Date(lastBetsRefreshTime).toISOString() : "never") + ")");
+          let players = await ensurePlayersLoaded();
+          let generatedBets = await generateBetsFromPrizePicks(players);
+          generatedBets = await enrichBetsWithCalibration(generatedBets, players);
+          await storage.clearPotentialBets();
+          for (const bet of generatedBets) {
+            await storage.createPotentialBet(bet);
+          }
+          lastBetsRefreshTime = Date.now();
+          bets = await storage.getPotentialBets();
+        } catch (refreshErr: any) {
+          apiLogger.error("Auto-refresh failed, serving existing bets: " + refreshErr.message);
+          // If refresh fails but we have existing bets, serve those
+          if (bets.length === 0) {
+            return res.status(503).json({ error: "No bets available and refresh failed" });
+          }
         }
-        bets = await storage.getPotentialBets();
       }
 
 

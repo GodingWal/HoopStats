@@ -12,6 +12,7 @@
 import { apiCache } from "./cache";
 import { apiLogger } from "./logger";
 import { createScraper, type Scraper, type ScraperStats } from "./scraper";
+import { pool } from "./db";
 import { fetchWithPuppeteer, isPuppeteerAvailable } from "./puppeteer-scraper";
 
 const PRIZEPICKS_API_BASE = "https://api.prizepicks.com";
@@ -208,9 +209,64 @@ async function fetchViaScraperApi(targetUrl: string, headers: Record<string, str
 /**
  * Fetch NBA projections from PrizePicks
  */
+
+// DB FALLBACK: Read from prizepicks_daily_lines when live scrape fails
+const cacheKey = "prizepicks-nba-projections";
+
+async function fetchFromDatabase(): Promise<PrizePicksProjection[]> {
+    if (!pool) {
+        apiLogger.warn("[DB Fallback] No database pool available");
+        return [];
+    }
+    try {
+        const now = new Date();
+        const etOptions = { timeZone: "America/New_York" as const, year: "numeric" as const, month: "2-digit" as const, day: "2-digit" as const };
+        const today = new Intl.DateTimeFormat("en-CA", etOptions).format(now);
+        const tmrw = new Intl.DateTimeFormat("en-CA", etOptions).format(new Date(now.getTime() + 86400000));
+        
+        apiLogger.info("[DB Fallback] Fetching lines from DB for " + today + " to " + tmrw);
+        
+        const result = await pool.query(
+            `SELECT DISTINCT ON (player_name, stat_type_abbr, COALESCE(closing_line, opening_line))
+                prizepicks_player_id, player_name, team, stat_type, stat_type_abbr,
+                game_date, game_time, opponent,
+                COALESCE(closing_line, opening_line) as line_score
+            FROM prizepicks_daily_lines
+            WHERE game_date >= $1 AND game_date <= $2
+            ORDER BY player_name, stat_type_abbr, COALESCE(closing_line, opening_line), updated_at DESC`,
+            [today, tmrw]
+        );
+        
+        if (result.rows.length === 0) {
+            apiLogger.warn("[DB Fallback] No lines in DB for " + today);
+            return [];
+        }
+        
+        const projections: PrizePicksProjection[] = result.rows.map((row: any) => ({
+            id: "db-" + row.prizepicks_player_id + "-" + (row.stat_type_abbr || "") + "-" + row.line_score,
+            playerId: row.prizepicks_player_id || "0",
+            playerName: row.player_name,
+            team: row.team,
+            teamAbbr: getTeamAbbr(row.team),
+            position: "",
+            statType: row.stat_type || row.stat_type_abbr || "",
+            statTypeAbbr: row.stat_type_abbr || "",
+            line: parseFloat(row.line_score),
+            gameTime: row.game_time ? new Date(row.game_time).toISOString() : "",
+            opponent: row.opponent || "",
+        }));
+        
+        apiLogger.info("[DB Fallback] Loaded " + projections.length + " projections from database");
+        staleCacheData = { data: projections, timestamp: Date.now() };
+        return projections;
+    } catch (error: any) {
+        apiLogger.error("[DB Fallback] DB query failed: " + error.message);
+        return [];
+    }
+}
+
 export async function fetchPrizePicksProjections(): Promise<PrizePicksProjection[]> {
-    const cacheKey = "prizepicks-nba-projections";
-    const cached = apiCache.get<PrizePicksProjection[]>(cacheKey);
+        const cached = apiCache.get<PrizePicksProjection[]>(cacheKey);
     if (cached) {
         apiLogger.debug("Cache hit for PrizePicks projections");
         // Also update stale cache
