@@ -9,6 +9,7 @@ import type { Player, HitRateEntry } from "@shared/schema";
 import { adjustedHitRate } from "../utils/statistics";
 import { evaluateBetValue } from "../utils/ev-calculator";
 import { analyzeEdges } from "../edge-detection";
+import { fetchTodaysGameInjuries, type PlayerInjuryReport } from "../espn-api";
 import { loadSignalWeights, calculateSignalScore } from "../signal-scoring";
 import { calibrateBet } from "../confidence-calibration";
 import { batchXGBoostPredict, type XGBoostPrediction } from "../xgboost-service";
@@ -36,7 +37,7 @@ export function registerProjectionRoutes(app: Express): void {
 
           const injuredMinutesMap: Record<string, number> = {};
 
-          injuries.forEach(inj => {
+          injuries.forEach((inj: PlayerInjuryReport) => {
             if (inj.status === 'out') {
               // Default to 25 minutes for now until we lookup actual averages
               injuredMinutesMap[inj.playerName] = 25.0;
@@ -304,7 +305,7 @@ export function registerProjectionRoutes(app: Express): void {
   app.get("/api/rolling-accuracy", async (req, res) => {
     try {
       const days = parseInt(req.query.days as string) || 90;
-      const result = await pool.query(`
+      const result = await pool!.query(`
         WITH daily_stats AS (
           SELECT
             po.game_date::text as game_date,

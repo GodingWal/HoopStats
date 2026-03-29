@@ -4,7 +4,7 @@ import path from "path";
 import { storage } from "../storage";
 import { pool } from "../db";
 import { apiLogger } from "../logger";
-import { getPythonCommand } from "./route-helpers";
+import { getPythonCommand, ensurePlayersLoaded } from "./route-helpers";
 
 export function registerStatsRoutes(app: Express): void {
   let advancedStatsCache: { data: any; timestamp: number } | null = null;
@@ -81,7 +81,7 @@ export function registerStatsRoutes(app: Express): void {
         return res.status(404).json({ error: "Player not found" });
       }
 
-      const { computeTrackingStats } = await import("./tracking-stats");
+      const { computeTrackingStats } = await import("../tracking-stats");
       const trackingStats = computeTrackingStats(player);
       res.json(trackingStats);
     } catch (error) {

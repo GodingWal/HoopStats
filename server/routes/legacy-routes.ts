@@ -37,7 +37,7 @@ import {
   compareTeams,
   getAllTeamsInfo,
 } from "../team-stats-api";
-import { generateBetsFromPrizePicks } from "./bets-routes";
+import { generateBetsFromPrizePicks } from "./route-helpers";
 
 // Get Python command based on platform
 function getPythonCommand(): string {

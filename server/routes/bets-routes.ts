@@ -25,7 +25,7 @@ export function registerBetsRoutes(app: Express): void {
 
       let players = await ensurePlayersLoaded();
 
-      let generatedBets = await generateBetsFromPrizePicks(players);
+      let generatedBets: any[] = await generateBetsFromPrizePicks(players);
       generatedBets = await enrichBetsWithCalibration(generatedBets, players);
 
       await storage.clearPotentialBets();
@@ -106,7 +106,7 @@ export function registerBetsRoutes(app: Express): void {
         try {
           apiLogger.info("Auto-refreshing stale bets (last refresh: " + (lastBetsRefreshTime ? new Date(lastBetsRefreshTime).toISOString() : "never") + ")");
           let players = await ensurePlayersLoaded();
-          let generatedBets = await generateBetsFromPrizePicks(players);
+          let generatedBets: any[] = await generateBetsFromPrizePicks(players);
           generatedBets = await enrichBetsWithCalibration(generatedBets, players);
           await storage.clearPotentialBets();
           for (const bet of generatedBets) {

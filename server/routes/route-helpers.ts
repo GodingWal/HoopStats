@@ -552,7 +552,7 @@ export async function enrichBetsWithCalibration(
   const tiers = { SMASH: 0, STRONG: 0, LEAN: 0, AVOID: 0 };
   for (const b of enrichedBets) {
     const t = b.confidence_tier || 'AVOID';
-    if (t in tiers) tiers[t] += 1;
+    if (t in tiers) (tiers as Record<string, number>)[t] += 1;
   }
   console.log(`[Calibration] Enriched ${enrichedBets.length} bets: SMASH=${tiers['SMASH']}, STRONG=${tiers['STRONG']}, LEAN=${tiers['LEAN']}, AVOID=${tiers['AVOID']}`);
 

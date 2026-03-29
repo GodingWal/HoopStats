@@ -273,6 +273,12 @@ export const potentialBetSchema = z.object({
   xgb_prob_over: z.number().optional(),
   xgb_confidence: z.number().optional(),
   xgb_model_type: z.string().optional(),
+  confidence_tier: z.string().optional(),
+  signal_agreement: z.number().optional(),
+  calibrated_probability: z.number().optional(),
+  agreeing_signals: z.number().optional(),
+  total_signals: z.number().optional(),
+  signal_details: z.array(z.any()).optional(),
   ml_explanation: z.object({
     shap_drivers: z.array(z.object({
       feature: z.string(),

@@ -153,6 +153,8 @@ function getDefaultWeights(): Record<string, { weight: number; accuracy: number;
 export interface SignalScore {
     /** Total weighted signal score (0-1) */
     signalScore: number;
+    /** Confidence-weighted vote total (0-10 scale) */
+    weightedScore: number;
     /** Number of active signals */
     activeSignals: number;
     /** Total weight of agreeing signals */
@@ -277,6 +279,7 @@ export function calculateSignalScore(
 
     return {
         signalScore,
+        weightedScore: totalWeight * 10,
         activeSignals: activeCount,
         agreeingWeight: totalWeight,
         avgAccuracy,

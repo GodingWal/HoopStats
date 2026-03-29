@@ -134,7 +134,7 @@ export function registerParlayRoutes(app: Express): void {
   // Manually trigger settlement (useful after reboot or for testing)
   app.post("/api/settle", async (_req, res) => {
     try {
-      const { runSettlement } = await import("./services/auto-settle");
+      const { runSettlement } = await import("../services/auto-settle");
       const result = await runSettlement();
       res.json({
         success: true,
