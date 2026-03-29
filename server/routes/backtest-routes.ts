@@ -126,13 +126,22 @@ export function registerBacktestRoutes(app: Express): void {
         // Return default weights
         return res.json({
           weights: {
-            injury_alpha: { weight: 0.20, accuracy: 0, sampleSize: 0 },
-            b2b: { weight: 0.15, accuracy: 0, sampleSize: 0 },
-            pace: { weight: 0.12, accuracy: 0, sampleSize: 0 },
-            defense: { weight: 0.12, accuracy: 0, sampleSize: 0 },
-            blowout: { weight: 0.12, accuracy: 0, sampleSize: 0 },
-            home_away: { weight: 0.08, accuracy: 0, sampleSize: 0 },
-            recent_form: { weight: 0.06, accuracy: 0, sampleSize: 0 },
+            line_movement:        { weight: 0.20, accuracy: 0, sampleSize: 0 },
+            fatigue:              { weight: 0.14, accuracy: 0, sampleSize: 0 },
+            injury_alpha:         { weight: 0.13, accuracy: 0, sampleSize: 0 },
+            minutes_projection:   { weight: 0.10, accuracy: 0, sampleSize: 0 },
+            recent_form:          { weight: 0.09, accuracy: 0, sampleSize: 0 },
+            pace:                 { weight: 0.08, accuracy: 0, sampleSize: 0 },
+            defense:              { weight: 0.07, accuracy: 0, sampleSize: 0 },
+            positional_defense:   { weight: 0.06, accuracy: 0, sampleSize: 0 },
+            home_away:            { weight: 0.05, accuracy: 0, sampleSize: 0 },
+            usage_redistribution: { weight: 0.05, accuracy: 0, sampleSize: 0 },
+            win_probability:      { weight: 0.05, accuracy: 0, sampleSize: 0 },
+            opponent_recent_form: { weight: 0.04, accuracy: 0, sampleSize: 0 },
+            rest_days:            { weight: 0.04, accuracy: 0, sampleSize: 0 },
+            b2b:                  { weight: 0.03, accuracy: 0, sampleSize: 0 },
+            matchup_history:      { weight: 0.03, accuracy: 0, sampleSize: 0 },
+            defender_matchup:     { weight: 0.03, accuracy: 0, sampleSize: 0 },
           },
           isDefault: true,
           statType,
@@ -228,6 +237,95 @@ export function registerBacktestRoutes(app: Express): void {
       }
       apiLogger.error("Error fetching projections:", error);
       res.status(500).json({ error: "Failed to fetch projections" });
+    }
+  });
+
+  // -----------------------------------------------------------------------
+  // ROI by confidence tier — answers "does SMASH actually make money?"
+  // Reads settled projection_logs and groups by confidence_tier.
+  // Returns hit rate, flat-bet ROI, and gap vs. break-even for each tier.
+  // -----------------------------------------------------------------------
+  app.get("/api/backtest/tier-roi", async (req, res) => {
+    try {
+      const days = parseInt(req.query.days as string) || 30;
+      const statType = req.query.statType as string;
+
+      if (!pool) {
+        return res.json({ tiers: [], message: "Database not configured" });
+      }
+
+      // confidence_tier stored as e.g. "SMASH", "STRONG", "LEAN"
+      // projection_hit = true when predicted direction matched actual outcome
+      let query = `
+        SELECT
+          UPPER(confidence_tier) AS tier,
+          COUNT(*) AS total_bets,
+          COUNT(CASE WHEN projection_hit = true THEN 1 END) AS wins,
+          COUNT(CASE WHEN projection_hit = false THEN 1 END) AS losses,
+          ROUND(
+            COUNT(CASE WHEN projection_hit = true THEN 1 END)::numeric
+            / NULLIF(COUNT(*), 0), 4
+          ) AS hit_rate,
+          -- Flat -110 ROI: each win returns 0.909 units, each loss costs 1 unit
+          ROUND(
+            (COUNT(CASE WHEN projection_hit = true THEN 1 END)::numeric * 0.909)
+            - COUNT(CASE WHEN projection_hit = false THEN 1 END)::numeric, 2
+          ) AS flat_roi_units
+        FROM projection_logs
+        WHERE projection_hit IS NOT NULL
+          AND confidence_tier IS NOT NULL
+          AND game_date >= CURRENT_DATE - INTERVAL '1 day' * $1
+      `;
+      const params: any[] = [days];
+
+      if (statType) {
+        params.push(statType);
+        query += ` AND stat_type = $${params.length}`;
+      }
+
+      query += `
+        GROUP BY UPPER(confidence_tier)
+        ORDER BY
+          CASE UPPER(confidence_tier)
+            WHEN 'SMASH'  THEN 1
+            WHEN 'STRONG' THEN 2
+            WHEN 'LEAN'   THEN 3
+            ELSE 4
+          END
+      `;
+
+      const result = await pool.query(query, params);
+
+      const BREAK_EVEN = 0.5238; // -110 break-even hit rate
+
+      res.json({
+        statType: statType || "all",
+        days,
+        tiers: result.rows.map(row => {
+          const totalBets = parseInt(row.total_bets) || 0;
+          const wins = parseInt(row.wins) || 0;
+          const hitRate = parseFloat(row.hit_rate) || 0;
+          const flatRoi = parseFloat(row.flat_roi_units) || 0;
+          return {
+            tier: row.tier,
+            totalBets,
+            wins,
+            losses: parseInt(row.losses) || 0,
+            hitRate,
+            hitRatePct: Math.round(hitRate * 1000) / 10,
+            flatRoiUnits: flatRoi,
+            roiPct: totalBets > 0 ? Math.round((flatRoi / totalBets) * 10000) / 100 : 0,
+            breakevenGap: Math.round((hitRate - BREAK_EVEN) * 10000) / 100,
+            profitable: hitRate >= BREAK_EVEN && totalBets >= 20,
+          };
+        }),
+      });
+    } catch (error: any) {
+      if (error.code === '42P01') {
+        return res.json({ tiers: [], message: "Tables not yet created." });
+      }
+      apiLogger.error("Error fetching tier ROI:", error);
+      res.status(500).json({ error: "Failed to fetch tier ROI" });
     }
   });
 

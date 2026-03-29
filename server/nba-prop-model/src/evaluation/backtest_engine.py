@@ -88,6 +88,55 @@ class SignalAccuracy:
 
 
 @dataclass
+class TierROI:
+    """
+    Tracks ROI for bets placed at each confidence tier (SMASH/STRONG/LEAN).
+
+    Assumes standard -110 juice (payout = bet * 0.909) for ROI calculation.
+    Break-even hit rate at -110 is 52.38%.
+    """
+    tier: str
+    total_bets: int = 0
+    wins: int = 0
+    losses: int = 0
+    # Flat-bet ROI: (wins * 0.909 - losses) / total_bets
+    flat_roi: float = 0.0
+
+    @property
+    def hit_rate(self) -> float:
+        if self.total_bets == 0:
+            return 0.0
+        return self.wins / self.total_bets
+
+    @property
+    def breakeven_gap(self) -> float:
+        """Percentage points above/below the 52.38% break-even rate."""
+        return (self.hit_rate - 0.5238) * 100
+
+    def record(self, won: bool) -> None:
+        self.total_bets += 1
+        if won:
+            self.wins += 1
+            self.flat_roi += 0.909  # standard -110 payout
+        else:
+            self.losses += 1
+            self.flat_roi -= 1.0
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            'tier': self.tier,
+            'total_bets': self.total_bets,
+            'wins': self.wins,
+            'losses': self.losses,
+            'hit_rate': round(self.hit_rate, 4),
+            'flat_roi': round(self.flat_roi, 2),
+            'roi_pct': round(self.flat_roi / self.total_bets * 100, 2) if self.total_bets > 0 else 0.0,
+            'breakeven_gap': round(self.breakeven_gap, 2),
+            'profitable': self.hit_rate >= 0.5238 and self.total_bets >= 20,
+        }
+
+
+@dataclass
 class BacktestResults:
     """Results from a backtest run."""
     stat_type: str
@@ -97,6 +146,19 @@ class BacktestResults:
     total_games: int
     signal_accuracy: Dict[str, SignalAccuracy] = field(default_factory=dict)
     overall_accuracy: float = 0.0
+    tier_roi: Dict[str, TierROI] = field(default_factory=dict)
+
+    def __post_init__(self):
+        # Ensure all tiers are pre-seeded so they always appear in output
+        for tier in ("SMASH", "STRONG", "LEAN", "SKIP"):
+            if tier not in self.tier_roi:
+                self.tier_roi[tier] = TierROI(tier=tier)
+
+    def record_tier_outcome(self, tier: str, won: bool) -> None:
+        """Record a single bet outcome for ROI tracking."""
+        if tier not in self.tier_roi:
+            self.tier_roi[tier] = TierROI(tier=tier)
+        self.tier_roi[tier].record(won)
 
     def get_summary_table(self) -> str:
         """Generate formatted summary table."""
@@ -135,6 +197,28 @@ class BacktestResults:
             )
 
         lines.append("=" * 70)
+
+        # Tier ROI table
+        if any(roi.total_bets > 0 for roi in self.tier_roi.values()):
+            lines.append(f"\n{'TIER ROI (flat -110 bets)'}")
+            lines.append("=" * 70)
+            lines.append(
+                f"{'Tier':<10} {'Bets':>6} {'W':>5} {'L':>5} {'Hit%':>8} "
+                f"{'ROI$':>8} {'ROI%':>8} {'vs BE':>8}"
+            )
+            lines.append("-" * 70)
+            for tier in ("SMASH", "STRONG", "LEAN"):
+                roi = self.tier_roi.get(tier)
+                if roi and roi.total_bets > 0:
+                    be_str = f"{roi.breakeven_gap:+.1f}pp"
+                    profitable_flag = " ✅" if roi.profitable else ""
+                    lines.append(
+                        f"{tier:<10} {roi.total_bets:>6} {roi.wins:>5} {roi.losses:>5} "
+                        f"{roi.hit_rate*100:>7.1f}% {roi.flat_roi:>8.1f} "
+                        f"{(roi.flat_roi/roi.total_bets*100):>7.1f}% {be_str:>8}{profitable_flag}"
+                    )
+            lines.append("=" * 70)
+
         return "\n".join(lines)
 
     def to_dict(self) -> Dict[str, Any]:
@@ -148,7 +232,12 @@ class BacktestResults:
             'signal_accuracy': {
                 name: sa.to_dict()
                 for name, sa in self.signal_accuracy.items()
-            }
+            },
+            'tier_roi': {
+                tier: roi.to_dict()
+                for tier, roi in self.tier_roi.items()
+                if roi.total_bets > 0
+            },
         }
 
 
