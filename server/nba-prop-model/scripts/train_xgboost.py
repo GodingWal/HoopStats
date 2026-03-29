@@ -97,7 +97,7 @@ def bootstrap_training_data(conn, stat_types: List[str] = None) -> int:
     if stat_types is None:
         stat_types = TRAINABLE_STATS
 
-    feature_builder = XGBoostFeatureBuilder()
+    feature_builder = XGBoostFeatureBuilder(use_advanced=True)
     inserted = 0
 
     try:

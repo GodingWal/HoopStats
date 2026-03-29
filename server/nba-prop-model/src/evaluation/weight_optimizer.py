@@ -110,15 +110,26 @@ class WeightOptimizer:
     """
 
     # Default prior weights (should match signals/__init__.py)
+    # Default prior weights reflecting current signal set and known accuracy.
+    # Disabled signals (blowout_risk, clv_tracker, referee*) are excluded.
+    # New signals start at modest priors; Bayesian update will correct them.
     DEFAULT_PRIORS = {
-        "injury_alpha": 0.20,
-        "b2b": 0.15,
-        "pace": 0.12,
-        "defense": 0.12,
-        "blowout": 0.12,
-        "referee_impact": 0.10,
-        "home_away": 0.08,
-        "recent_form": 0.06,
+        "line_movement":         0.20,  # Best signal: 56-63% accuracy
+        "fatigue":               0.14,  # 55-62% accuracy
+        "injury_alpha":          0.13,  # Strong when it fires; usage_redistribution rolls in
+        "minutes_projection":    0.10,  # New high-value signal
+        "recent_form":           0.09,  # 53-56% accuracy
+        "pace":                  0.08,  # 54-56% on pts
+        "defense":               0.07,  # 50-52%; keep modest
+        "positional_defense":    0.06,  # Structural; moderate weight
+        "home_away":             0.05,  # 50-53%; low but real
+        "usage_redistribution":  0.05,  # Correlated with injury_alpha
+        "win_probability":       0.05,  # New game-level signal
+        "opponent_recent_form":  0.04,  # New opponent defensive form signal
+        "rest_days":             0.04,  # Moderate; partially overlaps b2b
+        "b2b":                   0.03,  # 43-57% mixed; keep low
+        "matchup_history":       0.03,  # Low sample — prior only
+        "defender_matchup":      0.03,  # Low sample — prior only
     }
 
     # Prior strength (equivalent sample size)

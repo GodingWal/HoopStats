@@ -95,7 +95,13 @@ class SignalEngine:
     TIER_ORDER = ["SMASH", "STRONG", "LEAN", "SKIP"]
 
     # Signals with accuracy worse than coin flip get weight 0
-    DISABLED_SIGNALS = {"clv_tracker", "blowout_risk"}
+    # Signals disabled until validated (accuracy at or below coin flip)
+    DISABLED_SIGNALS = {
+        "clv_tracker",      # 40% accuracy — actively harmful
+        "blowout_risk",     # 43% accuracy — actively harmful
+        "referee",          # Insufficient data — 0.50 weight contributes noise
+        "referee_impact",   # Insufficient data — 0.50 weight contributes noise
+    }
 
     def __init__(self, db_conn=None):
         self.db_conn = db_conn
@@ -140,19 +146,32 @@ class SignalEngine:
             weight = self._weights.get(name, 0.5)
             weighted_delta += result.adjustment * weight
 
-        if len(over_signals) > len(under_signals):
+        # Weighted vote totals — high-quality signals count more than weak ones.
+        # A single line_movement (w=0.85) outweighs three b2b signals (w=0.55 each)
+        # in terms of tier assignment, preventing low-quality SMASH calls.
+        over_weight = sum(self._weights.get(k, 0.5) for k in over_signals)
+        under_weight = sum(self._weights.get(k, 0.5) for k in under_signals)
+
+        if over_weight > under_weight:
             direction = "OVER"
-        elif len(under_signals) > len(over_signals):
+            aligned_weight = over_weight
+        elif under_weight > over_weight:
             direction = "UNDER"
+            aligned_weight = under_weight
         else:
             direction = None
+            aligned_weight = 0.0
 
-        aligned_count = max(len(over_signals), len(under_signals))
-        if aligned_count >= 3 and not conflict:
+        # Tier thresholds based on total aligned weight rather than raw signal count.
+        # Calibrated so that:
+        #   SMASH  ≈ 2+ high-quality signals OR 3+ moderate signals fully aligned
+        #   STRONG ≈ 1 high-quality OR 2 moderate signals aligned
+        #   LEAN   ≈ any meaningful aligned weight
+        if aligned_weight >= 1.60 and not conflict:
             tier = "SMASH"
-        elif aligned_count >= 2 and not conflict:
+        elif aligned_weight >= 0.80 and not conflict:
             tier = "STRONG"
-        elif aligned_count >= 1:
+        elif aligned_weight >= 0.40:
             tier = "LEAN"
         else:
             tier = "SKIP"

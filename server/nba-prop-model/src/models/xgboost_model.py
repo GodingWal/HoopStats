@@ -35,6 +35,7 @@ from src.features.xgboost_features import (
     XGBoostFeatureBuilder,
     XGBoostFeatureVector,
     XGBOOST_FEATURE_NAMES,
+    XGBOOST_FEATURE_NAMES_EXTENDED,
 )
 
 logger = logging.getLogger(__name__)
@@ -138,7 +139,10 @@ class XGBoostPropModel:
         self.early_stopping_rounds = early_stopping_rounds
         self.use_calibration = use_calibration and HAS_SKLEARN_CALIBRATION
         self.sample_weight_halflife_days = sample_weight_halflife_days
-        self.feature_builder = XGBoostFeatureBuilder()
+        self.feature_builder = XGBoostFeatureBuilder(use_advanced=True)
+        # Use the extended feature set — falls back gracefully if advanced
+        # pipeline isn't available (missing ADVANCED_XGBOOST_FEATURES = [])
+        self.feature_names = self.feature_builder.feature_names
         self.models: Dict[str, Any] = {}  # stat_type -> trained model
         self.calibrators: Dict[str, Any] = {}  # stat_type -> IsotonicRegression
         self.shap_explainers: Dict[str, Any] = {}  # stat_type -> shap.TreeExplainer
@@ -321,7 +325,7 @@ class XGBoostPropModel:
 
         if HAS_XGBOOST and isinstance(model, xgb.XGBClassifier):
             importances = model.feature_importances_
-            return dict(zip(XGBOOST_FEATURE_NAMES, importances))
+            return dict(zip(self.feature_names, importances))
         else:
             return model.get_feature_importance()
 
@@ -383,8 +387,8 @@ class XGBoostPropModel:
             # Build feature name -> SHAP value mapping
             # Use only the features the model was trained with
             model_m = self.models[stat_type]
-            n_exp = getattr(model_m, 'n_features_in_', len(XGBOOST_FEATURE_NAMES))
-            feature_names = list(XGBOOST_FEATURE_NAMES)[:n_exp]
+            n_exp = getattr(model_m, 'n_features_in_', len(self.feature_names))
+            feature_names = list(self.feature_names)[:n_exp]
             shap_dict = {}
             feature_values = X[0]
             drivers = []
@@ -468,8 +472,8 @@ class XGBoostPropModel:
             mean_abs = np.mean(np.abs(sv), axis=0)
             # Use only the features the model was trained with
             model_m = self.models[stat_type]
-            n_exp = getattr(model_m, 'n_features_in_', len(XGBOOST_FEATURE_NAMES))
-            feature_names = list(XGBOOST_FEATURE_NAMES)[:n_exp]
+            n_exp = getattr(model_m, 'n_features_in_', len(self.feature_names))
+            feature_names = list(self.feature_names)[:n_exp]
 
             return dict(zip(feature_names, [float(v) for v in mean_abs]))
 
@@ -584,9 +588,10 @@ class XGBoostPropModel:
                 continue
 
             # Build feature array in canonical order
+            # Build feature array in canonical order (advanced features default to 0.0 if absent)
             x = np.array([
                 float(features.get(name, 0.0))
-                for name in XGBOOST_FEATURE_NAMES
+                for name in self.feature_names
             ])
             X_list.append(x)
             y_list.append(int(target))
@@ -708,7 +713,7 @@ class XGBoostPropModel:
         val_brier = float(np.mean((val_proba - y_val) ** 2))
 
         # Feature importance
-        importances = dict(zip(XGBOOST_FEATURE_NAMES, model.feature_importances_))
+        importances = dict(zip(self.feature_names, model.feature_importances_))
         top_features = sorted(importances.items(), key=lambda x: x[1], reverse=True)[:10]
 
         # Best iteration (from early stopping)
@@ -739,7 +744,7 @@ class XGBoostPropModel:
                     sv = shap_values
 
                 mean_abs_shap = np.mean(np.abs(sv), axis=0)
-                shap_importance = dict(zip(XGBOOST_FEATURE_NAMES, [float(v) for v in mean_abs_shap]))
+                shap_importance = dict(zip(self.feature_names, [float(v) for v in mean_abs_shap]))
                 shap_top = sorted(shap_importance.items(), key=lambda x: x[1], reverse=True)[:10]
 
                 metrics["shap_importances"] = shap_importance
@@ -772,7 +777,7 @@ class XGBoostPropModel:
 
         # Convert classification to regression on log-odds
         y_train_logodds = np.where(y_train == 1, 1.0, -1.0)
-        model.fit(X_train, y_train_logodds, feature_names=list(XGBOOST_FEATURE_NAMES))
+        model.fit(X_train, y_train_logodds, feature_names=list(self.feature_names))
 
         self.models[stat_type] = model
 

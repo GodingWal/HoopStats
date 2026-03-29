@@ -113,7 +113,7 @@ export async function getXGBoostPrediction(
     hit_rate: getHitRate(player, statType, line),
     is_home: player.next_game_location === "home",
     is_b2b: isBackToBack(player),
-    days_rest: 1,
+    days_rest: getDaysRest(player),
   };
 
   return runPythonInference(modelName, context);
@@ -160,7 +160,7 @@ export async function batchXGBoostPredict(
         hit_rate: getHitRate(player, statType, line),
         is_home: player.next_game_location === "home",
         is_b2b: isBackToBack(player),
-        days_rest: 1,
+        days_rest: getDaysRest(player),
       },
     });
   }
@@ -426,5 +426,27 @@ function isBackToBack(player: Player): boolean {
     return diff <= 2;
   } catch {
     return false;
+  }
+}
+
+/**
+ * Calculate actual rest days since the player's most recent game.
+ * Returns days between last game date and today (capped at 7 to avoid outliers).
+ */
+function getDaysRest(player: Player): number {
+  const games = player.recent_games;
+  if (!games || games.length === 0) return 2; // default assumption
+
+  try {
+    const lastGameDate = new Date(games[0]?.GAME_DATE || "");
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const diff = Math.round(
+      (today.getTime() - lastGameDate.getTime()) / (1000 * 60 * 60 * 24)
+    );
+    // Clamp to [0, 7] — beyond 7 days rest is effectively the same
+    return Math.max(0, Math.min(diff, 7));
+  } catch {
+    return 2;
   }
 }
