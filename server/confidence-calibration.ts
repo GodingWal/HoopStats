@@ -136,21 +136,27 @@ function evaluateSignals(
 /**
  * Classify tier based on agreement percentage and edge.
  * Tuned for realistic distributions (not all AVOID).
+ *
+ * SMASH additionally requires at least 4 signals to have actually fired.
+ * A 2-signal SMASH is a statistical coincidence, not genuine conviction.
+ * If fewer than 4 signals fired, the best achievable tier is STRONG.
  */
 function classifyTier(
   agreementPct: number,
   edgePct: number,
   hitRate: number,
   signalScore: SignalScore,
+  agreeingSignalsCount: number,
 ): ConfidenceTier {
   const absEdge = Math.abs(edgePct);
+  const canSmash = agreeingSignalsCount >= 4;
 
-  // SMASH: Strong agreement + good edge + solid hit rate
-  if (agreementPct >= 75 && absEdge >= 8 && hitRate >= 58) {
+  // SMASH: Strong agreement + good edge + solid hit rate + minimum 4 fired signals
+  if (canSmash && agreementPct >= 75 && absEdge >= 8 && hitRate >= 58) {
     return 'SMASH';
   }
-  // Also SMASH if exceptional agreement even with moderate edge
-  if (agreementPct >= 85 && absEdge >= 5 && hitRate >= 55) {
+  // Also SMASH if exceptional agreement even with moderate edge (still requires 4 signals)
+  if (canSmash && agreementPct >= 85 && absEdge >= 5 && hitRate >= 55) {
     return 'SMASH';
   }
 
@@ -251,8 +257,8 @@ export async function calibrateBet(
   const edgePct = ((projectedValue - line) / Math.max(line, 0.1)) * 100;
   const effectiveEdge = recommendation === 'OVER' ? edgePct : -edgePct;
 
-  // Classify tier
-  const confidenceTier = classifyTier(agreementPct, effectiveEdge, hitRate, signalScore);
+  // Classify tier (requires 4+ agreeing signals for SMASH)
+  const confidenceTier = classifyTier(agreementPct, effectiveEdge, hitRate, signalScore, agreeingSignals.length);
 
   // Calibrate probability (ceiling rises with high signal agreement)
   const calibratedProbability = calibrateProbability(
