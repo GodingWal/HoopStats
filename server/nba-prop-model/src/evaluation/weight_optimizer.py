@@ -130,6 +130,8 @@ class WeightOptimizer:
         "b2b":                   0.03,  # 43-57% mixed; keep low
         "matchup_history":       0.03,  # Low sample — prior only
         "defender_matchup":      0.03,  # Low sample — prior only
+        "referee":               0.0,   # Disabled — insufficient data, adds noise
+        "referee_impact":        0.0,   # Disabled — insufficient data, adds noise
     }
 
     # Prior strength (equivalent sample size)

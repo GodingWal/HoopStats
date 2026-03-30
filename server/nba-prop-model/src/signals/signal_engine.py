@@ -139,7 +139,6 @@ class SignalEngine:
 
         over_signals = [k for k, v in fired.items() if v.direction == "OVER"]
         under_signals = [k for k, v in fired.items() if v.direction == "UNDER"]
-        conflict = len(over_signals) > 0 and len(under_signals) > 0
 
         weighted_delta = 0.0
         for name, result in fired.items():
@@ -151,6 +150,11 @@ class SignalEngine:
         # in terms of tier assignment, preventing low-quality SMASH calls.
         over_weight = sum(self._weights.get(k, 0.5) for k in over_signals)
         under_weight = sum(self._weights.get(k, 0.5) for k in under_signals)
+
+        # Only flag a conflict when BOTH sides carry meaningful aligned weight.
+        # A single weak opposing signal (e.g., b2b at 0.03) should not suppress
+        # a strong consensus on the other side (e.g., line_movement at 0.85).
+        conflict = over_weight > 0.50 and under_weight > 0.50
 
         if over_weight > under_weight:
             direction = "OVER"

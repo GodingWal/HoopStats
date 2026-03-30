@@ -252,6 +252,11 @@ class XGBoostPropModel:
             # Truncate features to match model's expected count
             n_expected = getattr(model, 'n_features_in_', X.shape[1])
             if X.shape[1] > n_expected:
+                logger.warning(
+                    f"Feature count mismatch: got {X.shape[1]} features, model expects "
+                    f"{n_expected}. Truncating — new features will be ignored until model "
+                    f"is retrained."
+                )
                 X = X[:, :n_expected]
             proba = model.predict_proba(X)[0]
             raw_prob = float(proba[1])  # Probability of class 1 (hit)
