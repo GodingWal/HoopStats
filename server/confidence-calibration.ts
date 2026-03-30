@@ -177,6 +177,18 @@ function classifyTier(
 }
 
 /**
+ * Determine the calibration ceiling based on signal agreement strength.
+ * Raises the default 0.82 cap when the model has high conviction
+ * (many signals all pointing the same direction).
+ */
+function getCalibrationCeiling(agreementPct: number, agreeingSignals: number): number {
+  const signalAgreement = agreementPct / 100;
+  if (signalAgreement >= 0.90 && agreeingSignals >= 6) return 0.90;
+  if (signalAgreement >= 0.85 && agreeingSignals >= 5) return 0.87;
+  return 0.82;
+}
+
+/**
  * Calibrate probability based on multiple factors
  */
 function calibrateProbability(
@@ -184,12 +196,14 @@ function calibrateProbability(
   edgePct: number,
   hitRate: number,
   signalScore: SignalScore,
+  agreeingSignals: number,
 ): number {
   const baseProb = Math.max(0.35, Math.min(0.80, hitRate / 100));
   const agreementBoost = Math.max(0, (agreementPct - 40) / 100) * 0.10;
   const edgeBoost = Math.min(0.08, Math.abs(edgePct) / 100 * 0.4);
   const accuracyBoost = Math.max(0, (signalScore.avgAccuracy - 0.5)) * 0.10;
-  const calibrated = Math.min(0.82, baseProb + agreementBoost + edgeBoost + accuracyBoost);
+  const ceiling = getCalibrationCeiling(agreementPct, agreeingSignals);
+  const calibrated = Math.min(ceiling, baseProb + agreementBoost + edgeBoost + accuracyBoost);
   return Number(calibrated.toFixed(4));
 }
 
@@ -240,9 +254,9 @@ export async function calibrateBet(
   // Classify tier
   const confidenceTier = classifyTier(agreementPct, effectiveEdge, hitRate, signalScore);
 
-  // Calibrate probability
+  // Calibrate probability (ceiling rises with high signal agreement)
   const calibratedProbability = calibrateProbability(
-    agreementPct, effectiveEdge, hitRate, signalScore,
+    agreementPct, effectiveEdge, hitRate, signalScore, agreeingSignals.length,
   );
 
   return {
