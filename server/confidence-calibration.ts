@@ -58,7 +58,7 @@ function evaluateSignals(
   // 2. Season Average Signal - does season avg support the direction?
   const seasonDiff = seasonAvg - line;
   const seasonAgrees = recommendation === 'OVER' ? seasonDiff > 0 : seasonDiff < 0;
-  const seasonEdgePct = Math.abs(seasonDiff / Math.max(line, 0.1)) * 100;
+  const seasonEdgePct = Math.abs(seasonDiff / Math.max(seasonAvg, 0.5)) * 100;
   signals.push({
     name: 'SEASON_AVG',
     agrees: seasonAgrees,
@@ -70,7 +70,7 @@ function evaluateSignals(
   if (last5Avg && last5Avg > 0) {
     const recentDiff = last5Avg - line;
     const recentAgrees = recommendation === 'OVER' ? recentDiff > 0 : recentDiff < 0;
-    const recentEdgePct = Math.abs(recentDiff / Math.max(line, 0.1)) * 100;
+    const recentEdgePct = Math.abs(recentDiff / Math.max(seasonAvg, 0.5)) * 100;
     signals.push({
       name: 'RECENT_FORM',
       agrees: recentAgrees,
@@ -78,11 +78,13 @@ function evaluateSignals(
       accuracy: 0.58,
     });
 
-    // 4. Trend Alignment - are season and recent both agreeing?
-    const trendAligned = (seasonAvg - line > 0) === (last5Avg - line > 0);
+    // 4. Trend Alignment - is recent form trending in the direction of the recommendation?
+    // Checks whether last5Avg is moving toward the recommendation vs season baseline,
+    // independent of SEASON_AVG to avoid double-counting.
+    const trendAligned = recommendation === 'OVER' ? last5Avg > seasonAvg : last5Avg < seasonAvg;
     signals.push({
       name: 'TREND_ALIGNMENT',
-      agrees: trendAligned && seasonAgrees,
+      agrees: trendAligned,
       weight: trendAligned ? 0.8 : 0.2,
       accuracy: 0.55,
     });
@@ -119,7 +121,7 @@ function evaluateSignals(
   const projectedValue = last5Avg && last5Avg > 0
     ? seasonAvg * 0.4 + last5Avg * 0.6
     : seasonAvg;
-  const edgePct = Math.abs((projectedValue - line) / Math.max(line, 0.1)) * 100;
+  const edgePct = Math.abs((projectedValue - line) / Math.max(seasonAvg, 0.5)) * 100;
   const directionCorrect = recommendation === 'OVER'
     ? projectedValue > line
     : projectedValue < line;
@@ -234,7 +236,7 @@ export async function calibrateBet(
   const projectedValue = last5Avg && last5Avg > 0
     ? seasonAvg * 0.4 + last5Avg * 0.6
     : seasonAvg;
-  const edgePct = ((projectedValue - line) / Math.max(line, 0.1)) * 100;
+  const edgePct = ((projectedValue - line) / Math.max(seasonAvg, 0.5)) * 100;
   const effectiveEdge = recommendation === 'OVER' ? edgePct : -edgePct;
 
   // Classify tier
