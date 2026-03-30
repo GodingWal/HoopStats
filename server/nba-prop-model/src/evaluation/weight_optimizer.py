@@ -113,13 +113,29 @@ class WeightOptimizer:
     # Default prior weights reflecting current signal set and known accuracy.
     # Disabled signals (blowout_risk, clv_tracker, referee*) are excluded.
     # New signals start at modest priors; Bayesian update will correct them.
-    DEFAULT_PRIORS = {
+    #
+    # Some signals accept a nested dict keyed by stat_type with a "default"
+    # fallback.  _get_prior() resolves the correct value for a given stat_type.
+    DEFAULT_PRIORS: Dict[str, Any] = {
         "line_movement":         0.20,  # Best signal: 56-63% accuracy
-        "fatigue":               0.14,  # 55-62% accuracy
+        # fatigue affects scoring more than playmaking/perimeter shooting
+        "fatigue": {
+            "points":   0.85,
+            "rebounds": 0.80,
+            "assists":  0.75,
+            "threes":   0.55,
+            "default":  0.70,
+        },
         "injury_alpha":          0.13,  # Strong when it fires; usage_redistribution rolls in
         "minutes_projection":    0.10,  # New high-value signal
         "recent_form":           0.09,  # 53-56% accuracy
-        "pace":                  0.08,  # 54-56% on pts
+        # pace is a stronger predictor for counting stats than for shooting
+        "pace": {
+            "points":   0.75,
+            "rebounds": 0.70,
+            "assists":  0.60,
+            "default":  0.65,
+        },
         "defense":               0.07,  # 50-52%; keep modest
         "positional_defense":    0.06,  # Structural; moderate weight
         "home_away":             0.05,  # 50-53%; low but real
@@ -127,9 +143,30 @@ class WeightOptimizer:
         "win_probability":       0.05,  # New game-level signal
         "opponent_recent_form":  0.04,  # New opponent defensive form signal
         "rest_days":             0.04,  # Moderate; partially overlaps b2b
-        "b2b":                   0.03,  # 43-57% mixed; keep low
+        # b2b fatigue hits scoring hardest, assists least, shooting worst
+        "b2b": {
+            "points":   0.60,
+            "rebounds": 0.55,
+            "assists":  0.50,
+            "threes":   0.45,
+            "default":  0.50,
+        },
         "matchup_history":       0.03,  # Low sample — prior only
         "defender_matchup":      0.03,  # Low sample — prior only
+    }
+
+    # Maps stat_type strings (as passed by calculate_weights) to the nested
+    # dict keys used in DEFAULT_PRIORS.
+    _STAT_TYPE_KEY_MAP: Dict[str, str] = {
+        "points":            "points",
+        "pts":               "points",
+        "rebounds":          "rebounds",
+        "reb":               "rebounds",
+        "assists":           "assists",
+        "ast":               "assists",
+        "3-pointers made":   "threes",
+        "fg3m":              "threes",
+        "threepointersmade": "threes",
     }
 
     # Prior strength (equivalent sample size)
@@ -150,6 +187,20 @@ class WeightOptimizer:
             db_connection: Optional database connection
         """
         self.db_connection = db_connection
+
+    def _get_prior(self, signal_name: str, stat_type: str = "") -> float:
+        """
+        Look up the prior weight for a signal, optionally stat_type-specific.
+
+        For signals whose DEFAULT_PRIORS entry is a nested dict, checks for a
+        stat_type-specific weight first, then falls back to the "default" key.
+        For signals with a flat float prior, returns it directly.
+        """
+        prior_def = self.DEFAULT_PRIORS.get(signal_name, 0.10)
+        if not isinstance(prior_def, dict):
+            return prior_def
+        stat_key = self._STAT_TYPE_KEY_MAP.get(stat_type.lower(), stat_type.lower())
+        return prior_def.get(stat_key, prior_def.get("default", 0.10))
 
     def calculate_weights(
         self,
@@ -180,7 +231,7 @@ class WeightOptimizer:
 
         # Calculate weights based on method
         if method == 'simple':
-            weights = self._simple_weights(performance_data)
+            weights = self._simple_weights(performance_data, stat_type)
         else:
             weights = self._bayesian_weights(performance_data, stat_type)
 
@@ -210,7 +261,8 @@ class WeightOptimizer:
 
     def _simple_weights(
         self,
-        performance_data: Dict[str, Dict]
+        performance_data: Dict[str, Dict],
+        stat_type: str = "",
     ) -> Dict[str, SignalWeight]:
         """
         Simple weighting: weight = (accuracy - 0.50) / sum(all edges)
@@ -243,7 +295,7 @@ class WeightOptimizer:
                 weight=weight,
                 accuracy=accuracy,
                 sample_size=sample_size,
-                prior_weight=self.DEFAULT_PRIORS.get(signal_name, 0.10),
+                prior_weight=self._get_prior(signal_name, stat_type),
             )
 
         return weights
@@ -272,8 +324,9 @@ class WeightOptimizer:
             observed_accuracy = data.get('accuracy', 0.5)
             observed_n = data.get('total_predictions', 0)
 
-            # Prior accuracy: assume prior weight reflects expected edge
-            prior_weight = self.DEFAULT_PRIORS.get(signal_name, 0.10)
+            # Prior accuracy: assume prior weight reflects expected edge.
+            # Uses stat_type-specific prior when available (nested dict in DEFAULT_PRIORS).
+            prior_weight = self._get_prior(signal_name, stat_type)
             # Convert prior weight to implied accuracy (inverse of simple method)
             prior_accuracy = 0.50 + prior_weight * 0.20  # Assuming 20% total edge spread
 
@@ -316,7 +369,7 @@ class WeightOptimizer:
             if total_edge > 0:
                 weights[signal_name].weight = posterior_edges[signal_name] / total_edge
             else:
-                weights[signal_name].weight = self.DEFAULT_PRIORS.get(signal_name, 0.10)
+                weights[signal_name].weight = self._get_prior(signal_name, stat_type)
 
         return weights
 
@@ -363,7 +416,8 @@ class WeightOptimizer:
         """Return weights based only on priors (no observed data)."""
         weights = {}
 
-        for signal_name, prior_weight in self.DEFAULT_PRIORS.items():
+        for signal_name in self.DEFAULT_PRIORS:
+            prior_weight = self._get_prior(signal_name, stat_type)
             weights[signal_name] = SignalWeight(
                 signal_name=signal_name,
                 weight=prior_weight,
