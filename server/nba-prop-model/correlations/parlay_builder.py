@@ -154,6 +154,19 @@ class CorrelatedParlayBuilder:
         props = self._fetch_eligible_props(game_date, conn)
         self._release_conn(conn)
 
+        # Deduplicate by player_id — keep the highest-confidence prop per player
+        # so that no player can appear twice in any generated combination.
+        seen_player_ids: dict = {}
+        for prop in sorted(props, key=lambda p: float(p.get("edge_pct", 0) or 0), reverse=True):
+            pid = str(prop.get("player_id", ""))
+            if pid and pid not in seen_player_ids:
+                seen_player_ids[pid] = prop
+        props = list(seen_player_ids.values())
+        logger.info(
+            f"find_optimal_parlays: {len(props)} unique-player props available "
+            f"for {game_date} (after player dedup)"
+        )
+
         if len(props) < parlay_size:
             logger.info(
                 f"find_optimal_parlays: only {len(props)} eligible props on "
