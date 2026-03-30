@@ -47,18 +47,19 @@ print("\n" + "=" * 60)
 print("SIGNAL MODULE LOADING TEST")
 print("=" * 60)
 signal_modules = [
+    ("src.signals.line_movement", "LineMovementSignal"),
+    ("src.signals.fatigue", "FatigueSignal"),
+    ("src.signals.minutes_projection", "MinutesProjectionSignal"),
+    ("src.signals.vegas_total", "VegasTotalSignal"),
+    ("src.signals.injury_alpha", "InjuryAlphaSignal"),
+    ("src.signals.usage_redistribution", "UsageRedistributionSignal"),
+    ("src.signals.win_probability", "WinProbabilitySignal"),
+    ("src.signals.usage_trend", "UsageTrendSignal"),
+    ("src.signals.pace_matchup", "PaceMatchupSignal"),
+    ("src.signals.defense_vs_position", "DefenseVsPositionSignal"),
     ("src.signals.positional_defense", "PositionalDefenseSignal"),
     ("src.signals.rest_days", "RestDaysSignal"),
-    ("src.signals.back_to_back", "BackToBackSignal"),
-    ("src.signals.pace_matchup", "PaceMatchupSignal"),
-    ("src.signals.injury_alpha", "InjuryAlphaSignal"),
-    ("src.signals.referee", "RefereeSignal"),
-    ("src.signals.fatigue", "FatigueSignal"),
-    ("src.signals.recent_form", "RecentFormSignal"),
-    ("src.signals.home_away", "HomeAwaySignal"),
-    ("src.signals.matchup_history", "MatchupHistorySignal"),
-    ("src.signals.line_movement", "LineMovementSignal"),
-    ("src.signals.blowout_risk", "BlowoutRiskSignal"),
+    ("src.signals.opponent_recent_form", "OpponentRecentFormSignal"),
 ]
 for mod_path, cls_name in signal_modules:
     try:

@@ -94,13 +94,19 @@ class SignalEngine:
 
     TIER_ORDER = ["SMASH", "STRONG", "LEAN", "SKIP"]
 
-    # Signals with accuracy worse than coin flip get weight 0
-    # Signals disabled until validated (accuracy at or below coin flip)
+    # Signals removed from the active roster entirely.
+    # Kept in DISABLED_SIGNALS so any lingering DB rows or imports
+    # are silently skipped rather than crashing.
     DISABLED_SIGNALS = {
-        "clv_tracker",      # 40% accuracy — actively harmful
-        "blowout_risk",     # 43% accuracy — actively harmful
-        "referee",          # Insufficient data — 0.50 weight contributes noise
-        "referee_impact",   # Insufficient data — 0.50 weight contributes noise
+        "clv_tracker",        # 40% accuracy — actively harmful
+        "blowout_risk",       # 43% accuracy — actively harmful
+        "referee",            # Insufficient data — coin-flip accuracy
+        "referee_impact",     # Insufficient data — duplicate of referee
+        "b2b",                # Subsumed by fatigue + rest_days (triple-counted)
+        "recent_form",        # 53-56% accuracy but weighted 0.75 — streaks revert
+        "home_away",          # 50-53% accuracy — already priced into market lines
+        "defender_matchup",   # Hardcoded lists, low sample sizes
+        "matchup_history",    # Insufficient per-matchup data for reliability
     }
 
     def __init__(self, db_conn=None):
@@ -238,40 +244,21 @@ class SignalEngine:
             except Exception as e:
                 logger.warning(f"Could not load signal {signal_key}: {e}")
 
-        # Core signals (consistent naming matching __init__.py AVAILABLE_SIGNALS)
-        _try_import("src.signals.back_to_back", "BackToBackSignal", "b2b")
-        _try_import("src.signals.home_away", "HomeAwaySignal", "home_away")
-        _try_import("src.signals.recent_form", "RecentFormSignal", "recent_form")
+        # ── Core signals (high-quality, validated) ─────────────────
+        _try_import("src.signals.line_movement", "LineMovementSignal", "line_movement")
+        _try_import("src.signals.fatigue", "FatigueSignal", "fatigue")
+        _try_import("src.signals.minutes_projection", "MinutesProjectionSignal", "minutes_projection")
+        _try_import("src.signals.injury_alpha", "InjuryAlphaSignal", "injury_alpha")
+        _try_import("src.signals.usage_redistribution", "UsageRedistributionSignal", "usage_redistribution")
+        _try_import("src.signals.win_probability", "WinProbabilitySignal", "win_probability")
+        _try_import("src.signals.vegas_total", "VegasTotalSignal", "vegas_total")
+        _try_import("src.signals.usage_trend", "UsageTrendSignal", "usage_trend")
+
+        # ── Structural matchup signals ────────────────────────────
         _try_import("src.signals.pace_matchup", "PaceMatchupSignal", "pace")
         _try_import("src.signals.defense_vs_position", "DefenseVsPositionSignal", "defense")
         _try_import("src.signals.positional_defense", "PositionalDefenseSignal", "positional_defense")
-
-        # FIX #1: usage_redistribution now correctly loads UsageRedistributionSignal
-        _try_import("src.signals.usage_redistribution", "UsageRedistributionSignal", "usage_redistribution")
-
-        # Injury alpha (separate from usage redistribution)
-        _try_import("src.signals.injury_alpha", "InjuryAlphaSignal", "injury_alpha")
-
-        # Referee signals
-        _try_import("src.signals.referee", "RefereeSignal", "referee")
-        _try_import("src.signals.referee_impact", "RefereeImpactSignal", "referee_impact")
-
-        # V2 signals
-        _try_import("src.signals.clv_tracker", "CLVTrackerSignal", "clv_tracker")
-        _try_import("src.signals.defender_matchup", "DefenderMatchupSignal", "defender_matchup")
-        _try_import("src.signals.line_movement", "LineMovementSignal", "line_movement")
-        _try_import("src.signals.matchup_history", "MatchupHistorySignal", "matchup_history")
-        _try_import("src.signals.fatigue", "FatigueSignal", "fatigue")
-        _try_import("src.signals.blowout_risk", "BlowoutRiskSignal", "blowout_risk")
         _try_import("src.signals.rest_days", "RestDaysSignal", "rest_days")
-
-        # NEW: Minutes projection signal
-        _try_import("src.signals.minutes_projection", "MinutesProjectionSignal", "minutes_projection")
-
-        # NEW: Win probability signal (game-level W/L model)
-        _try_import("src.signals.win_probability", "WinProbabilitySignal", "win_probability")
-
-        # NEW: Opponent recent form signal (signal #20)
         _try_import("src.signals.opponent_recent_form", "OpponentRecentFormSignal", "opponent_recent_form")
 
         logger.info(f"Loaded {len(signals)} signals: {list(signals.keys())}")
@@ -279,28 +266,27 @@ class SignalEngine:
 
     def _load_weights(self) -> None:
         """Pull weights from weight_registry table. Falls back to defaults."""
-        # Default weights based on signal_performance accuracy data
+        # Default weights — only validated, high-quality signals.
+        # Disabled signals get weight 0 as a safety net.
         self._weights = {
-            "line_movement": 0.85,      # 56-63% accuracy - best signal
-            "fatigue": 0.80,            # 55-62% accuracy
-            "recent_form": 0.75,        # 53-56% accuracy
-            "home_away": 0.60,          # 50-53% accuracy
-            "pace": 0.65,              # 54-56% on pts
-            "defense": 0.60,           # 50-52%
-            "positional_defense": 0.65, # structural
-            "b2b": 0.55,              # 43-57% mixed
-            "rest_days": 0.60,         # moderate
-            "injury_alpha": 0.70,      # strong when it fires
-            "usage_redistribution": 0.70,
-            "referee": 0.50,           # needs data
-            "referee_impact": 0.50,
-            "defender_matchup": 0.55,  # low sample
-            "matchup_history": 0.55,   # needs data
-            "blowout_risk": 0.0,       # FIX #2: disabled - 43% accuracy
-            "clv_tracker": 0.0,        # FIX #2: disabled - 40% accuracy
-            "minutes_projection": 0.75, # new signal - high expected value
-            "win_probability": 0.70,   # game-level win prob model
-            "opponent_recent_form": 0.65, # new signal - opponent defensive form
+            # ── Tier 1: strongest predictive signals ──────────────
+            "line_movement": 0.85,        # 56-63% accuracy — sharp money
+            "fatigue": 0.80,              # 55-62% — continuous model
+            "minutes_projection": 0.80,   # Minutes explain 60-70% of variance
+            "vegas_total": 0.75,          # Market-derived scoring environment
+
+            # ── Tier 2: strong structural signals ─────────────────
+            "injury_alpha": 0.70,         # Strong when fires (usage patterns)
+            "usage_redistribution": 0.70, # Injury-driven opportunity shift
+            "win_probability": 0.70,      # Game-level context
+            "usage_trend": 0.65,          # Structural role changes
+
+            # ── Tier 3: solid matchup signals ─────────────────────
+            "pace": 0.65,                 # 54-56% on points
+            "positional_defense": 0.65,   # Structural matchup quality
+            "opponent_recent_form": 0.65, # Opponent defensive trends
+            "defense": 0.60,              # Team-level defense vs position
+            "rest_days": 0.60,            # Opponent fatigue advantage
         }
 
         if self.db_conn is None:
