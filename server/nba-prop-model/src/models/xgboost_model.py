@@ -607,7 +607,11 @@ class XGBoostPropModel:
         self, training_data: List[Dict[str, Any]]
     ) -> Optional[np.ndarray]:
         """Compute exponential decay sample weights based on game date recency.
-        More recent games get higher weight. Half-life is configurable."""
+        More recent games get higher weight. Half-life is configurable.
+
+        Real settled outcomes (source='real') receive 3x weight over synthetic
+        bootstrap data (source='synthetic') to prioritize actual game results.
+        """
         if self.sample_weight_halflife_days <= 0:
             return None
 
@@ -631,7 +635,10 @@ class XGBoostPropModel:
                     days_ago = 90  # default to half-weight
             else:
                 days_ago = 90
-            weights.append(np.exp(-decay_rate * days_ago))
+            recency_weight = np.exp(-decay_rate * days_ago)
+            # Real outcomes are 3x more valuable than synthetic bootstrap data
+            source_weight = 3.0 if row.get("source", "real") == "real" else 1.0
+            weights.append(recency_weight * source_weight)
 
         if not weights:
             return None

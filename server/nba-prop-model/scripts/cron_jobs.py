@@ -601,6 +601,48 @@ def train_xgboost(stat_types: Optional[List[str]] = None) -> Dict[str, Any]:
     return results
 
 
+def settle_outcomes(target_date: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Settle yesterday's PrizePicks lines against actual game results.
+
+    Run at 6:00 AM ET daily — after west coast games finish and box scores
+    are posted (NBA box scores typically available by 5-6 AM ET).
+
+    Steps:
+    1. Read actual_value from prizepicks_daily_lines (filled at 2 AM by populate_actuals)
+    2. Update xgboost_training_log with real settled outcomes (source='real')
+    3. Insert new real rows for lines that had no live prediction captured
+    4. If 100+ new real rows have accumulated since last training, auto-retrain
+
+    Args:
+        target_date: Date to settle (YYYY-MM-DD). Defaults to yesterday.
+
+    Returns:
+        Dict with counts: settled, already_settled, skipped, inserted.
+    """
+    from scripts.settle_outcomes import (
+        settle_outcomes as _settle,
+        maybe_trigger_retrain,
+    )
+
+    logger.info("Running outcome settlement...")
+    counts = _settle(target_date=target_date)
+
+    total_acted = counts.get('settled', 0) + counts.get('inserted', 0)
+    logger.info(
+        f"Settlement complete: {counts.get('settled', 0)} updated, "
+        f"{counts.get('inserted', 0)} new rows, "
+        f"{counts.get('already_settled', 0)} already settled"
+    )
+
+    # Trigger retrain if enough real data has accumulated
+    if total_acted > 0:
+        triggered = maybe_trigger_retrain(threshold=100)
+        counts['retrain_triggered'] = triggered
+
+    return counts
+
+
 def update_weights(days: int = 60) -> Dict[str, Any]:
     """
     Update signal weights based on historical performance.
@@ -1114,7 +1156,7 @@ def main():
         choices=[
             'capture', 'actuals', 'validate', 'train', 'weights', 'backfill', 'all',
             'injuries', 'projections', 'bayesian', 'positional-defense', 'snapshot',
-            'correlations', 'parlays', 'refresh-stats', 'referees',
+            'correlations', 'parlays', 'refresh-stats', 'referees', 'settle',
         ],
         help='Command to run'
     )
@@ -1216,6 +1258,10 @@ def main():
         result = populate_game_referees(args.date)
         print(f"Populated referee data for {result} games")
 
+    elif args.command == 'settle':
+        result = settle_outcomes(args.date)
+        print(json.dumps(result, indent=2, default=str))
+
 
 # ---------------------------------------------------------------------------
 # APScheduler integration (used when running as a long-lived process)
@@ -1305,6 +1351,13 @@ def start_scheduler():
     # Parlay builder daily 10:30 AM (after projection engine at 10 AM)
     scheduler.add_job(run_parlay_builder, 'cron', hour=10, minute=30,
                       id='parlay_builder', replace_existing=True)
+
+    # Outcome settlement daily 6:00 AM ET
+    # Runs after populate_actuals (2 AM) and validation (3 AM) so all actual_values
+    # are in prizepicks_daily_lines before we settle into xgboost_training_log.
+    # Will auto-trigger model retrain if 100+ new real rows have accumulated.
+    scheduler.add_job(settle_outcomes, 'cron', hour=6, minute=0,
+                      id='settle_outcomes', replace_existing=True)
 
     logger.info("Starting scheduler with all jobs...")
     try:

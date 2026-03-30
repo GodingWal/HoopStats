@@ -207,7 +207,12 @@ class OutcomeLogger:
         max_date: Optional[str] = None,
         limit: int = 5000,
     ) -> list:
-        """Retrieve labeled training data (predictions with outcomes)."""
+        """Retrieve labeled training data (predictions with outcomes).
+
+        Returns rows with a 'source' field: 'real' for actual settled outcomes,
+        'synthetic' for bootstrapped data. Callers can use this to apply
+        differential sample weights during training.
+        """
         if self.db_conn is None:
             return []
 
@@ -232,7 +237,8 @@ class OutcomeLogger:
                 f"""
                 SELECT player_id, game_date, stat_type, line_value,
                        features, actual_value, hit, signal_score, edge_total,
-                       predicted_direction, confidence_tier
+                       predicted_direction, confidence_tier,
+                       COALESCE(source, 'real') AS source
                 FROM {self.TABLE_NAME}
                 WHERE {where_clause}
                 ORDER BY game_date ASC
@@ -252,6 +258,7 @@ class OutcomeLogger:
                 if isinstance(features, str):
                     features = json.loads(features)
 
+                hit_val = data["hit"]
                 results.append({
                     "player_id": data["player_id"],
                     "game_date": str(data["game_date"]),
@@ -259,10 +266,13 @@ class OutcomeLogger:
                     "line": float(data["line_value"]),
                     "features": features,
                     "actual_value": float(data["actual_value"]),
-                    "hit": data["hit"],
+                    "hit": hit_val,
+                    # "target" is the key XGBoostPropModel._build_matrices expects (int 0/1)
+                    "target": int(bool(hit_val)) if hit_val is not None else None,
                     "signal_score": float(data.get("signal_score") or 0),
                     "edge_total": float(data.get("edge_total") or 0),
                     "predicted_direction": data.get("predicted_direction", "OVER"),
+                    "source": data.get("source", "real"),
                 })
 
             return results

@@ -3,7 +3,10 @@
     "allow": [
       "Bash(dir:*)",
       "Bash(cat:*)",
-      "Bash(npm run db:push:*)"
+      "Bash(npm run db:push:*)",
+      "Bash(grep -E \"\\\\.\\(ts|py|js\\)$\")",
+      "Bash(ls /c/Temp/CourtSideEdge/.claude/worktrees/priceless-archimedes/server/routes/*.ts)",
+      "Bash(npm run:*)"
     ]
   }
 }

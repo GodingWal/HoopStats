@@ -150,14 +150,14 @@ def bootstrap_training_data(conn, stat_types: List[str] = None) -> int:
                 line = float(data['line'])
                 hit = actual > line
 
-                # Insert into training log
+                # Insert into training log (tagged as synthetic bootstrap data)
                 cursor.execute("""
                     INSERT INTO xgboost_training_log (
                         player_id, game_date, stat_type, line_value,
                         features, signal_score, edge_total,
                         predicted_direction, confidence_tier,
-                        actual_value, hit, captured_at, settled_at
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        actual_value, hit, source, captured_at, settled_at
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     ON CONFLICT (player_id, game_date, stat_type) DO NOTHING
                 """, (
                     str(data.get('player_id', data['player_name'])),
@@ -171,6 +171,7 @@ def bootstrap_training_data(conn, stat_types: List[str] = None) -> int:
                     'LEAN',
                     actual,
                     hit,
+                    'synthetic',  # bootstrap data — not a live prediction
                     datetime.utcnow(),
                     datetime.utcnow(),
                 ))
@@ -433,6 +434,8 @@ def save_training_metadata(stat_type: str, metrics: Dict[str, Any]) -> None:
 
     meta = {
         "last_train_date": datetime.utcnow().isoformat(),
+        "real_rows_at_last_train": metrics.get("n_real", 0),
+        "model_version": metrics.get("model_version", "1"),
         "metrics": {k: v for k, v in metrics.items()
                     if isinstance(v, (int, float, str, bool))},
     }
@@ -502,7 +505,7 @@ def train_models(
             results[stat_type] = {'status': 'skipped', 'reason': 'no_new_data'}
             continue
 
-        # Get training data
+        # Get training data (includes 'source' field: 'real' or 'synthetic')
         training_data = outcome_logger.get_training_data(
             stat_type=stat_type,
             limit=10000,
@@ -512,6 +515,14 @@ def train_models(
             logger.warning(f"Skipping {stat_type}: only {len(training_data)} samples (need 30+)")
             results[stat_type] = {'status': 'skipped', 'reason': 'insufficient_data', 'n_samples': len(training_data)}
             continue
+
+        # Log training data composition
+        n_real = sum(1 for r in training_data if r.get('source', 'real') == 'real')
+        n_synthetic = len(training_data) - n_real
+        logger.info(
+            f"Training on {n_real} real outcomes + {n_synthetic} synthetic rows "
+            f"(real weight=3x, synthetic weight=1x)"
+        )
 
         if len(training_data) < config.min_training_samples:
             logger.warning(
@@ -573,6 +584,11 @@ def train_models(
         metrics.update(cv_metrics)
         if tuned_params:
             metrics["tuned_params"] = tuned_params
+
+        # Attach composition info to metrics before saving metadata
+        metrics["n_real"] = n_real
+        metrics["n_synthetic"] = n_synthetic
+        metrics["model_version"] = str(int(datetime.utcnow().timestamp()))
 
         # Save model
         if model.save(stat_type):
