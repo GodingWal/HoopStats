@@ -94,15 +94,6 @@ class SignalEngine:
 
     TIER_ORDER = ["SMASH", "STRONG", "LEAN", "SKIP"]
 
-    # Signals with accuracy worse than coin flip get weight 0
-    # Signals disabled until validated (accuracy at or below coin flip)
-    DISABLED_SIGNALS = {
-        "clv_tracker",      # 40% accuracy — actively harmful
-        "blowout_risk",     # 43% accuracy — actively harmful
-        "referee",          # Insufficient data — 0.50 weight contributes noise
-        "referee_impact",   # Insufficient data — 0.50 weight contributes noise
-    }
-
     def __init__(self, db_conn=None):
         self.db_conn = db_conn
         self._signals = self._load_signals()
@@ -118,9 +109,6 @@ class SignalEngine:
         raw_results: Dict[str, Any] = {}
 
         for name, signal in self._signals.items():
-            # Skip disabled signals
-            if name in self.DISABLED_SIGNALS:
-                continue
             if not signal.applies_to(game_context.prop_type):
                 continue
             try:
@@ -252,17 +240,11 @@ class SignalEngine:
         # Injury alpha (separate from usage redistribution)
         _try_import("src.signals.injury_alpha", "InjuryAlphaSignal", "injury_alpha")
 
-        # Referee signals
-        _try_import("src.signals.referee", "RefereeSignal", "referee")
-        _try_import("src.signals.referee_impact", "RefereeImpactSignal", "referee_impact")
-
         # V2 signals
-        _try_import("src.signals.clv_tracker", "CLVTrackerSignal", "clv_tracker")
         _try_import("src.signals.defender_matchup", "DefenderMatchupSignal", "defender_matchup")
         _try_import("src.signals.line_movement", "LineMovementSignal", "line_movement")
         _try_import("src.signals.matchup_history", "MatchupHistorySignal", "matchup_history")
         _try_import("src.signals.fatigue", "FatigueSignal", "fatigue")
-        _try_import("src.signals.blowout_risk", "BlowoutRiskSignal", "blowout_risk")
         _try_import("src.signals.rest_days", "RestDaysSignal", "rest_days")
 
         # NEW: Minutes projection signal
@@ -287,17 +269,16 @@ class SignalEngine:
             "home_away": 0.60,          # 50-53% accuracy
             "pace": 0.65,              # 54-56% on pts
             "defense": 0.60,           # 50-52%
-            "positional_defense": 0.65, # structural
+            # positional_defense and defender_matchup partially overlap with defense
+            # (all three measure opponent defensive quality from different angles).
+            # Weights are reduced to avoid double-counting the same signal.
+            "positional_defense": 0.30, # Reduced from 0.65 — overlaps with defense
             "b2b": 0.55,              # 43-57% mixed
             "rest_days": 0.60,         # moderate
             "injury_alpha": 0.70,      # strong when it fires
             "usage_redistribution": 0.70,
-            "referee": 0.50,           # needs data
-            "referee_impact": 0.50,
-            "defender_matchup": 0.55,  # low sample
+            "defender_matchup": 0.25,  # Reduced from 0.55 — overlaps with positional_defense
             "matchup_history": 0.55,   # needs data
-            "blowout_risk": 0.0,       # FIX #2: disabled - 43% accuracy
-            "clv_tracker": 0.0,        # FIX #2: disabled - 40% accuracy
             "minutes_projection": 0.75, # new signal - high expected value
             "win_probability": 0.70,   # game-level win prob model
             "opponent_recent_form": 0.65, # new signal - opponent defensive form

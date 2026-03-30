@@ -316,8 +316,8 @@ export async function generateBetsFromPrizePicks(players: Player[]) {
     signal_confidence: string | null;
     active_signals: string[] | null;
     signal_description: string | null;
-    // Python signal engine tier (authoritative when present)
-    confidence_tier: string | null;
+    // Python signal engine tier — used as primary tier source in enrichBetsWithCalibration
+    ml_confidence_tier: string | null;
   }> = [];
 
   try {
@@ -460,9 +460,9 @@ export async function generateBetsFromPrizePicks(players: Player[]) {
         signal_confidence: signalConfidence,
         active_signals: activeSignals,
         signal_description: signalDesc,
-        // Python signal engine tier is authoritative; set here so enrichBetsWithCalibration
-        // can detect it and skip the TypeScript tier computation for this bet.
-        confidence_tier: mlProj ? (mlProj.confidence_tier || null) : null,
+        // Preserve the Python signal engine tier so enrichBetsWithCalibration can use it
+        // as the authoritative tier source instead of recomputing via TypeScript calibration.
+        ml_confidence_tier: mlProj ? (mlProj.confidence_tier as string | null) : null,
       });
     }
 
@@ -530,10 +530,19 @@ export async function enrichBetsWithCalibration(
         bet.last_5_avg,
       );
 
-      // Python signal engine tier is authoritative. If the bet already has a
-      // confidence_tier from the Python pipeline, use it as-is. Only fall back
-      // to the TypeScript-computed tier for bets without a Python-computed tier.
-      const finalTier = (bet.confidence_tier as string | null) || calibration.confidenceTier;
+      // Tier precedence: Python signal engine tier > TypeScript calibration fallback.
+      //
+      // The Python pipeline (signal_engine.py → projection_outputs) has full signal
+      // context (line movement, fatigue, injury_alpha, etc.) that TypeScript calibration
+      // cannot replicate.  TypeScript classifyTier() is ONLY a fallback for props that
+      // have no Python projection for today.
+      //
+      // Never overwrite the Python tier with the TypeScript-computed tier.
+      const mlTier = bet.ml_confidence_tier as string | null | undefined;
+      const VALID_ML_TIERS = ['SMASH', 'STRONG', 'LEAN'];
+      const finalTier = (mlTier && VALID_ML_TIERS.includes(mlTier))
+        ? mlTier as 'SMASH' | 'STRONG' | 'LEAN'
+        : calibration.confidenceTier;
 
       enrichedBets.push({
         ...bet,

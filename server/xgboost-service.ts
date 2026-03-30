@@ -10,6 +10,7 @@ import path from "path";
 import fs from "fs";
 import { fileURLToPath } from "url";
 import type { Player } from "@shared/schema";
+import { pool } from "./db";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -40,6 +41,126 @@ const STAT_KEY_MAP: Record<string, string> = {
   Blocks: "blk",
   Turnovers: "tov",
 };
+
+// Mapping from normalized position to team_stats defensive column
+const POSITION_DEF_COL: Record<string, string> = {
+  PG: "def_vs_pg",
+  SG: "def_vs_sg",
+  SF: "def_vs_sf",
+  PF: "def_vs_pf",
+  C:  "def_vs_c",
+};
+
+// Normalize a raw position string (e.g. "PG-SG", "Forward", "C") to one key
+function normalizePosition(pos: string | undefined): string | null {
+  if (!pos) return null;
+  const p = pos.toUpperCase();
+  if (p.startsWith("PG") || p === "G") return "PG";
+  if (p.startsWith("SG")) return "SG";
+  if (p.startsWith("PF")) return "PF";
+  if (p.startsWith("SF") || p === "F") return "SF";
+  if (p.startsWith("C")) return "C";
+  return null;
+}
+
+interface OppDefenseStats {
+  opp_defensive_rating: number | null;
+  opp_pace: number | null;
+  opp_pts_allowed_to_position: number | null;
+}
+
+/**
+ * Query team_stats for the opponent's defensive rating, pace, and
+ * position-specific points allowed.  Returns nulls on any failure so
+ * the XGBoost pipeline always stays non-blocking.
+ *
+ * These features are captured in the training context so the model can
+ * learn from them on next retrain.  The current model truncates unknown
+ * features and is unaffected until retrained.
+ */
+async function getOpponentDefenseStats(
+  oppTeam: string | undefined,
+  position: string | undefined,
+): Promise<OppDefenseStats> {
+  const empty: OppDefenseStats = {
+    opp_defensive_rating: null,
+    opp_pace: null,
+    opp_pts_allowed_to_position: null,
+  };
+  if (!oppTeam || !pool) return empty;
+
+  try {
+    const season = "2024-25";
+    const normPos = normalizePosition(position);
+    const defCol = normPos ? POSITION_DEF_COL[normPos] : null;
+
+    const selectCols = defCol
+      ? `def_rating, pace, ${defCol} AS pos_def`
+      : `def_rating, pace`;
+    const rows = await pool.query(
+      `SELECT ${selectCols} FROM team_stats WHERE team_id = $1 AND season = $2 LIMIT 1`,
+      [oppTeam, season],
+    );
+    if (rows.rows.length === 0) return empty;
+    const row = rows.rows[0];
+    return {
+      opp_defensive_rating: row.def_rating != null ? parseFloat(row.def_rating) : null,
+      opp_pace: row.pace != null ? parseFloat(row.pace) : null,
+      opp_pts_allowed_to_position: row.pos_def != null ? parseFloat(row.pos_def) : null,
+    };
+  } catch {
+    // Non-fatal — XGBoost works without this data
+    return empty;
+  }
+}
+
+/**
+ * Preload opponent defense stats for a batch of requests.
+ * Single query for all unique opponent teams avoids N+1 DB calls.
+ */
+async function preloadOpponentDefense(
+  requests: Array<{ team: string | undefined; position: string | undefined }>,
+): Promise<Map<string, OppDefenseStats>> {
+  const cache = new Map<string, OppDefenseStats>();
+  if (!pool) return cache;
+
+  const uniqueTeams = [...new Set(requests.map((r) => r.team).filter(Boolean))] as string[];
+  if (uniqueTeams.length === 0) return cache;
+
+  try {
+    const season = "2024-25";
+    const rows = await pool.query(
+      `SELECT team_id, def_rating, pace, def_vs_pg, def_vs_sg, def_vs_sf, def_vs_pf, def_vs_c
+       FROM team_stats WHERE team_id = ANY($1) AND season = $2`,
+      [uniqueTeams, season],
+    );
+    for (const row of rows.rows) {
+      cache.set(row.team_id, {
+        opp_defensive_rating: row.def_rating != null ? parseFloat(row.def_rating) : null,
+        opp_pace: row.pace != null ? parseFloat(row.pace) : null,
+        // position-specific column resolved per-request below
+        opp_pts_allowed_to_position: null,
+      });
+      // Store raw positional columns so callers can pick the right one
+      (cache.get(row.team_id) as any)._raw = row;
+    }
+  } catch {
+    // Non-fatal
+  }
+  return cache;
+}
+
+function resolvePositionalDef(cached: OppDefenseStats, position: string | undefined): OppDefenseStats {
+  const raw = (cached as any)._raw;
+  if (!raw) return cached;
+  const normPos = normalizePosition(position);
+  const defCol = normPos ? POSITION_DEF_COL[normPos] : null;
+  return {
+    opp_defensive_rating: cached.opp_defensive_rating,
+    opp_pace: cached.opp_pace,
+    opp_pts_allowed_to_position: defCol && raw[defCol] != null ? parseFloat(raw[defCol]) : null,
+  };
+}
 
 export interface ShapDriver {
   feature: string;
@@ -96,6 +217,10 @@ export async function getXGBoostPrediction(
 
   const statKey = STAT_KEY_MAP[modelName] || "pts";
 
+  // Fetch opponent defensive context so it's captured in the training log.
+  // The current model truncates unknown features; these become useful after retraining.
+  const oppDef = await getOpponentDefenseStats(player.next_opponent, player.position);
+
   // Build context for XGBoost feature builder
   const context = {
     line,
@@ -114,6 +239,11 @@ export async function getXGBoostPrediction(
     is_home: player.next_game_location === "home",
     is_b2b: isBackToBack(player),
     days_rest: getDaysRest(player),
+    // Opponent defense features — also forwarded as opp_def_rating for signal engine
+    opp_defensive_rating: oppDef.opp_defensive_rating,
+    opp_def_rating: oppDef.opp_defensive_rating,      // signal engine alias
+    opp_pace: oppDef.opp_pace,
+    opp_pts_allowed_to_position: oppDef.opp_pts_allowed_to_position,
   };
 
   return runPythonInference(modelName, context);
@@ -132,6 +262,11 @@ export async function batchXGBoostPredict(
     context: Record<string, unknown>;
   }> = [];
 
+  // Preload all opponent defense stats in one DB query
+  const oppDefCache = await preloadOpponentDefense(
+    requests.map((r) => ({ team: r.player.next_opponent, position: r.player.position })),
+  );
+
   for (const { player, statType, line } of requests) {
     const modelName = STAT_TYPE_MAP[statType];
     if (!modelName) continue;
@@ -141,6 +276,11 @@ export async function batchXGBoostPredict(
 
     const statKey = STAT_KEY_MAP[modelName] || "pts";
     const key = `${player.player_name}_${statType}_${line}`;
+
+    const cachedDef = oppDefCache.get(player.next_opponent || "");
+    const oppDef = cachedDef
+      ? resolvePositionalDef(cachedDef, player.position)
+      : { opp_defensive_rating: null, opp_pace: null, opp_pts_allowed_to_position: null };
 
     contexts.push({
       key,
@@ -161,6 +301,11 @@ export async function batchXGBoostPredict(
         is_home: player.next_game_location === "home",
         is_b2b: isBackToBack(player),
         days_rest: getDaysRest(player),
+        // Opponent defense features — captured in training log for next model retraining
+        opp_defensive_rating: oppDef.opp_defensive_rating,
+        opp_def_rating: oppDef.opp_defensive_rating,  // signal engine alias
+        opp_pace: oppDef.opp_pace,
+        opp_pts_allowed_to_position: oppDef.opp_pts_allowed_to_position,
       },
     });
   }
