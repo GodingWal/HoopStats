@@ -137,7 +137,10 @@ class WeightOptimizer:
             "default":  0.65,
         },
         "defense":               0.07,  # 50-52%; keep modest
-        "positional_defense":    0.06,  # Structural; moderate weight
+        # positional_defense and defender_matchup partially overlap with defense
+        # (all three measure opponent defensive quality from different angles).
+        # Weights are reduced proportionally to avoid double-counting the signal.
+        "positional_defense":    0.035, # Reduced from 0.06 — overlaps with defense
         "home_away":             0.05,  # 50-53%; low but real
         "usage_redistribution":  0.05,  # Correlated with injury_alpha
         "win_probability":       0.05,  # New game-level signal
@@ -152,7 +155,7 @@ class WeightOptimizer:
             "default":  0.50,
         },
         "matchup_history":       0.03,  # Low sample — prior only
-        "defender_matchup":      0.03,  # Low sample — prior only
+        "defender_matchup":      0.02,  # Reduced from 0.03 — overlaps with positional_defense
         "referee":               0.0,   # Disabled — insufficient data, adds noise
         "referee_impact":        0.0,   # Disabled — insufficient data, adds noise
     }

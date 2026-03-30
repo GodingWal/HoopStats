@@ -197,7 +197,41 @@ function getCalibrationCeiling(agreementPct: number, agreeingSignals: number): n
 }
 
 /**
- * Calibrate probability based on multiple factors
+ * Compute hit rate over the player's last N recent games for a given stat/line.
+ * Returns null when fewer than minGames are available.
+ */
+function computeRecentHitRate(
+  player: Player,
+  statType: string,
+  line: number,
+  recommendation: 'OVER' | 'UNDER',
+  maxGames = 10,
+  minGames = 5,
+): number | null {
+  const games = player.recent_games;
+  if (!games || games.length < minGames) return null;
+
+  const statKey = statType as keyof typeof games[0];
+  const slice = games.slice(0, maxGames);
+  let hits = 0;
+
+  for (const g of slice) {
+    const val = g[statKey];
+    if (typeof val !== 'number') continue;
+    if (recommendation === 'OVER') {
+      if (val > line) hits++;
+    } else {
+      if (val < line) hits++;
+    }
+  }
+
+  return (hits / slice.length) * 100;
+}
+
+/**
+ * Calibrate probability based on multiple factors.
+ * Uses a recency-weighted hit rate (60% last-10, 40% season) as the base
+ * probability so hot/cold streaks are reflected immediately.
  */
 function calibrateProbability(
   agreementPct: number,
@@ -205,8 +239,14 @@ function calibrateProbability(
   hitRate: number,
   signalScore: SignalScore,
   agreeingSignals: number,
+  last10HitRate: number | null,
 ): number {
-  const baseProb = Math.max(0.35, Math.min(0.80, hitRate / 100));
+  // Blend recent form into the base probability.
+  // Falls back to season hit rate when last10 data isn't available.
+  const blendedHitRate = last10HitRate !== null
+    ? 0.6 * last10HitRate + 0.4 * hitRate
+    : hitRate;
+  const baseProb = Math.max(0.35, Math.min(0.80, blendedHitRate / 100));
   const agreementBoost = Math.max(0, (agreementPct - 40) / 100) * 0.10;
   const edgeBoost = Math.min(0.08, Math.abs(edgePct) / 100 * 0.4);
   const accuracyBoost = Math.max(0, (signalScore.avgAccuracy - 0.5)) * 0.10;
@@ -262,9 +302,13 @@ export async function calibrateBet(
   // Classify tier (requires 4+ agreeing signals for SMASH)
   const confidenceTier = classifyTier(agreementPct, effectiveEdge, hitRate, signalScore, agreeingSignals.length);
 
+  // Recency-weighted hit rate: blends last-10-game performance with season average.
+  // Catches streaks/slumps the full-season hit rate misses.
+  const last10HitRate = computeRecentHitRate(player, statType, line, recommendation);
+
   // Calibrate probability (ceiling rises with high signal agreement)
   const calibratedProbability = calibrateProbability(
-    agreementPct, effectiveEdge, hitRate, signalScore, agreeingSignals.length,
+    agreementPct, effectiveEdge, hitRate, signalScore, agreeingSignals.length, last10HitRate,
   );
 
   return {
