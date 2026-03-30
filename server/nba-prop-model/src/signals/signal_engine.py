@@ -166,12 +166,24 @@ class SignalEngine:
             direction = None
             aligned_weight = 0.0
 
+        # Count of signals aligned in the winning direction
+        if direction == "OVER":
+            aligned_signals_count = len(over_signals)
+        elif direction == "UNDER":
+            aligned_signals_count = len(under_signals)
+        else:
+            aligned_signals_count = 0
+
         # Tier thresholds based on total aligned weight rather than raw signal count.
         # Calibrated so that:
         #   SMASH  ≈ 2+ high-quality signals OR 3+ moderate signals fully aligned
         #   STRONG ≈ 1 high-quality OR 2 moderate signals aligned
         #   LEAN   ≈ any meaningful aligned weight
-        if aligned_weight >= 1.60 and not conflict:
+        #
+        # SMASH additionally requires at least 4 signals to have actually fired.
+        # A 2-signal SMASH is a statistical coincidence, not genuine conviction.
+        # If the weight threshold is met but fewer than 4 signals fired, cap at STRONG.
+        if aligned_weight >= 1.60 and not conflict and aligned_signals_count >= 4:
             tier = "SMASH"
         elif aligned_weight >= 0.80 and not conflict:
             tier = "STRONG"

@@ -138,21 +138,27 @@ function evaluateSignals(
 /**
  * Classify tier based on agreement percentage and edge.
  * Tuned for realistic distributions (not all AVOID).
+ *
+ * SMASH additionally requires at least 4 signals to have actually fired.
+ * A 2-signal SMASH is a statistical coincidence, not genuine conviction.
+ * If fewer than 4 signals fired, the best achievable tier is STRONG.
  */
 function classifyTier(
   agreementPct: number,
   edgePct: number,
   hitRate: number,
   signalScore: SignalScore,
+  agreeingSignalsCount: number,
 ): ConfidenceTier {
   const absEdge = Math.abs(edgePct);
+  const canSmash = agreeingSignalsCount >= 4;
 
-  // SMASH: Strong agreement + good edge + solid hit rate
-  if (agreementPct >= 75 && absEdge >= 8 && hitRate >= 58) {
+  // SMASH: Strong agreement + good edge + solid hit rate + minimum 4 fired signals
+  if (canSmash && agreementPct >= 75 && absEdge >= 8 && hitRate >= 58) {
     return 'SMASH';
   }
-  // Also SMASH if exceptional agreement even with moderate edge
-  if (agreementPct >= 85 && absEdge >= 5 && hitRate >= 55) {
+  // Also SMASH if exceptional agreement even with moderate edge (still requires 4 signals)
+  if (canSmash && agreementPct >= 85 && absEdge >= 5 && hitRate >= 55) {
     return 'SMASH';
   }
 
@@ -179,6 +185,18 @@ function classifyTier(
 }
 
 /**
+ * Determine the calibration ceiling based on signal agreement strength.
+ * Raises the default 0.82 cap when the model has high conviction
+ * (many signals all pointing the same direction).
+ */
+function getCalibrationCeiling(agreementPct: number, agreeingSignals: number): number {
+  const signalAgreement = agreementPct / 100;
+  if (signalAgreement >= 0.90 && agreeingSignals >= 6) return 0.90;
+  if (signalAgreement >= 0.85 && agreeingSignals >= 5) return 0.87;
+  return 0.82;
+}
+
+/**
  * Calibrate probability based on multiple factors
  */
 function calibrateProbability(
@@ -186,12 +204,14 @@ function calibrateProbability(
   edgePct: number,
   hitRate: number,
   signalScore: SignalScore,
+  agreeingSignals: number,
 ): number {
   const baseProb = Math.max(0.35, Math.min(0.80, hitRate / 100));
   const agreementBoost = Math.max(0, (agreementPct - 40) / 100) * 0.10;
   const edgeBoost = Math.min(0.08, Math.abs(edgePct) / 100 * 0.4);
   const accuracyBoost = Math.max(0, (signalScore.avgAccuracy - 0.5)) * 0.10;
-  const calibrated = Math.min(0.82, baseProb + agreementBoost + edgeBoost + accuracyBoost);
+  const ceiling = getCalibrationCeiling(agreementPct, agreeingSignals);
+  const calibrated = Math.min(ceiling, baseProb + agreementBoost + edgeBoost + accuracyBoost);
   return Number(calibrated.toFixed(4));
 }
 
@@ -239,12 +259,12 @@ export async function calibrateBet(
   const edgePct = ((projectedValue - line) / Math.max(seasonAvg, 0.5)) * 100;
   const effectiveEdge = recommendation === 'OVER' ? edgePct : -edgePct;
 
-  // Classify tier
-  const confidenceTier = classifyTier(agreementPct, effectiveEdge, hitRate, signalScore);
+  // Classify tier (requires 4+ agreeing signals for SMASH)
+  const confidenceTier = classifyTier(agreementPct, effectiveEdge, hitRate, signalScore, agreeingSignals.length);
 
-  // Calibrate probability
+  // Calibrate probability (ceiling rises with high signal agreement)
   const calibratedProbability = calibrateProbability(
-    agreementPct, effectiveEdge, hitRate, signalScore,
+    agreementPct, effectiveEdge, hitRate, signalScore, agreeingSignals.length,
   );
 
   return {
