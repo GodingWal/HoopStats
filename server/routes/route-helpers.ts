@@ -316,6 +316,8 @@ export async function generateBetsFromPrizePicks(players: Player[]) {
     signal_confidence: string | null;
     active_signals: string[] | null;
     signal_description: string | null;
+    // Python signal engine tier (authoritative when present)
+    confidence_tier: string | null;
   }> = [];
 
   try {
@@ -458,6 +460,9 @@ export async function generateBetsFromPrizePicks(players: Player[]) {
         signal_confidence: signalConfidence,
         active_signals: activeSignals,
         signal_description: signalDesc,
+        // Python signal engine tier is authoritative; set here so enrichBetsWithCalibration
+        // can detect it and skip the TypeScript tier computation for this bet.
+        confidence_tier: mlProj ? (mlProj.confidence_tier || null) : null,
       });
     }
 
@@ -525,9 +530,14 @@ export async function enrichBetsWithCalibration(
         bet.last_5_avg,
       );
 
+      // Python signal engine tier is authoritative. If the bet already has a
+      // confidence_tier from the Python pipeline, use it as-is. Only fall back
+      // to the TypeScript-computed tier for bets without a Python-computed tier.
+      const finalTier = (bet.confidence_tier as string | null) || calibration.confidenceTier;
+
       enrichedBets.push({
         ...bet,
-        confidence_tier: calibration.confidenceTier,
+        confidence_tier: finalTier,
         signal_agreement: calibration.signalAgreement,
         calibrated_probability: calibration.calibratedProbability,
         agreeing_signals: calibration.agreeingSignals,
