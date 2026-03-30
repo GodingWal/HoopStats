@@ -436,29 +436,59 @@ class WeightOptimizer:
             method='prior_only',
         )
 
+    @staticmethod
+    def _temporal_weight(days_ago: int) -> float:
+        """
+        Return the observation weight based on how many days ago it was recorded.
+
+        Recent observations are more relevant because NBA conditions change over
+        time (trades, injuries, rule changes, team adjustments).
+
+        - Last 30 days:  2x  (high relevance)
+        - 31–90 days:    1x  (standard relevance)
+        - Older than 90: 0.5x (stale; down-weighted but not discarded)
+        """
+        if days_ago <= 30:
+            return 2.0
+        if days_ago <= 90:
+            return 1.0
+        return 0.5
+
     def _load_performance_data(
         self,
         stat_type: str,
         days: int
     ) -> Dict[str, Dict]:
-        """Load signal performance data from database."""
+        """
+        Load signal performance data from database with temporal weighting.
+
+        Fetches per-date rows so that recent observations (last 30 days) are
+        counted 2× and stale observations (>90 days) are counted 0.5× in
+        the accuracy calculation.  This prevents stale weights from persisting
+        when NBA conditions change.
+
+        Temporal weighting is applied to the accuracy computation, not by
+        filtering out old data — old data still informs the estimate, just
+        with proportionally less influence.
+        """
         if self.db_connection is None:
             return {}
 
         end_date = datetime.now() - timedelta(days=1)
         start_date = end_date - timedelta(days=days)
 
+        # Fetch per-date rows so we can apply temporal weights in Python
         query = """
             SELECT
                 signal_name,
-                SUM(predictions_made) as total_predictions,
-                SUM(correct_predictions) as correct_predictions,
-                AVG(accuracy) as avg_accuracy
+                evaluation_date,
+                COALESCE(predictions_made, 0) as predictions_made,
+                COALESCE(correct_predictions, 0) as correct_predictions
             FROM signal_performance
             WHERE stat_type = %s
               AND evaluation_date >= %s
               AND evaluation_date <= %s
-            GROUP BY signal_name
+            ORDER BY signal_name, evaluation_date
         """
 
         try:
@@ -469,20 +499,45 @@ class WeightOptimizer:
                 end_date.strftime('%Y-%m-%d'),
             ))
 
-            result = {}
+            # Accumulate weighted counts per signal
+            raw: Dict[str, Dict[str, float]] = {}
+            today = datetime.now().date()
             for row in cursor.fetchall():
                 signal_name = row[0]
-                total = row[1] or 0
-                correct = row[2] or 0
-                accuracy = correct / total if total > 0 else 0.5
+                eval_date = row[1]
+                n = int(row[2])
+                correct = int(row[3])
 
+                if n == 0:
+                    continue
+
+                if isinstance(eval_date, str):
+                    eval_date = datetime.strptime(eval_date, '%Y-%m-%d').date()
+                elif hasattr(eval_date, 'date'):
+                    eval_date = eval_date.date()
+
+                days_ago = (today - eval_date).days
+                w = self._temporal_weight(days_ago)
+
+                if signal_name not in raw:
+                    raw[signal_name] = {'weighted_n': 0.0, 'weighted_correct': 0.0}
+
+                raw[signal_name]['weighted_n'] += n * w
+                raw[signal_name]['weighted_correct'] += correct * w
+
+            cursor.close()
+
+            result = {}
+            for signal_name, agg in raw.items():
+                w_n = agg['weighted_n']
+                w_correct = agg['weighted_correct']
+                accuracy = w_correct / w_n if w_n > 0 else 0.5
                 result[signal_name] = {
-                    'total_predictions': total,
-                    'correct_predictions': correct,
+                    'total_predictions': w_n,
+                    'correct_predictions': w_correct,
                     'accuracy': accuracy,
                 }
 
-            cursor.close()
             return result
 
         except Exception as e:
