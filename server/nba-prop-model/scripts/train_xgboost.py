@@ -121,8 +121,7 @@ def bootstrap_training_data(conn, stat_types: List[str] = None) -> int:
                 p.away_averages,
                 p.position,
                 p.recent_games,
-                p.usage_rate,
-                p.ts_pct
+                p.usage_rate
             FROM prizepicks_daily_lines pdl
             LEFT JOIN players p ON LOWER(pdl.player_name) = LOWER(p.player_name)
             WHERE pdl.actual_value IS NOT NULL
