@@ -1,4 +1,6 @@
 import type { Express } from "express";
+import { spawn } from "child_process";
+import path from "path";
 import { storage } from "../storage";
 import { pool } from "../db";
 import { apiLogger } from "../logger";
@@ -10,7 +12,7 @@ import { loadSignalWeights, calculateSignalScore, getSignalDescription } from ".
 import { calibrateBet } from "../confidence-calibration";
 import { parseBetScreenshot } from "../services/openai";
 import { batchXGBoostPredict, type XGBoostPrediction } from "../xgboost-service";
-import { ensurePlayersLoaded, generatePotentialBets, generateBetsFromPrizePicks, enrichBetsWithCalibration } from "./route-helpers";
+import { ensurePlayersLoaded, generatePotentialBets, generateBetsFromPrizePicks, enrichBetsWithCalibration, getPythonCommand } from "./route-helpers";
 
 
 // Track when bets were last refreshed so GET can detect staleness
@@ -60,6 +62,40 @@ export function registerBetsRoutes(app: Express): void {
 
       lastBetsRefreshTime = Date.now();
       apiLogger.info(`Refreshed ${generatedBets.length} bets from PrizePicks`);
+
+      // Trigger parlay regeneration for all leg counts so parlays stay in sync
+      // with today's fresh PrizePicks lines. Fire-and-forget (non-blocking).
+      try {
+        const targetDate = new Intl.DateTimeFormat("en-CA", {
+          timeZone: "America/New_York",
+        }).format(new Date());
+        const pythonCmd = getPythonCommand();
+        const scriptPath = path.join(
+          process.cwd(),
+          "server",
+          "nba-prop-model",
+          "scripts",
+          "cron_jobs.py"
+        );
+        for (const size of [2, 3, 4, 5, 6]) {
+          const child = spawn(pythonCmd, [
+            scriptPath, "parlays", "--date", targetDate, "--size", String(size),
+          ], { detached: true, stdio: ["ignore", "pipe", "pipe"], env: { ...process.env } });
+          let bgStderr = "";
+          child.stderr?.on("data", (d: Buffer) => { bgStderr += d.toString(); });
+          child.on("close", (code: number) => {
+            if (code !== 0) {
+              apiLogger.error(`[Parlays] post-refresh size=${size} exited ${code}: ${bgStderr}`);
+            } else {
+              apiLogger.info(`[Parlays] post-refresh regeneration done for ${targetDate} size=${size}`);
+            }
+          });
+          child.unref();
+        }
+        apiLogger.info("[Parlays] Triggered parlay regeneration after bets refresh");
+      } catch (parlayErr: any) {
+        apiLogger.warn(`[Parlays] Could not trigger regeneration after refresh: ${parlayErr.message}`);
+      }
 
       res.json({
         success: true,

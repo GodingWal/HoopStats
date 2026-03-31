@@ -5,8 +5,7 @@
       "Bash(cat:*)",
       "Bash(npm run db:push:*)",
       "Bash(npm run:*)",
-      "Bash(find C:/Temp/CourtSideEdge/.claude/worktrees/nifty-chaum/server/nba-prop-model -type f \\\\\\(-name *.sql -o -name schema* -o -name *migration* \\\\\\))",
-      "Bash(find C:/Temp/CourtSideEdge/.claude/worktrees/nifty-chaum -type f -name *.sql)"
+      "Bash(grep -n \"saveParlay\\\\|getParlays\\\\|updateParlayResult\\\\|updateParlayPickResult\" /c/Temp/CourtSideEdge/.claude/worktrees/tender-aryabhata/server/storage* -r)"
     ]
   }
 }

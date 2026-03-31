@@ -488,13 +488,23 @@ class CorrelatedParlayBuilder:
 
     def _fetch_eligible_props(self, game_date: str, conn) -> List[Dict[str, Any]]:
         """
-        Pull eligible props from projection_outputs joined with prizepicks_daily_lines.
+        Pull eligible props for the given game_date.
+
+        Primary source: projection_outputs JOIN prizepicks_daily_lines
+        (populated by the 10 AM projection cron).
+
+        Fallback: potential_bets table (live PrizePicks lines refreshed via
+        /api/bets/refresh).  Used when projection_outputs has no rows for
+        game_date so that parlays reflect today's current lines even if the
+        projection engine hasn't run yet.
 
         Filters to confidence_tier IN ('SMASH', 'STRONG', 'LEAN').
         Computes hit_prob from edge_pct (edge_pct → probability over 50%).
         """
         if conn is None:
             return []
+
+        import math
 
         try:
             cursor = conn.cursor()
@@ -532,18 +542,73 @@ class CorrelatedParlayBuilder:
             cols = [desc[0] for desc in cursor.description]
             cursor.close()
 
+            if rows:
+                props = []
+                for row in rows:
+                    prop = dict(zip(cols, row))
+                    edge = float(prop.get("edge_pct") or 0.0)
+                    prop["hit_prob"] = max(0.01, min(0.99, 1.0 / (1.0 + math.exp(-edge / 50.0))))
+                    props.append(prop)
+                logger.info(
+                    f"_fetch_eligible_props: {len(props)} props from projection_outputs "
+                    f"for {game_date}"
+                )
+                return props
+
+            # ── Fallback: read live potential_bets (today's PrizePicks lines) ──
+            logger.info(
+                f"_fetch_eligible_props: no projection_outputs rows for {game_date}, "
+                "falling back to potential_bets"
+            )
+            cursor2 = conn.cursor()
+            cursor2.execute(
+                """
+                SELECT
+                    pb.player_id,
+                    pb.player_name,
+                    pb.stat_type,
+                    pb.season_avg       AS final_projection,
+                    pb.line,
+                    COALESCE(pb.edge_score, 0)  AS edge_pct,
+                    COALESCE(pb.confidence_tier,
+                        CASE pb.confidence
+                            WHEN 'HIGH'   THEN 'STRONG'
+                            WHEN 'MEDIUM' THEN 'LEAN'
+                            ELSE               'LEAN'
+                        END
+                    )                   AS confidence_tier,
+                    pb.recommendation   AS direction,
+                    COALESCE(pb.kelly_size, 0) AS kelly_stake,
+                    pb.team,
+                    NULL::text          AS opponent,
+                    pb.team             AS game_id
+                FROM potential_bets pb
+                WHERE COALESCE(pb.confidence_tier,
+                        CASE pb.confidence
+                            WHEN 'HIGH'   THEN 'STRONG'
+                            WHEN 'MEDIUM' THEN 'LEAN'
+                            ELSE               'LEAN'
+                        END
+                      ) = ANY(%s)
+                  AND pb.line IS NOT NULL
+                ORDER BY COALESCE(pb.edge_score, 0) DESC
+                """,
+                (list(ELIGIBLE_TIERS),),
+            )
+            rows2 = cursor2.fetchall()
+            cols2 = [desc[0] for desc in cursor2.description]
+            cursor2.close()
+
             props = []
-            for row in rows:
-                prop = dict(zip(cols, row))
-                # Derive hit_prob from edge_pct
+            for row in rows2:
+                prop = dict(zip(cols2, row))
                 edge = float(prop.get("edge_pct") or 0.0)
-                # Logistic mapping: edge_pct -> hit probability
-                # edge=0 -> 0.50, edge=10 -> 0.57, edge=25 -> 0.65
-                # edge=50 -> 0.73, edge=100 -> 0.82
-                import math
                 prop["hit_prob"] = max(0.01, min(0.99, 1.0 / (1.0 + math.exp(-edge / 50.0))))
                 props.append(prop)
 
+            logger.info(
+                f"_fetch_eligible_props: {len(props)} props from potential_bets fallback"
+            )
             return props
 
         except Exception as e:

@@ -154,7 +154,11 @@ export function registerParlayRoutes(app: Express): void {
 
   app.get("/api/correlated-parlays", async (req, res) => {
     try {
-      const date = (req.query.date as string) || new Date().toISOString().slice(0, 10);
+      // Default to today's date in ET (NBA games are on Eastern Time)
+      const etDate = new Intl.DateTimeFormat("en-CA", {
+        timeZone: "America/New_York",
+      }).format(new Date());
+      const date = (req.query.date as string) || etDate;
       const size = parseInt((req.query.size as string) || "0", 10) || null;
       const minEv = parseFloat((req.query.min_ev as string) || "0");
       const limit = Math.min(parseInt((req.query.limit as string) || "20", 10), 100);
@@ -290,7 +294,9 @@ export function registerParlayRoutes(app: Express): void {
         date?: string;
         parlay_size?: number;
       };
-      const targetDate = date || new Date().toISOString().slice(0, 10);
+      const targetDate = date || new Intl.DateTimeFormat("en-CA", {
+        timeZone: "America/New_York",
+      }).format(new Date());
       const size = parlay_size || 2;
 
       const pythonCmd = getPythonCommand();
@@ -349,6 +355,64 @@ export function registerParlayRoutes(app: Express): void {
       });
     } catch (error: any) {
       apiLogger.error("[Parlays] Error triggering generation:", error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  /**
+   * POST /api/parlays/regenerate
+   * Re-generate parlays for all leg counts (2-6) using today's current bets.
+   * Safe to call after /api/bets/refresh so parlays always reflect live lines.
+   * Body: { date?: string }
+   */
+  app.post("/api/parlays/regenerate", async (req, res) => {
+    try {
+      const { date } = req.body as { date?: string };
+      const targetDate = date || new Intl.DateTimeFormat("en-CA", {
+        timeZone: "America/New_York",
+      }).format(new Date());
+
+      const pythonCmd = getPythonCommand();
+      const scriptPath = path.join(
+        process.cwd(),
+        "server",
+        "nba-prop-model",
+        "scripts",
+        "cron_jobs.py"
+      );
+
+      // Spawn one background process per leg count (2-6)
+      const sizes = [2, 3, 4, 5, 6];
+      for (const size of sizes) {
+        const child = spawn(pythonCmd, [
+          scriptPath,
+          "parlays",
+          "--date",
+          targetDate,
+          "--size",
+          String(size),
+        ], { detached: true, stdio: ["ignore", "pipe", "pipe"], env: { ...process.env } });
+
+        let bgStderr = "";
+        child.stderr?.on("data", (d: Buffer) => { bgStderr += d.toString(); });
+        child.on("close", (code: number) => {
+          if (code !== 0) {
+            apiLogger.error(`[Parlays] regenerate size=${size} exited ${code}: ${bgStderr}`);
+          } else {
+            apiLogger.info(`[Parlays] regenerate completed for ${targetDate} size=${size}`);
+          }
+        });
+        child.unref();
+      }
+
+      res.json({
+        date: targetDate,
+        sizes,
+        generating: true,
+        message: `Parlay regeneration started for all leg counts (${sizes.join(", ")}).`,
+      });
+    } catch (error: any) {
+      apiLogger.error("[Parlays] Error triggering regeneration:", error);
       res.status(500).json({ error: error.message });
     }
   });
