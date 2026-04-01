@@ -121,8 +121,7 @@ def bootstrap_training_data(conn, stat_types: List[str] = None) -> int:
                 p.away_averages,
                 p.position,
                 p.recent_games,
-                p.usage_rate,
-                p.ts_pct
+                p.usage_rate
             FROM prizepicks_daily_lines pdl
             LEFT JOIN players p ON LOWER(pdl.player_name) = LOWER(p.player_name)
             WHERE pdl.actual_value IS NOT NULL
@@ -647,6 +646,7 @@ def main():
     parser.add_argument('--tune', action='store_true', help='Run Optuna hyperparameter tuning')
     parser.add_argument('--tune-trials', type=int, default=50, help='Number of Optuna trials (default: 50)')
     parser.add_argument('--auto', action='store_true', help='Auto-retrain only if enough new data')
+    parser.add_argument('--force', action='store_true', help='Force retrain all stat types regardless of new data count (overrides --auto)')
     parser.add_argument('--verbose', '-v', action='store_true', help='Verbose logging')
     args = parser.parse_args()
 
@@ -668,13 +668,15 @@ def main():
             logger.info(f"Bootstrap complete: {inserted} records inserted")
 
         # Train
+        # --force explicitly disables auto mode so all stat types are retrained
+        auto_mode = args.auto and not args.force
         results = train_models(
             conn,
             stat_types=stat_types,
             dry_run=args.dry_run,
             run_cv=args.cv,
             run_tune=args.tune,
-            auto_mode=args.auto,
+            auto_mode=auto_mode,
             tune_trials=args.tune_trials,
         )
 
