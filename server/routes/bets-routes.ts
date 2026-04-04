@@ -4,8 +4,6 @@ import path from "path";
 import { storage } from "../storage";
 import { pool } from "../db";
 import { apiLogger } from "../logger";
-import { BETTING_CONFIG } from "../constants";
-import type { Player } from "@shared/schema";
 import { loadSignalWeights, calculateSignalScore, getSignalDescription } from "../signal-scoring";
 import { parseBetScreenshot } from "../services/openai";
 import { batchXGBoostPredict } from "../xgboost-service";
@@ -27,34 +25,104 @@ export function registerBetsRoutes(app: Express): void {
       let generatedBets: any[] = await generateBetsFromPrizePicks(players);
       generatedBets = await enrichBetsWithCalibration(generatedBets, players);
 
+      // Fix 5: Run XGBoost at refresh-time (not on every GET request).
+      // Fix 2: XGBoost probability drives tier promotion/demotion.
+      try {
+        apiLogger.info("[XGBoost] Running batch prediction during refresh for " + generatedBets.length + " bets");
+        const xgbPlayerMap = new Map<string, any>();
+        for (const p of players) xgbPlayerMap.set(p.player_name.toLowerCase(), p);
+
+        const xgbRequests: Array<{ player: any; statType: string; line: number }> = [];
+        const xgbBetIndices: number[] = [];
+        const supportedStats = ["PTS", "REB", "AST", "FG3M", "STL", "BLK", "TOV"];
+
+        for (let i = 0; i < generatedBets.length; i++) {
+          const bet = generatedBets[i];
+          const player = xgbPlayerMap.get((bet.player_name || "").toLowerCase());
+          if (player && bet.stat_type && bet.line && supportedStats.includes(bet.stat_type)) {
+            xgbRequests.push({ player, statType: bet.stat_type, line: Number(bet.line) });
+            xgbBetIndices.push(i);
+          }
+        }
+
+        if (xgbRequests.length > 0) {
+          const xgbResults = await batchXGBoostPredict(xgbRequests);
+          let xgbHits = 0;
+          for (let j = 0; j < xgbRequests.length; j++) {
+            const req = xgbRequests[j];
+            const idx = xgbBetIndices[j];
+            const key = `${req.player.player_name}_${req.statType}_${req.line}`;
+            const pred = xgbResults.get(key);
+            if (!pred) continue;
+            xgbHits++;
+            const bet = generatedBets[idx];
+            bet.xgb_prob_over = pred.prob_over;
+            bet.xgb_confidence = pred.confidence;
+            bet.xgb_model_type = pred.model_type;
+            bet.ml_explanation = {
+              shap_drivers: (pred.shap_top_drivers || []).slice(0, 8),
+              calibration: pred.calibration_method || "none",
+              calibration_shift: pred.calibration_shift || 0,
+              raw_prob_over: pred.raw_prob_over ?? null,
+            };
+
+            // Fix 2: XGBoost confidence promotion/demotion
+            // Promotes tier when XGBoost strongly agrees with recommendation direction;
+            // demotes one level when XGBoost disagrees (prob <= 0.40 in our direction).
+            const currentTier = bet.confidence_tier as string | undefined;
+            const relevantProb: number = bet.recommendation === "OVER" ? pred.prob_over : pred.prob_under;
+            if (relevantProb >= 0.80 && (currentTier === "STRONG" || currentTier === "LEAN")) {
+              bet.confidence_tier = "SMASH";
+            } else if (relevantProb >= 0.70 && currentTier === "LEAN") {
+              bet.confidence_tier = "STRONG";
+            } else if (relevantProb <= 0.40) {
+              if (currentTier === "SMASH") bet.confidence_tier = "STRONG";
+              else if (currentTier === "STRONG") bet.confidence_tier = "LEAN";
+              else if (currentTier === "LEAN") bet.confidence_tier = "AVOID";
+            }
+          }
+          apiLogger.info(`[XGBoost] Refresh: predicted ${xgbHits}/${xgbRequests.length} bets`);
+        }
+      } catch (xgbErr: any) {
+        apiLogger.error("[XGBoost] Refresh prediction error (non-fatal):", xgbErr?.message || xgbErr);
+      }
+
       await storage.clearPotentialBets();
       for (const bet of generatedBets) {
         await storage.createPotentialBet(bet);
       }
 
-      
-      // Persist calibration data via raw SQL (bypasses Drizzle type restrictions)
+      // Persist extra fields via raw SQL (bypasses Drizzle type restrictions):
+      // calibration data + XGBoost results + ml_signals_fired
       if (pool) {
         let updatedCount = 0;
         for (const bet of generatedBets) {
-          if (bet.confidence_tier) {
-            try {
-              await pool.query(
-                `UPDATE potential_bets SET 
-                  confidence_tier = $1, signal_agreement = $2, calibrated_probability = $3,
-                  agreeing_signals = $4, total_signals = $5, signal_details = $6
-                WHERE player_name = $7 AND stat_type = $8 AND line = $9`,
-                [bet.confidence_tier, bet.signal_agreement, bet.calibrated_probability,
-                 bet.agreeing_signals, bet.total_signals, JSON.stringify(bet.signal_details || []),
-                 bet.player_name, bet.stat_type, Number(bet.line)]
-              );
-              updatedCount++;
-            } catch (e: any) {
-              // Ignore individual update failures
-            }
+          try {
+            await pool.query(
+              `UPDATE potential_bets SET
+                confidence_tier = $1, signal_agreement = $2, calibrated_probability = $3,
+                agreeing_signals = $4, total_signals = $5, signal_details = $6,
+                xgb_prob_over = $7, ml_explanation = $8, ml_signals_fired = $9
+              WHERE player_name = $10 AND stat_type = $11 AND line = $12`,
+              [
+                bet.confidence_tier ?? null,
+                bet.signal_agreement ?? null,
+                bet.calibrated_probability ?? null,
+                bet.agreeing_signals ?? null,
+                bet.total_signals ?? null,
+                JSON.stringify(bet.signal_details || []),
+                bet.xgb_prob_over ?? null,
+                bet.ml_explanation ? JSON.stringify(bet.ml_explanation) : null,
+                bet.ml_signals_fired ?? null,
+                bet.player_name, bet.stat_type, Number(bet.line),
+              ]
+            );
+            updatedCount++;
+          } catch (e: any) {
+            // Ignore individual update failures (column may not exist in older DB schemas)
           }
         }
-        apiLogger.info(`[Calibration] Persisted calibration data for ${updatedCount}/${generatedBets.length} bets to DB`);
+        apiLogger.info(`[Refresh] Persisted enriched data for ${updatedCount}/${generatedBets.length} bets to DB`);
       }
 
       lastBetsRefreshTime = Date.now();
@@ -149,16 +217,49 @@ export function registerBetsRoutes(app: Express): void {
           bets = await storage.getPotentialBets();
         } catch (refreshErr: any) {
           apiLogger.error("Auto-refresh failed, serving existing bets: " + refreshErr.message);
-          // If refresh fails but we have existing bets, serve those
           if (bets.length === 0) {
             return res.status(503).json({ error: "No bets available and refresh failed" });
           }
         }
       }
 
+      // Fix 3 + Fix 5: Augment bets with DB columns not in Drizzle schema.
+      // These include pre-computed calibration data and XGBoost results stored during refresh.
+      if (pool && bets.length > 0) {
+        try {
+          const ids = (bets as any[]).map(b => b.id).filter((id): id is number => typeof id === "number");
+          if (ids.length > 0) {
+            const augResult = await pool.query(
+              `SELECT id, confidence_tier, signal_agreement, calibrated_probability,
+                      agreeing_signals, total_signals, signal_details,
+                      xgb_prob_over, ml_explanation, ml_signals_fired
+               FROM potential_bets WHERE id = ANY($1)`,
+              [ids]
+            );
+            const augMap = new Map<number, any>(augResult.rows.map((r: any) => [r.id, r]));
+            bets = (bets as any[]).map(b => {
+              const aug = augMap.get(b.id);
+              if (!aug) return b;
+              return {
+                ...b,
+                confidence_tier: aug.confidence_tier ?? b.confidence_tier,
+                signal_agreement: aug.signal_agreement ?? b.signal_agreement,
+                calibrated_probability: aug.calibrated_probability ?? b.calibrated_probability,
+                agreeing_signals: aug.agreeing_signals ?? b.agreeing_signals,
+                total_signals: aug.total_signals ?? b.total_signals,
+                signal_details: aug.signal_details ?? b.signal_details,
+                xgb_prob_over: aug.xgb_prob_over ?? b.xgb_prob_over,
+                ml_explanation: aug.ml_explanation ?? b.ml_explanation,
+                ml_signals_fired: aug.ml_signals_fired ?? b.ml_signals_fired,
+              };
+            }) as any;
+          }
+        } catch (augErr: any) {
+          apiLogger.warn("[GET bets] DB augmentation failed: " + augErr.message);
+        }
+      }
 
-      
-      // --- Calibration enrichment (ensure tiers are present) ---
+      // --- Calibration enrichment (fallback: runs only if confidence_tier not in DB yet) ---
       try {
         const players = await ensurePlayersLoaded();
         const betsAsAny = bets as any[];
@@ -169,56 +270,6 @@ export function registerBetsRoutes(app: Express): void {
         }
       } catch (calErr: any) {
         apiLogger.error(`[Calibration] GET enrichment failed: ${calErr.message}`);
-      }
-
-      // --- XGBoost / SHAP enrichment ---
-      apiLogger.info("Starting XGBoost/SHAP enrichment for " + bets.length + " bets");
-      try {
-        const players = await ensurePlayersLoaded();
-        const playerMap = new Map<string, Player>();
-        for (const p of players) {
-          playerMap.set(p.player_name.toLowerCase(), p);
-        }
-
-        // Build batch request for XGBoost
-        const xgbRequests: Array<{ player: Player; statType: string; line: number }> = [];
-        const betIndices: number[] = [];
-        for (let i = 0; i < bets.length; i++) {
-          const bet = bets[i];
-          const player = playerMap.get((bet.player_name || "").toLowerCase());
-          if (player && bet.stat_type && bet.line) {
-            // Only request for stat types XGBoost supports
-            const supportedStats = ["PTS", "REB", "AST", "FG3M", "STL", "BLK", "TOV"];
-            if (supportedStats.includes(bet.stat_type)) {
-              xgbRequests.push({ player, statType: bet.stat_type, line: Number(bet.line) });
-              betIndices.push(i);
-            }
-          }
-        }
-
-        apiLogger.info("XGBoost enrichment: " + xgbRequests.length + " requests from " + playerMap.size + " players");
-        if (xgbRequests.length > 0) {
-          const xgbResults = await batchXGBoostPredict(xgbRequests);
-          for (let j = 0; j < xgbRequests.length; j++) {
-            const req = xgbRequests[j];
-            const idx = betIndices[j];
-            const key = `${req.player.player_name}_${req.statType}_${req.line}`;
-            const pred = xgbResults.get(key);
-            if (pred) {
-              (bets[idx] as any).xgb_prob_over = pred.prob_over;
-              (bets[idx] as any).xgb_confidence = pred.confidence;
-              (bets[idx] as any).xgb_model_type = pred.model_type;
-              (bets[idx] as any).ml_explanation = {
-                shap_drivers: (pred.shap_top_drivers || []).slice(0, 8),
-                calibration: pred.calibration_method || "none",
-                calibration_shift: pred.calibration_shift || 0,
-                raw_prob_over: pred.raw_prob_over ?? null,
-              };
-            }
-          }
-        }
-      } catch (xgbErr: any) {
-        apiLogger.error("XGBoost enrichment error (non-fatal):", xgbErr?.message || xgbErr);
       }
 
       // Enrich bets with signal scores if not already present

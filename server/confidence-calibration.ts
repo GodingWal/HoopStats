@@ -9,7 +9,7 @@
  */
 
 import type { Player } from "@shared/schema";
-import { analyzeEdges } from "./edge-detection";
+import { analyzeEdges, type EdgeAnalysis } from "./edge-detection";
 import { calculateSignalScore, loadSignalWeights, type SignalScore } from "./signal-scoring";
 import { pool } from "./db";
 
@@ -256,7 +256,9 @@ function calibrateProbability(
 }
 
 /**
- * Main calibration function
+ * Main calibration function.
+ * @param precomputedEdgeAnalysis - Fix 4: pass already-computed edges to avoid a second
+ *   analyzeEdges() call (generateBetsFromPrizePicks already ran it once).
  */
 export async function calibrateBet(
   player: Player,
@@ -266,11 +268,12 @@ export async function calibrateBet(
   hitRate: number,
   seasonAvg: number,
   last5Avg: number | null | undefined,
+  precomputedEdgeAnalysis?: EdgeAnalysis | null,
 ): Promise<CalibrationResult> {
   await loadSignalWeights(pool);
 
-  // Run edge detection
-  const edgeAnalysis = analyzeEdges(player, statType, recommendation, hitRate);
+  // Fix 4: reuse already-computed edges instead of running analyzeEdges() a second time
+  const edgeAnalysis = precomputedEdgeAnalysis ?? analyzeEdges(player, statType, recommendation, hitRate);
 
   // Calculate signal score
   const signalScore = calculateSignalScore(

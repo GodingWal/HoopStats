@@ -28,7 +28,7 @@ import { adjustedHitRate } from "../utils/statistics";
 import { evaluateBetValue } from "../utils/ev-calculator";
 import { apiLogger } from "../logger";
 import { fetchAndBuildAllPlayers } from "../nba-api";
-import { analyzeEdges } from "../edge-detection";
+import { analyzeEdges, type LineMovementData } from "../edge-detection";
 import { loadSignalWeights, calculateSignalScore, hasStrongSignalSupport, getSignalDescription } from "../signal-scoring";
 import { calibrateBet } from "../confidence-calibration";
 import { fetchPrizePicksProjections } from "../prizepicks-api";
@@ -197,6 +197,10 @@ export async function generateBetsFromPrizePicks(players: Player[]) {
     signal_description: string | null;
     // Python signal engine tier — used as primary tier source in enrichBetsWithCalibration
     ml_confidence_tier: string | null;
+    // Signals fired by the Python signal engine (for API response transparency)
+    ml_signals_fired: any | null;
+    // Pre-computed edge analysis — passed to calibrateBet() to avoid double analyzeEdges()
+    _edges_cache: ReturnType<typeof analyzeEdges> | null;
   }> = [];
 
   try {
@@ -206,6 +210,35 @@ export async function generateBetsFromPrizePicks(players: Player[]) {
     // Load today's ML projections from Python pipeline output
     const todayProjections = await loadTodayProjections();
 
+    // Fix 1: Load line movement data from prizepicks_daily_lines (opening vs closing line)
+    // This feeds the detectLineMovementEdge() function in edge-detection.ts
+    const lineMovementMap = new Map<string, LineMovementData>();
+    if (pool) {
+      try {
+        const etOpts = { timeZone: "America/New_York" as const, year: "numeric" as const, month: "2-digit" as const, day: "2-digit" as const };
+        const today = new Intl.DateTimeFormat("en-CA", etOpts).format(new Date());
+        const lmResult = await pool.query(
+          `SELECT player_name, stat_type_abbr, opening_line, closing_line
+           FROM prizepicks_daily_lines
+           WHERE game_date = $1
+             AND opening_line IS NOT NULL
+             AND closing_line IS NOT NULL
+             AND closing_line != opening_line`,
+          [today]
+        );
+        for (const row of lmResult.rows) {
+          const key = (row.player_name + "|" + row.stat_type_abbr).toLowerCase();
+          const direction: 'up' | 'down' = row.closing_line > row.opening_line ? 'up' : 'down';
+          const magnitude = Math.abs(row.closing_line - row.opening_line);
+          lineMovementMap.set(key, { direction, magnitude, isSignificant: magnitude >= 0.5 });
+        }
+        if (lineMovementMap.size > 0) {
+          apiLogger.info(`[LineMovement] Loaded ${lineMovementMap.size} line movements for ${today}`);
+        }
+      } catch (e: any) {
+        apiLogger.warn("[LineMovement] Could not load line movement data: " + e.message);
+      }
+    }
 
     // Fetch current PrizePicks projections
     const projections = await fetchPrizePicksProjections();
@@ -295,9 +328,15 @@ export async function generateBetsFromPrizePicks(players: Player[]) {
       let signalConfidence: string | null = null;
       let activeSignals: string[] | null = null;
       let signalDesc: string | null = null;
+      // Fix 4: cache the edge analysis so enrichBetsWithCalibration can reuse it
+      let edgesCache: ReturnType<typeof analyzeEdges> | null = null;
 
       if (player) {
-        const edgeAnalysis = analyzeEdges(player, statType, recommendation, hitRate);
+        // Fix 1: look up line movement for this player/stat and pass to analyzeEdges
+        const lmKey = (proj.playerName + "|" + statType).toLowerCase();
+        const lineMovement = lineMovementMap.get(lmKey);
+        const edgeAnalysis = analyzeEdges(player, statType, recommendation, hitRate, lineMovement);
+        edgesCache = edgeAnalysis;
         edgeType = edgeAnalysis.bestEdge?.type || null;
         edgeScore = edgeAnalysis.totalScore || null;
         edgeDescription = edgeAnalysis.bestEdge?.description || null;
@@ -342,6 +381,10 @@ export async function generateBetsFromPrizePicks(players: Player[]) {
         // Preserve the Python signal engine tier so enrichBetsWithCalibration can use it
         // as the authoritative tier source instead of recomputing via TypeScript calibration.
         ml_confidence_tier: mlProj ? (mlProj.confidence_tier as string | null) : null,
+        // Fix 3: Python signal engine reasoning for API response transparency
+        ml_signals_fired: mlProj ? (mlProj.signals_fired ?? null) : null,
+        // Fix 4: pre-computed edges — reused by calibrateBet() to avoid double analyzeEdges()
+        _edges_cache: edgesCache,
       });
     }
 
@@ -397,6 +440,7 @@ export async function enrichBetsWithCalibration(
     }
 
     try {
+      // Fix 4: pass pre-computed edge analysis to avoid a second analyzeEdges() call
       const calibration = await calibrateBet(
         player,
         bet.stat_type,
@@ -405,6 +449,7 @@ export async function enrichBetsWithCalibration(
         bet.hit_rate,
         bet.season_avg,
         bet.last_5_avg,
+        bet._edges_cache ?? undefined,
       );
 
       // Tier precedence: Python signal engine tier > TypeScript calibration fallback.
