@@ -1,5 +1,21 @@
 /**
- * Shared route helper functions extracted from routes.ts
+ * BET RECOMMENDATION PIPELINE
+ *
+ * Flow: PrizePicks lines → Python signal engine (daily cron, authoritative tiers)
+ *       → TypeScript edge detection + calibration (enrichment + fallback tiers)
+ *       → XGBoost predictions (probability refinement)
+ *       → stored in potential_bets → served via GET /api/bets
+ *
+ * Tier precedence:
+ *   1. Python signal engine tier (from projection_outputs) — AUTHORITATIVE
+ *   2. XGBoost confidence promotion/demotion — ADJUSTS tier up/down
+ *   3. TypeScript calibration tier — FALLBACK only when no Python projection exists
+ *
+ * Key tables:
+ *   - prizepicks_daily_lines: raw lines from PrizePicks (refreshed every 15 min)
+ *   - projection_outputs: Python signal engine results (daily cron)
+ *   - signal_weights: optimizer-tuned signal weights (read by signal_engine.py)
+ *   - potential_bets: final bet recommendations (written at refresh, read at serve)
  */
 import { spawn } from "child_process";
 import path from "path";
@@ -16,7 +32,6 @@ import { analyzeEdges } from "../edge-detection";
 import { loadSignalWeights, calculateSignalScore, hasStrongSignalSupport, getSignalDescription } from "../signal-scoring";
 import { calibrateBet } from "../confidence-calibration";
 import { fetchPrizePicksProjections } from "../prizepicks-api";
-import { batchXGBoostPredict, type XGBoostPrediction } from "../xgboost-service";
 
 export function parseHitRateEntry(entry: HitRateEntry): { rate: number; sampleSize: number } {
   if (typeof entry === "number") return { rate: entry, sampleSize: 0 };
@@ -86,140 +101,6 @@ export function probToAmericanOdds(prob: number): string {
     const odds = ((1 - prob) / prob) * 100;
     return "+" + Math.round(odds).toString();
   }
-}
-
-export function generatePotentialBets(players: Player[], xgbPredictions?: Map<string, XGBoostPrediction>) {
-  const bets: Array<{
-    player_id: number;
-    player_name: string;
-    team: string;
-    stat_type: string;
-    line: number;
-    hit_rate: number;
-    season_avg: number;
-    last_5_avg: number | null;
-    recommendation: string;
-    confidence: string;
-    edge_type: string | null;
-    edge_score: number | null;
-    edge_description: string | null;
-    xgb_prob_over: number | null;
-    xgb_confidence: number | null;
-    xgb_model_type: string | null;
-    ml_explanation: {
-      shap_drivers: Array<{ feature: string; shap_value: number; feature_value: number; direction: string }>;
-      calibration: string;
-      calibration_shift: number;
-      raw_prob_over: number | null;
-    } | null;
-  }> = [];
-
-  const statTypes = ["PTS", "REB", "AST", "PRA", "FG3M"];
-
-  for (const player of players) {
-    for (const statType of statTypes) {
-      const hitRates = player.hit_rates[statType];
-      if (!hitRates) continue;
-
-      for (const [line, entry] of Object.entries(hitRates)) {
-        const lineNum = parseFloat(line);
-        const { rate, sampleSize } = parseHitRateEntry(entry as HitRateEntry);
-        const seasonAvg = player.season_averages[statType as keyof typeof player.season_averages];
-        const last5Avg = player.last_5_averages[statType as keyof typeof player.last_5_averages];
-
-        if (typeof seasonAvg !== "number") continue;
-        if (sampleSize > 0 && sampleSize < BETTING_CONFIG.MIN_SAMPLE_SIZE) continue;
-
-        // Get XGBoost prediction if available
-        const xgbKey = `${player.player_name}_${statType}_${lineNum}`;
-        const xgbPred = xgbPredictions?.get(xgbKey) || null;
-
-        // Blend hit rate with XGBoost probability (40% XGB, 60% analytical)
-        let blendedRate = rate;
-        if (xgbPred) {
-          const xgbRate = xgbPred.predicted_hit ? xgbPred.prob_over * 100 : (1 - xgbPred.prob_over) * 100;
-          const analyticalProb = rate; // Already 0-100
-          blendedRate = 0.6 * analyticalProb + 0.4 * xgbRate;
-        }
-
-        let confidence: "HIGH" | "MEDIUM" | "LOW" = "LOW";
-        let recommendation: "OVER" | "UNDER" = "OVER";
-
-        if (blendedRate >= BETTING_CONFIG.CONFIDENCE_THRESHOLDS.HIGH_OVER) {
-          confidence = "HIGH";
-          recommendation = "OVER";
-        } else if (blendedRate >= BETTING_CONFIG.CONFIDENCE_THRESHOLDS.MEDIUM_OVER) {
-          confidence = "MEDIUM";
-          recommendation = "OVER";
-        } else if (blendedRate <= BETTING_CONFIG.CONFIDENCE_THRESHOLDS.HIGH_UNDER) {
-          confidence = "HIGH";
-          recommendation = "UNDER";
-        } else if (blendedRate <= BETTING_CONFIG.CONFIDENCE_THRESHOLDS.MEDIUM_UNDER) {
-          confidence = "MEDIUM";
-          recommendation = "UNDER";
-        }
-
-        if (confidence !== "LOW") {
-          const edgeAnalysis = analyzeEdges(player, statType, recommendation, rate);
-
-          // XGBoost agreement bonus: if XGB strongly agrees, boost edge score
-          let xgbEdgeBonus = 0;
-          if (xgbPred && xgbPred.confidence > 0.3) {
-            const xgbAgrees =
-              (recommendation === "OVER" && xgbPred.prob_over > 0.6) ||
-              (recommendation === "UNDER" && xgbPred.prob_under > 0.6);
-            if (xgbAgrees) {
-              xgbEdgeBonus = Math.round(xgbPred.confidence * 8); // Up to +8 edge score
-            }
-          }
-
-          bets.push({
-            player_id: player.player_id,
-            player_name: player.player_name,
-            team: player.team,
-            stat_type: statType,
-            line: lineNum,
-            hit_rate: rate,
-            season_avg: seasonAvg,
-            last_5_avg: typeof last5Avg === "number" ? last5Avg : null,
-            recommendation,
-            confidence,
-            edge_type: edgeAnalysis.bestEdge?.type || (xgbEdgeBonus > 0 ? "ML_MODEL" : null),
-            edge_score: (edgeAnalysis.totalScore || 0) + xgbEdgeBonus,
-            edge_description: xgbEdgeBonus > 0
-              ? `${edgeAnalysis.bestEdge?.description || ""} | XGBoost: ${Number(((xgbPred?.prob_over || 0) * 100).toFixed(0))}% over (conf: ${Number(((xgbPred?.confidence || 0) * 100).toFixed(0))}%)`.trim()
-              : edgeAnalysis.bestEdge?.description || null,
-            xgb_prob_over: xgbPred?.prob_over || null,
-            xgb_confidence: xgbPred?.confidence || null,
-            xgb_model_type: xgbPred?.model_type || null,
-            ml_explanation: xgbPred ? {
-              shap_drivers: (xgbPred.shap_top_drivers || []).slice(0, 8),
-              calibration: xgbPred.calibration_method || "none",
-              calibration_shift: xgbPred.calibration_shift || 0,
-              raw_prob_over: xgbPred.raw_prob_over ?? null,
-            } : null,
-          });
-        }
-      }
-    }
-  }
-
-  // Sort by edge score first (highest priority), then by hit rate
-  return bets.sort((a, b) => {
-    // Prioritize bets with edges
-    if (a.edge_score && !b.edge_score) return -1;
-    if (!a.edge_score && b.edge_score) return 1;
-
-    // Both have edges or both don't - sort by edge score
-    if (a.edge_score && b.edge_score) {
-      if (a.edge_score !== b.edge_score) return b.edge_score - a.edge_score;
-    }
-
-    // Same edge score or no edges - sort by confidence then hit rate
-    if (a.confidence === "HIGH" && b.confidence !== "HIGH") return -1;
-    if (b.confidence === "HIGH" && a.confidence !== "HIGH") return 1;
-    return b.hit_rate - a.hit_rate;
-  });
 }
 
 /**
@@ -493,9 +374,7 @@ export async function generateBetsFromPrizePicks(players: Player[]) {
     });
   } catch (error) {
     apiLogger.error("Error generating bets from PrizePicks:", error);
-    // Fallback to generating from all hit rates if PrizePicks fetch fails
-    apiLogger.info("Falling back to generating bets from all hit rates");
-    return generatePotentialBets(players);
+    return [];
   }
 }
 

@@ -5,14 +5,11 @@ import { storage } from "../storage";
 import { pool } from "../db";
 import { apiLogger } from "../logger";
 import { BETTING_CONFIG } from "../constants";
-import type { Player, HitRateEntry } from "@shared/schema";
-import { adjustedHitRate } from "../utils/statistics";
-import { analyzeEdges } from "../edge-detection";
+import type { Player } from "@shared/schema";
 import { loadSignalWeights, calculateSignalScore, getSignalDescription } from "../signal-scoring";
-import { calibrateBet } from "../confidence-calibration";
 import { parseBetScreenshot } from "../services/openai";
-import { batchXGBoostPredict, type XGBoostPrediction } from "../xgboost-service";
-import { ensurePlayersLoaded, generatePotentialBets, generateBetsFromPrizePicks, enrichBetsWithCalibration, getPythonCommand } from "./route-helpers";
+import { batchXGBoostPredict } from "../xgboost-service";
+import { ensurePlayersLoaded, generateBetsFromPrizePicks, enrichBetsWithCalibration, getPythonCommand } from "./route-helpers";
 
 
 // Track when bets were last refreshed so GET can detect staleness

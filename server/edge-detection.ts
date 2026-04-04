@@ -1,7 +1,6 @@
 import type { Player } from "@shared/schema";
 import { injuryWatcher } from "./injury-watcher";
 import { BETTING_CONFIG } from "./constants";
-import { computeTrackingStats } from "./tracking-stats";
 
 export interface Edge {
   type: string;
@@ -97,16 +96,6 @@ export function analyzeEdges(
   // 15. Positional defense matchup
   const posDefEdge = detectPositionalDefenseEdge(player, statType, recommendation);
   if (posDefEdge) edges.push(posDefEdge);
-
-  // TRACKING-DERIVED EDGES
-
-  // 16. Shot Quality Regression - player over/underperforming shot quality
-  const sqEdge = detectShotQualityEdge(player, statType, recommendation);
-  if (sqEdge) edges.push(sqEdge);
-
-  // 11. Defensive Scheme Mismatch - favorable/unfavorable scheme matchup
-  const schemeEdge = detectSchemeEdge(player, statType, recommendation);
-  if (schemeEdge) edges.push(schemeEdge);
 
   // Calculate total edge score
   const totalScore = edges.reduce((sum, edge) => sum + edge.score, 0);
@@ -369,86 +358,6 @@ function detectLineMovementEdge(movement: LineMovementData, recommendation: "OVE
       description: `Line moved ${movement.direction} ${movement.magnitude.toFixed(1)} pts in our favor (CLV+)`,
       tier: 2,
     };
-  }
-
-  return null;
-}
-
-/**
- * Detect shot quality regression edge.
- * If a player is shooting significantly above/below expected eFG%, they're likely to regress.
- */
-function detectShotQualityEdge(player: Player, statType: string, recommendation: "OVER" | "UNDER"): Edge | null {
-  // Only relevant for scoring stats
-  if (!["PTS", "FG3M", "PRA", "PA", "PR", "FPTS"].includes(statType)) return null;
-
-  try {
-    const tracking = computeTrackingStats(player);
-    const sq = tracking.shotQuality;
-
-    // Strong regression signal
-    if (sq.regressionMagnitude >= 0.3) {
-      if (sq.regressionSignal === "OVER" && recommendation === "OVER") {
-        return {
-          type: "SHOT_QUALITY_REGRESSION",
-          score: 6,
-          description: `qSQ regression UP: Shooting ${(sq.shotQualityDelta * 100).toFixed(1)}% below expected eFG (${(sq.expectedEfg * 100).toFixed(0)}%)`,
-          tier: 2,
-        };
-      }
-      if (sq.regressionSignal === "UNDER" && recommendation === "UNDER") {
-        return {
-          type: "SHOT_QUALITY_REGRESSION",
-          score: 6,
-          description: `qSQ regression DOWN: Shooting +${(sq.shotQualityDelta * 100).toFixed(1)}% above expected eFG (${(sq.expectedEfg * 100).toFixed(0)}%)`,
-          tier: 2,
-        };
-      }
-    }
-  } catch {
-    // Silently ignore if tracking stats can't be computed
-  }
-
-  return null;
-}
-
-/**
- * Detect defensive scheme mismatch edge.
- * Some schemes create favorable/unfavorable conditions for specific stats.
- */
-function detectSchemeEdge(player: Player, statType: string, recommendation: "OVER" | "UNDER"): Edge | null {
-  if (!player.next_opponent) return null;
-
-  try {
-    const tracking = computeTrackingStats(player);
-    const dm = tracking.defensiveMatchup;
-
-    if (dm.schemeName === "unknown") return null;
-
-    const statKey = statType.toUpperCase();
-    const multiplier = dm.schemeImpact[statKey] || dm.schemeImpact[statKey.toLowerCase()];
-
-    if (typeof multiplier !== "number") return null;
-
-    // Favorable scheme: multiplier > 1.04 for OVER, < 0.96 for UNDER
-    if (multiplier > 1.04 && recommendation === "OVER") {
-      return {
-        type: "SCHEME_MISMATCH",
-        score: 5,
-        description: `${dm.schemeName} scheme boosts ${statType} by +${((multiplier - 1) * 100).toFixed(0)}% (Aggression+: ${dm.aggressionPlus})`,
-        tier: 2,
-      };
-    }
-    if (multiplier < 0.96 && recommendation === "UNDER") {
-      return {
-        type: "SCHEME_MISMATCH",
-        score: 5,
-        description: `${dm.schemeName} scheme reduces ${statType} by ${((multiplier - 1) * 100).toFixed(0)}% (Variance+: ${dm.variancePlus})`,
-        tier: 2,
-      };
-    }
-  } catch {
-    // Silently ignore
   }
 
   return null;
