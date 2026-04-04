@@ -78,7 +78,7 @@ def fetch_historical_lines(
             pdl.team,
             pdl.opponent,
             pdl.stat_type,
-            pdl.opening_line           AS line_value,
+            COALESCE(pdl.closing_line, pdl.opening_line) AS line_value,
             pdl.actual_value,
             pdl.game_date,
             p.season_averages,
@@ -133,7 +133,7 @@ def build_context(row: Dict[str, Any]) -> Dict[str, Any]:
     context['season_averages']  = _safe_json(row.get('season_averages'))
     context['last_5_averages']  = _safe_json(row.get('last_5_averages'))
     context['last_10_averages'] = _safe_json(row.get('last_10_averages'))
-    context['home_averages']    = _safe_json(row.get('away_averages'))
+    context['home_averages']    = _safe_json(row.get('home_averages'))
     context['away_averages']    = _safe_json(row.get('away_averages'))
 
     if row.get('usage_rate') is not None:

@@ -138,10 +138,8 @@ export function generatePotentialBets(players: Player[], xgbPredictions?: Map<st
         let blendedRate = rate;
         if (xgbPred) {
           const xgbRate = xgbPred.predicted_hit ? xgbPred.prob_over * 100 : (1 - xgbPred.prob_over) * 100;
-          // For over: use prob_over; for under: use prob_under
           const analyticalProb = rate; // Already 0-100
-          const xgbProb = xgbPred.prob_over * 100;
-          blendedRate = 0.6 * analyticalProb + 0.4 * xgbProb;
+          blendedRate = 0.6 * analyticalProb + 0.4 * xgbRate;
         }
 
         let confidence: "HIGH" | "MEDIUM" | "LOW" = "LOW";

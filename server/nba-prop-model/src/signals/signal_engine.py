@@ -289,13 +289,29 @@ class SignalEngine:
             return
         try:
             cursor = self.db_conn.cursor()
-            cursor.execute("SELECT signal_type, weight FROM weight_registry")
+            cursor.execute("""
+                SELECT weights FROM signal_weights
+                WHERE valid_until IS NULL
+                ORDER BY calculated_at DESC
+                LIMIT 1
+            """)
             rows = cursor.fetchall()
             cursor.close()
+            loaded = 0
             for row in rows:
-                if row[0] and row[1] is not None:
-                    self._weights[row[0]] = float(row[1])
-            logger.debug(f"Loaded {len(rows)} weights from DB, merged with defaults")
+                try:
+                    import json as _json
+                    w_data = _json.loads(row[0]) if isinstance(row[0], str) else row[0]
+                    for signal_name, signal_data in w_data.items():
+                        if isinstance(signal_data, dict) and 'weight' in signal_data:
+                            self._weights[signal_name] = float(signal_data['weight'])
+                            loaded += 1
+                        elif isinstance(signal_data, (int, float)):
+                            self._weights[signal_name] = float(signal_data)
+                            loaded += 1
+                except Exception as parse_err:
+                    logger.warning(f"Could not parse signal_weights row: {parse_err}")
+            logger.debug(f"Loaded {loaded} weights from signal_weights, merged with defaults")
         except Exception as e:
             logger.warning(f"Could not load weights from DB: {e}")
 

@@ -85,7 +85,7 @@ function evaluateSignals(
     signals.push({
       name: 'TREND_ALIGNMENT',
       agrees: trendAligned,
-      weight: trendAligned ? 0.8 : 0.2,
+      weight: 1,  // equal weight regardless of agreement
       accuracy: 0.55,
     });
   }
