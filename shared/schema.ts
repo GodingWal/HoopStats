@@ -279,6 +279,7 @@ export const potentialBetSchema = z.object({
   agreeing_signals: z.number().optional(),
   total_signals: z.number().optional(),
   signal_details: z.array(z.any()).optional(),
+  ml_signals_fired: z.array(z.string()).optional(),
   ml_explanation: z.object({
     shap_drivers: z.array(z.object({
       feature: z.string(),

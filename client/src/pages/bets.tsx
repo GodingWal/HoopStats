@@ -23,6 +23,7 @@ import { useParlayCart } from "@/contexts/parlay-cart";
 import { ParlayCart } from "@/components/parlay-cart";
 import { ImportBetsDialog } from "@/components/bets/import-bets-dialog";
 import { ShapExplainer } from "@/components/shap-explainer";
+import { SignalBreakdown } from "@/components/signal-breakdown";
 
 interface LiveGame {
   id: string;
@@ -217,18 +218,14 @@ function BetRow({ bet }: { bet: PotentialBet }) {
               {bet.edge_description}
             </div>
           )}
-          {(bet as any).signal_agreement > 0 && (
-            <div className="flex items-center gap-2 mt-1">
-              <div className="text-[10px] text-muted-foreground">
-                {(bet as any).agreeing_signals}/{(bet as any).total_signals} signals agree
-              </div>
-              {(bet as any).calibrated_probability && (
-                <div className="text-[10px] font-mono text-muted-foreground">
-                  {Number((bet as any).calibrated_probability * 100).toFixed(0)}% cal. prob
-                </div>
-              )}
-            </div>
-          )}
+          <SignalBreakdown
+            agreingSignals={(bet as any).agreeing_signals}
+            totalSignals={(bet as any).total_signals}
+            signalDetails={(bet as any).signal_details}
+            calibratedProbability={(bet as any).calibrated_probability}
+            mlSignalsFired={(bet as any).ml_signals_fired}
+            shapDrivers={bet.ml_explanation?.shap_drivers}
+          />
           {/* SHAP AI Prediction Breakdown */}
           {bet.ml_explanation && bet.ml_explanation.shap_drivers && bet.ml_explanation.shap_drivers.length > 0 && (
             <ShapExplainer
