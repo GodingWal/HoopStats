@@ -434,9 +434,20 @@ export async function fetchPrizePicksProjections(): Promise<PrizePicksProjection
     } catch (error) {
         apiLogger.error("Failed to fetch PrizePicks projections", error);
 
-        // Return stale cache as fallback if available
+        // Try DB fallback first — today's lines from the scheduled cron
+        try {
+            const dbData = await fetchFromDatabase();
+            if (dbData.length > 0) {
+                apiLogger.info("[DB Fallback] Using today's lines from database (" + dbData.length + " projections)");
+                return dbData;
+            }
+        } catch (dbErr: any) {
+            apiLogger.warn("[DB Fallback] DB fallback also failed: " + dbErr.message);
+        }
+
+        // Last resort: stale in-memory cache (could be yesterday's data — logged clearly)
         if (staleCacheData && Date.now() - staleCacheData.timestamp < STALE_CACHE_TTL_MS) {
-            apiLogger.info("Returning stale cache as fallback after fetch failure", {
+            apiLogger.warn("Returning stale in-memory cache as last resort — data may be from a prior session", {
                 staleCacheAge: Math.round((Date.now() - staleCacheData.timestamp) / 1000 / 60) + " minutes",
                 count: staleCacheData.data.length,
             });
