@@ -143,7 +143,7 @@ class WeightOptimizer:
         "positional_defense":    0.035, # Reduced from 0.06 — overlaps with defense
         "home_away":             0.05,  # 50-53%; low but real
         "usage_redistribution":  0.05,  # Correlated with injury_alpha
-        "win_probability":       0.05,  # New game-level signal
+        "win_probability":       0.45,  # Game-level signal — re-enabled with net rating data
         "opponent_recent_form":  0.04,  # New opponent defensive form signal
         "rest_days":             0.04,  # Moderate; partially overlaps b2b
         # b2b fatigue hits scoring hardest, assists least, shooting worst

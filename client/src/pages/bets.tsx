@@ -198,7 +198,7 @@ function BetRow({ bet }: { bet: PotentialBet }) {
   };
 
   return (
-    <div className={`p-3 rounded-lg transition-all ${(bet as any).confidence_tier ? getTierGradient((bet as any).confidence_tier) : hasEdge ? isInjuryEdge ? 'bg-gradient-to-r from-purple-500/15 to-transparent border border-purple-500/40' : 'bg-gradient-to-r from-primary/10 to-transparent border border-primary/30' : 'bg-muted/30'} hover:bg-muted/50`}>
+    <div className={`p-3 rounded-lg transition-all ${bet.confidence_tier ? getTierGradient(bet.confidence_tier) : hasEdge ? isInjuryEdge ? 'bg-gradient-to-r from-purple-500/15 to-transparent border border-purple-500/40' : 'bg-gradient-to-r from-primary/10 to-transparent border border-primary/30' : 'bg-muted/30'} hover:bg-muted/50`}>
       <div className="flex items-start justify-between gap-3">
         <div className="flex-1 min-w-0 space-y-1">
           <div className="flex items-center gap-2">
@@ -219,11 +219,11 @@ function BetRow({ bet }: { bet: PotentialBet }) {
             </div>
           )}
           <SignalBreakdown
-            agreingSignals={(bet as any).agreeing_signals}
-            totalSignals={(bet as any).total_signals}
-            signalDetails={(bet as any).signal_details}
-            calibratedProbability={(bet as any).calibrated_probability}
-            mlSignalsFired={(bet as any).ml_signals_fired}
+            agreingSignals={bet.agreeing_signals}
+            totalSignals={bet.total_signals}
+            signalDetails={bet.signal_details}
+            calibratedProbability={bet.calibrated_probability}
+            mlSignalsFired={bet.ml_signals_fired}
             shapDrivers={bet.ml_explanation?.shap_drivers}
           />
           {/* SHAP AI Prediction Breakdown */}
@@ -251,7 +251,7 @@ function BetRow({ bet }: { bet: PotentialBet }) {
             )}
 
             {(() => {
-              const tier = (bet as any).confidence_tier;
+              const tier = bet.confidence_tier;
               const badge = getTierBadge(tier);
               if (badge) return (
                 <Badge className={`${badge.bg} text-xs px-1.5 font-bold`}>
@@ -778,14 +778,14 @@ export default function Bets() {
   const highConfidenceBets = bets?.filter(b => b.confidence === "HIGH").length || 0;
 
   // Confidence tier counts
-  const smashCount = bets?.filter(b => (b as any).confidence_tier === "SMASH").length || 0;
-  const strongCount = bets?.filter(b => (b as any).confidence_tier === "STRONG").length || 0;
-  const leanCount = bets?.filter(b => (b as any).confidence_tier === "LEAN").length || 0;
+  const smashCount = bets?.filter(b => b.confidence_tier === "SMASH").length || 0;
+  const strongCount = bets?.filter(b => b.confidence_tier === "STRONG").length || 0;
+  const leanCount = bets?.filter(b => b.confidence_tier === "LEAN").length || 0;
 
   // Filter bets by tier (must be before gameMatchups and generatedSearchResults which use it)
   const tierFilteredBets = useMemo(() => {
     if (!bets || tierFilter === "all") return bets;
-    return bets.filter(b => (b as any).confidence_tier === tierFilter.toUpperCase());
+    return bets.filter(b => b.confidence_tier === tierFilter.toUpperCase());
   }, [bets, tierFilter]);
 
   const gameMatchups = useMemo(() => {

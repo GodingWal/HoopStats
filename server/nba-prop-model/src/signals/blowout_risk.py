@@ -131,7 +131,9 @@ class BlowoutRiskSignal(BaseSignal):
                 break
 
         # Adjust for game total if available
-        total = context.get('vegas_total', context.get('total', 225.0))
+        total = context.get('vegas_total', context.get('total'))
+        if total is None:
+            return base_prob
 
         # High totals = more variance = more blowout potential
         if total > 230:

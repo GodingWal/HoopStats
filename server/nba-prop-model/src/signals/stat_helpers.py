@@ -69,7 +69,9 @@ def get_baseline(stat_type: str, context: Dict[str, Any]) -> Optional[float]:
     # Handle composite stats by summing components
     if stat_type in COMPOSITE_STATS:
         components = COMPOSITE_STATS[stat_type]
-        values = [season_avgs.get(k, 0) for k in components]
+        values = [season_avgs.get(k) for k in components]
+        if any(v is None for v in values):
+            return None  # skip rather than fabricate
         total = sum(values)
         if total > 0:
             return total
@@ -93,7 +95,9 @@ def get_stat_value(
     # Handle composite stats
     if stat_type in COMPOSITE_STATS:
         components = COMPOSITE_STATS[stat_type]
-        values = [averages.get(k, 0) for k in components]
+        values = [averages.get(k) for k in components]
+        if any(v is None for v in values):
+            return None  # skip rather than fabricate
         total = sum(values)
         if total > 0:
             return total

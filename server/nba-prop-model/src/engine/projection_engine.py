@@ -307,6 +307,23 @@ def _enrich_recent_stats(conn, player_name: str, game_date: str) -> Dict[str, An
     return result
 
 
+def _enrich_team_stats(conn, team_id: str) -> Dict[str, Any]:
+    """Query team_stats for pace and net rating."""
+    result = {"pace": None, "off_rating": None, "def_rating": None, "net_rating": None}
+    if not conn or not team_id:
+        return result
+    row = _safe_query(conn, """
+        SELECT pace, off_rating, def_rating, net_rating
+        FROM team_stats WHERE UPPER(team_id) = UPPER(%s) LIMIT 1
+    """, (team_id,), fetch="one")
+    if row:
+        result["pace"] = float(row[0]) if row[0] is not None else None
+        result["off_rating"] = float(row[1]) if row[1] is not None else None
+        result["def_rating"] = float(row[2]) if row[2] is not None else None
+        result["net_rating"] = float(row[3]) if row[3] is not None else None
+    return result
+
+
 def _enrich_game_context_data(conn, game_date: str, team_id: str) -> Dict[str, Any]:
     result = {}
     if not conn:
@@ -543,6 +560,7 @@ def run_daily(target_date=None, db_conn=None):
         team_b2b_cache = {}
         player_stats_cache = {}
         game_ctx_cache = {}
+        team_stats_cache = {}
 
         for row in rows:
             data = dict(zip(columns, row))
@@ -587,6 +605,14 @@ def run_daily(target_date=None, db_conn=None):
                 game_ctx_cache[ck] = _enrich_game_context_data(conn, target_date, team_id)
             game_ctx = game_ctx_cache[ck]
 
+            if team_id not in team_stats_cache:
+                team_stats_cache[team_id] = _enrich_team_stats(conn, team_id)
+            team_stats = team_stats_cache[team_id]
+
+            if opp_team_id not in team_stats_cache:
+                team_stats_cache[opp_team_id] = _enrich_team_stats(conn, opp_team_id)
+            opp_stats = team_stats_cache[opp_team_id]
+
             extra = {
                 "team_id": team_id, "opp_team_id": opp_team_id,
                 "position": data.get("position", ""),
@@ -618,6 +644,14 @@ def run_daily(target_date=None, db_conn=None):
                 # Minutes load (feeds fatigue signal)
                 "minutes_last_7": recent_stats.get("minutes_last_7"),
                 "minutes_last_14": recent_stats.get("minutes_last_14"),
+                # Pace matchup signal data
+                "opponent_pace": opp_stats.get("pace"),
+                "opponent_pace_rank": None,  # rank not stored; signal falls back to raw pace
+                # Win probability signal data
+                "team_net_rating": team_stats.get("net_rating"),
+                "opp_net_rating": opp_stats.get("net_rating"),
+                "team_off_rating": team_stats.get("off_rating"),
+                "team_def_rating": team_stats.get("def_rating"),
             }
 
             proj = project_player(
