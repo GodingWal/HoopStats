@@ -10,8 +10,11 @@ Example: Giannis OUT → Dame gets +6.6 pts, +1.8 ast
 Uses pre-calculated redistribution patterns from historical data.
 """
 
+import logging
 from typing import Dict, Any, Optional, List, Union
 from .base import BaseSignal, SignalResult, registry
+
+logger = logging.getLogger(__name__)
 
 
 class InjuryAlphaSignal(BaseSignal):
@@ -175,9 +178,13 @@ class InjuryAlphaSignal(BaseSignal):
             if boost is not None:
                 total_boost += boost
             else:
-                # Generic fallback
-                generic_boost = self.GENERIC_BOOST_PER_INJURED.get(stat_key, 0)
-                total_boost += generic_boost * 0.5  # Reduce generic boost uncertainty
+                # No known redistribution pattern for this player/team combination.
+                # Do NOT fire with a generic fabricated boost — that would inject noise.
+                # Log so we can track which patterns are missing and add real data later.
+                logger.debug(
+                    f"injury_alpha: no known pattern for {player_name} when "
+                    f"{injured_player} is out ({team}) — skipping generic fallback"
+                )
 
         # Handle composite stats
         from .stat_helpers import COMPOSITE_STATS

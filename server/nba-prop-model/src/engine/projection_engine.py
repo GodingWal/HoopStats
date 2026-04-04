@@ -234,7 +234,8 @@ def _enrich_defender_data(conn, player_name: str, opp_team_id: str, position: st
 
 
 def _enrich_b2b_and_rest(conn, team_id: str, game_date: str) -> Dict[str, Any]:
-    result = {"is_b2b": False, "rest_days": 2, "home_game": None}
+    # rest_days=None means "no game data found — signal must not fire with a default"
+    result = {"is_b2b": False, "rest_days": None, "home_game": None}
     if not conn:
         return result
 
@@ -592,10 +593,13 @@ def run_daily(target_date=None, db_conn=None):
                 "season_averages": _normalize_averages(data.get("season_averages") or {}),
                 "player_name": player_name,
                 "absent_players": injury_data.get("absent_players", []),
+                # injured_teammates is the key InjuryAlphaSignal reads; alias absent_players
+                "injured_teammates": injury_data.get("absent_players", []),
                 "out_players": injury_data.get("out_players", []),
                 "injury_boosts": injury_data.get("injury_boosts", {}),
                 "is_b2b": b2b_data.get("is_b2b", False) or game_ctx.get("is_b2b", False),
-                "rest_days": b2b_data.get("rest_days", 2),
+                # rest_days=None when no game data — rest_days signal will not fire
+                "rest_days": b2b_data.get("rest_days"),
                 "home_game": b2b_data.get("home_game"),
                 "is_home": b2b_data.get("home_game"),
                 "last_5_averages": _normalize_averages(data.get("last_5_averages") or recent_stats.get("last_5_averages") or {}),

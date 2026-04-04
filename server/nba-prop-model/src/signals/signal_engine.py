@@ -140,9 +140,11 @@ class SignalEngine:
         under_weight = sum(self._weights.get(k, 0.5) for k in under_signals)
 
         # Only flag a conflict when BOTH sides carry meaningful aligned weight.
-        # A single weak opposing signal (e.g., b2b at 0.03) should not suppress
-        # a strong consensus on the other side (e.g., line_movement at 0.85).
-        conflict = over_weight > 0.50 and under_weight > 0.50
+        # Threshold is 0.75 (≈ 2 moderate-weight signals) so that a single
+        # opposing signal doesn't suppress a strong consensus.  With the current
+        # weight scale (max 0.55 per signal), 0.50 was too sensitive — a single
+        # b2b vs a single recent_form would trigger conflict.
+        conflict = over_weight > 0.75 and under_weight > 0.75
 
         if over_weight > under_weight:
             direction = "OVER"
@@ -163,19 +165,19 @@ class SignalEngine:
             aligned_signals_count = 0
 
         # Tier thresholds based on total aligned weight rather than raw signal count.
-        # Calibrated so that:
-        #   SMASH  ≈ 2+ high-quality signals OR 3+ moderate signals fully aligned
-        #   STRONG ≈ 1 high-quality OR 2 moderate signals aligned
-        #   LEAN   ≈ any meaningful aligned weight
+        # Calibrated for current weight scale (max ~0.55 per signal):
+        #   SMASH  ≈ 4+ signals all aligned (4 × 0.50 = 2.00 ≥ 1.80)
+        #   STRONG ≈ 2-3 signals aligned (2 × 0.55 = 1.10 ≥ 0.90)
+        #   LEAN   ≈ 1-2 signals providing meaningful aligned weight
         #
         # SMASH additionally requires at least 4 signals to have actually fired.
         # A 2-signal SMASH is a statistical coincidence, not genuine conviction.
         # If the weight threshold is met but fewer than 4 signals fired, cap at STRONG.
-        if aligned_weight >= 1.60 and not conflict and aligned_signals_count >= 4:
+        if aligned_weight >= 1.80 and not conflict and aligned_signals_count >= 4:
             tier = "SMASH"
-        elif aligned_weight >= 0.80 and not conflict:
+        elif aligned_weight >= 0.90 and not conflict:
             tier = "STRONG"
-        elif aligned_weight >= 0.40:
+        elif aligned_weight >= 0.45:
             tier = "LEAN"
         else:
             tier = "SKIP"
@@ -260,32 +262,94 @@ class SignalEngine:
         return signals
 
     def _load_weights(self) -> None:
-        """Pull weights from weight_registry table. Falls back to defaults."""
-        # Default weights based on signal_performance accuracy data
+        """Pull weights from weight_registry table. Falls back to defaults.
+
+        DEFAULT WEIGHT RATIONALE (audited 2026-04-03):
+        Weights are calibrated against actual data coverage in the projection
+        pipeline.  Signals that never receive their required context keys are set
+        to 0.01 (essentially disabled until the data pipeline provides them).
+
+        Signals disabled at 0.01 (no data flowing into them):
+          - fatigue:         requires minutes_last_7/14 + recent_schedule — NOT in context
+          - win_probability: requires team_net_rating + opp_net_rating — NOT in context
+          - pace:            requires opponent_pace — NOT in context
+
+        Signals with reduced weight (low coverage or no proven accuracy):
+          - defender_matchup: hardcoded list of 24 players only (~5% coverage)
+          - matchup_history:  depends on vs_team_history DB population
+          - usage_redistribution: correlated with injury_alpha; reduce to avoid double-count
+          - opponent_recent_form: depends on team_game_logs DB population
+
+        Signals kept moderate (fire correctly when data present):
+          - b2b, rest_days, recent_form, home_away, defense, positional_defense
+          - injury_alpha, minutes_projection, line_movement
+        """
         self._weights = {
-            "line_movement": 0.85,      # 56-63% accuracy - best signal
-            "fatigue": 0.80,            # 55-62% accuracy
-            "recent_form": 0.75,        # 53-56% accuracy
-            "home_away": 0.60,          # 50-53% accuracy
-            "pace": 0.65,              # 54-56% on pts
-            "defense": 0.60,           # 50-52%
-            # positional_defense and defender_matchup partially overlap with defense
-            # (all three measure opponent defensive quality from different angles).
-            # Weights are reduced to avoid double-counting the same signal.
-            "positional_defense": 0.30, # Reduced from 0.65 — overlaps with defense
-            "b2b": 0.55,              # 43-57% mixed
-            "rest_days": 0.60,         # moderate
-            "injury_alpha": 0.70,      # strong when it fires
-            "usage_redistribution": 0.70,
-            "defender_matchup": 0.25,  # Reduced from 0.55 — overlaps with positional_defense
-            "matchup_history": 0.55,   # needs data
-            "minutes_projection": 0.75, # new signal - high expected value
-            "win_probability": 0.70,   # game-level win prob model
-            "opponent_recent_form": 0.65, # new signal - opponent defensive form
+            # Line movement: fires only when opening+current line differ.
+            # High value when it fires — keep weight meaningful.
+            "line_movement": 0.55,
+
+            # Fatigue: requires schedule density + minutes load data not currently
+            # injected into context. Set to 0.01 until pipeline provides this data.
+            "fatigue": 0.01,
+
+            # Recent form: fires when L5 avg differs from season by 10%+.
+            # Well-studied signal with decent coverage (~30-40% fire rate).
+            "recent_form": 0.55,
+
+            # Home/away: fires when home/away splits show 20%+ difference.
+            "home_away": 0.40,
+
+            # Pace: requires opponent_pace — NOT currently in pipeline context.
+            # Set to 0.01 until opponent pace data flows through.
+            "pace": 0.01,
+
+            # Defense vs position: fires for teams where positional data is available.
+            # Hardcoded fallback for only 5 teams — modest weight.
+            "defense": 0.30,
+
+            # Positional defense and defender_matchup partially overlap with defense.
+            "positional_defense": 0.25,
+
+            # B2B: reliable, well-documented signal. Fires on ~15% of games.
+            "b2b": 0.55,
+
+            # Rest days: fires when game schedule data is in DB.
+            "rest_days": 0.35,
+
+            # Injury alpha: fires when absent_players matches known patterns.
+            # After key fix (injured_teammates alias), now reads correctly.
+            "injury_alpha": 0.50,
+
+            # Usage redistribution: correlated with injury_alpha; reduced to avoid
+            # double-counting the injury effect.
+            "usage_redistribution": 0.20,
+
+            # Defender matchup: hardcoded list of ~24 players, ~5% fire rate.
+            # No proven accuracy — set to 0.01.
+            "defender_matchup": 0.01,
+
+            # Matchup history: fires when vs_team_history is populated from DB.
+            "matchup_history": 0.25,
+
+            # Minutes projection: fires when 'min' key is in averages dicts.
+            # The pipeline populates min via _enrich_recent_stats.
+            "minutes_projection": 0.40,
+
+            # Win probability: requires team_net_rating + opp_net_rating — NOT in
+            # pipeline context. Set to 0.01 until team stats data flows through.
+            "win_probability": 0.01,
+
+            # Opponent recent form: fires when team_game_logs table is populated.
+            "opponent_recent_form": 0.25,
         }
 
         if self.db_conn is None:
-            logger.debug("No DB connection - using default weights")
+            logger.warning(
+                "SignalEngine: no DB connection — using hardcoded default weights. "
+                "Run weight optimizer and ensure signal_weights table is populated "
+                "for data-driven weights."
+            )
             return
         try:
             cursor = self.db_conn.cursor()

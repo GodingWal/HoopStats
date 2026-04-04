@@ -78,8 +78,9 @@ class DefenseVsPositionSignal(BaseSignal):
     ) -> SignalResult:
         """Calculate defense vs position adjustment."""
 
-        # Get player position
-        player_pos = self._normalize_position(context.get('player_position'))
+        # Get player position — context may use either 'player_position' or 'position'
+        raw_pos = context.get('player_position') or context.get('position')
+        player_pos = self._normalize_position(raw_pos)
         if player_pos is None:
             return self._create_neutral_result()
 
@@ -114,7 +115,12 @@ class DefenseVsPositionSignal(BaseSignal):
         # Scale confidence by matchup magnitude
         confidence = min(0.52 + abs(matchup_diff) * 2, 0.70)
 
-        opponent_team = context.get('opponent_team', context.get('opponent', 'UNK'))
+        opponent_team = (
+            context.get('opponent_team')
+            or context.get('opponent')
+            or context.get('opp_team_id')
+            or 'UNK'
+        )
 
         return self._create_result(
             adjustment=adjustment,
@@ -200,8 +206,17 @@ class DefenseVsPositionSignal(BaseSignal):
                     return avg_allowed / league_avg
 
         # 4. Fallback to hardcoded DEFAULT_DEFENSE_RATINGS
-        opponent_team = context.get('opponent_team', context.get('opponent'))
+        # Context may use 'opponent_team', 'opponent', or 'opp_team_id'
+        opponent_team = (
+            context.get('opponent_team')
+            or context.get('opponent')
+            or context.get('opp_team_id')
+        )
         if opponent_team and opponent_team in self.DEFAULT_DEFENSE_RATINGS:
+            logger.debug(
+                f"defense signal: using hardcoded ratings for {opponent_team} "
+                f"(only 5 teams have hardcoded data — consider populating opponent_def_vs_position)"
+            )
             team_def = self.DEFAULT_DEFENSE_RATINGS[opponent_team]
             if player_pos in team_def:
                 pos_def = team_def[player_pos]
