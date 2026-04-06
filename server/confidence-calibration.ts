@@ -90,16 +90,8 @@ function evaluateSignals(
     });
   }
 
-  // 5. Signal Score Confidence - from the signal scoring system
-  const highSignalConf = signalScore.signalConfidence === 'HIGH' || signalScore.signalConfidence === 'MEDIUM';
-  signals.push({
-    name: 'SIGNAL_CONFIDENCE',
-    agrees: highSignalConf,
-    weight: signalScore.signalConfidence === 'HIGH' ? 1.0 : signalScore.signalConfidence === 'MEDIUM' ? 0.6 : 0.2,
-    accuracy: Number(signalScore.avgAccuracy.toFixed(3)),
-  });
-
-  // 6. Signal Score Value - weighted score from all signals
+  // 5. Signal Score Value - weighted score from all signals
+  // (SIGNAL_CONFIDENCE removed: derived from same signalScore object — double-counts.)
   const goodSignalScore = signalScore.weightedScore >= 6;
   signals.push({
     name: 'SIGNAL_SCORE',
@@ -108,7 +100,7 @@ function evaluateSignals(
     accuracy: Number(signalScore.avgAccuracy.toFixed(3)),
   });
 
-  // 7. Edge Detection Signal - fires when matchup-based edges exist
+  // 6. Edge Detection Signal - fires when matchup-based edges exist
   const hasEdges = edgeCount >= 2;
   signals.push({
     name: 'EDGE_DETECTION',
@@ -117,7 +109,7 @@ function evaluateSignals(
     accuracy: 0.57,
   });
 
-  // 8. Edge Size Signal - how far is the projected value from the line?
+  // 7. Edge Size Signal - how far is the projected value from the line?
   const projectedValue = last5Avg && last5Avg > 0
     ? seasonAvg * 0.4 + last5Avg * 0.6
     : seasonAvg;
@@ -303,7 +295,7 @@ export async function calibrateBet(
   const effectiveEdge = recommendation === 'OVER' ? edgePct : -edgePct;
 
   // Classify tier (requires 4+ agreeing signals for SMASH)
-  const confidenceTier = classifyTier(agreementPct, effectiveEdge, hitRate, signalScore, agreeingSignals.length);
+  const rawTier = classifyTier(agreementPct, effectiveEdge, hitRate, signalScore, agreeingSignals.length);
 
   // Recency-weighted hit rate: blends last-10-game performance with season average.
   // Catches streaks/slumps the full-season hit rate misses.
@@ -313,6 +305,11 @@ export async function calibrateBet(
   const calibratedProbability = calibrateProbability(
     agreementPct, effectiveEdge, hitRate, signalScore, agreeingSignals.length, last10HitRate,
   );
+
+  // Minimum confidence gate: near-coin-flip probability → not a real edge → AVOID.
+  // Prevents weak signal clusters from producing LEAN/STRONG calls when the
+  // underlying probability estimate is essentially 50/50.
+  const confidenceTier: ConfidenceTier = calibratedProbability < 0.52 ? 'AVOID' : rawTier;
 
   return {
     confidenceTier,

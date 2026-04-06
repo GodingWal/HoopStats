@@ -94,6 +94,17 @@ class SignalEngine:
 
     TIER_ORDER = ["SMASH", "STRONG", "LEAN", "SKIP"]
 
+    # Signals disabled due to low accuracy, sparse data, or redundancy.
+    # These are skipped at load time and their weights are forced to 0.0.
+    DISABLED_SIGNALS = {
+        "defender_matchup",      # Hardcoded 24 players, ~5% fire rate, no proven accuracy
+        "matchup_history",       # Sparse vs_team_history data
+        "home_away",             # Home advantage too weak (~2 pts), ~50-53% accuracy
+        "usage_redistribution",  # Dependent on injury_alpha — not independent
+        "positional_defense",    # Redundant with defense signal
+        "blowout_risk",          # 43% accuracy (worse than coin flip)
+    }
+
     def __init__(self, db_conn=None):
         self.db_conn = db_conn
         self._signals = self._load_signals()
@@ -219,6 +230,9 @@ class SignalEngine:
         signals: Dict[str, Any] = {}
 
         def _try_import(module_path: str, class_name: str, signal_key: str):
+            if signal_key in self.DISABLED_SIGNALS:
+                logger.debug(f"Signal {signal_key} is disabled — skipping")
+                return
             try:
                 import importlib
                 mod = importlib.import_module(module_path)
@@ -285,63 +299,49 @@ class SignalEngine:
           - injury_alpha, minutes_projection, line_movement
         """
         self._weights = {
-            # Line movement: fires only when opening+current line differ.
-            # High value when it fires — keep weight meaningful.
+            # ---- ACTIVE SIGNALS ----
+
+            # Line movement: highest quality signal when it fires.
             "line_movement": 0.55,
 
-            # Fatigue: requires schedule density + minutes load data not currently
-            # injected into context. Set to 0.01 until pipeline provides this data.
-            "fatigue": 0.01,
+            # Injury alpha: strong when absent_players data is present.
+            "injury_alpha": 0.50,
 
             # Recent form: fires when L5 avg differs from season by 10%+.
-            # Well-studied signal with decent coverage (~30-40% fire rate).
-            "recent_form": 0.55,
+            "recent_form": 0.45,
 
-            # Home/away: fires when home/away splits show 20%+ difference.
-            "home_away": 0.40,
-
-            # Pace: requires opponent_pace — NOT currently in pipeline context.
-            # Set to 0.01 until opponent pace data flows through.
-            "pace": 0.01,
+            # Win probability: game-level signal using team net ratings.
+            "win_probability": 0.45,
 
             # Defense vs position: fires for teams where positional data is available.
-            # Hardcoded fallback for only 5 teams — modest weight.
-            "defense": 0.30,
+            "defense": 0.45,
 
-            # Positional defense and defender_matchup partially overlap with defense.
-            "positional_defense": 0.25,
+            # Minutes projection: fires when 'min' key is in averages dicts.
+            "minutes_projection": 0.45,
+
+            # Pace: requires opponent_pace in context.
+            "pace": 0.40,
 
             # B2B: reliable, well-documented signal. Fires on ~15% of games.
-            "b2b": 0.55,
+            "b2b": 0.40,
 
             # Rest days: fires when game schedule data is in DB.
             "rest_days": 0.35,
 
-            # Injury alpha: fires when absent_players matches known patterns.
-            # After key fix (injured_teammates alias), now reads correctly.
-            "injury_alpha": 0.50,
-
-            # Usage redistribution: correlated with injury_alpha; reduced to avoid
-            # double-counting the injury effect.
-            "usage_redistribution": 0.20,
-
-            # Defender matchup: hardcoded list of ~24 players, ~5% fire rate.
-            # No proven accuracy — set to 0.01.
-            "defender_matchup": 0.01,
-
-            # Matchup history: fires when vs_team_history is populated from DB.
-            "matchup_history": 0.25,
-
-            # Minutes projection: fires when 'min' key is in averages dicts.
-            # The pipeline populates min via _enrich_recent_stats.
-            "minutes_projection": 0.40,
-
-            # Win probability: requires team_net_rating + opp_net_rating — NOT in
-            # pipeline context. Set to 0.01 until team stats data flows through.
-            "win_probability": 0.01,
-
             # Opponent recent form: fires when team_game_logs table is populated.
             "opponent_recent_form": 0.25,
+
+            # Fatigue: requires schedule density + minutes load data not currently
+            # injected into context. Kept low until pipeline provides this data.
+            "fatigue": 0.01,
+
+            # ---- DISABLED SIGNALS (weight=0, not loaded) ----
+            "defender_matchup":     0.0,  # Hardcoded 24 players, ~5% fire rate
+            "matchup_history":      0.0,  # Sparse data
+            "home_away":            0.0,  # Home advantage too weak (~2 pts)
+            "usage_redistribution": 0.0,  # Dependent on injury_alpha, not independent
+            "positional_defense":   0.0,  # Redundant with defense
+            "blowout_risk":         0.0,  # 43% accuracy
         }
 
         if self.db_conn is None:

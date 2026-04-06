@@ -77,7 +77,7 @@ class XGBoostConfig:
     reg_lambda: float = 1.0       # L2 regularization
 
     # Early stopping
-    early_stopping_rounds: int = 20  # Stop if no improvement for N rounds
+    early_stopping_rounds: int = 30  # Stop if no improvement for N rounds
 
     # Calibration
     use_calibration: bool = True     # Post-hoc isotonic calibration

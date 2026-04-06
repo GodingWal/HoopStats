@@ -118,34 +118,13 @@ class WeightOptimizer:
     # fallback.  _get_prior() resolves the correct value for a given stat_type.
     DEFAULT_PRIORS: Dict[str, Any] = {
         "line_movement":         0.20,  # Best signal: 56-63% accuracy
-        # fatigue affects scoring more than playmaking/perimeter shooting
-        "fatigue": {
-            "points":   0.85,
-            "rebounds": 0.80,
-            "assists":  0.75,
-            "threes":   0.55,
-            "default":  0.70,
-        },
-        "injury_alpha":          0.13,  # Strong when it fires; usage_redistribution rolls in
-        "minutes_projection":    0.10,  # New high-value signal
+        "injury_alpha":          0.13,  # Strong when it fires
+        "minutes_projection":    0.10,  # High-value signal
         "recent_form":           0.09,  # 53-56% accuracy
-        # pace is a stronger predictor for counting stats than for shooting
-        "pace": {
-            "points":   0.75,
-            "rebounds": 0.70,
-            "assists":  0.60,
-            "default":  0.65,
-        },
         "defense":               0.07,  # 50-52%; keep modest
-        # positional_defense and defender_matchup partially overlap with defense
-        # (all three measure opponent defensive quality from different angles).
-        # Weights are reduced proportionally to avoid double-counting the signal.
-        "positional_defense":    0.035, # Reduced from 0.06 — overlaps with defense
-        "home_away":             0.05,  # 50-53%; low but real
-        "usage_redistribution":  0.05,  # Correlated with injury_alpha
-        "win_probability":       0.45,  # Game-level signal — re-enabled with net rating data
-        "opponent_recent_form":  0.04,  # New opponent defensive form signal
-        "rest_days":             0.04,  # Moderate; partially overlaps b2b
+        "win_probability":       0.08,  # Game-level signal
+        "opponent_recent_form":  0.04,  # Opponent defensive form
+        "rest_days":             0.04,  # Partially overlaps b2b
         # b2b fatigue hits scoring hardest, assists least, shooting worst
         "b2b": {
             "points":   0.60,
@@ -154,10 +133,30 @@ class WeightOptimizer:
             "threes":   0.45,
             "default":  0.50,
         },
-        "matchup_history":       0.03,  # Low sample — prior only
-        "defender_matchup":      0.02,  # Reduced from 0.03 — overlaps with positional_defense
-        "referee":               0.0,   # Disabled — insufficient data, adds noise
-        "referee_impact":        0.0,   # Disabled — insufficient data, adds noise
+        # pace is a stronger predictor for counting stats than for shooting
+        "pace": {
+            "points":   0.75,
+            "rebounds": 0.70,
+            "assists":  0.60,
+            "default":  0.65,
+        },
+        # fatigue affects scoring more than playmaking/perimeter shooting
+        "fatigue": {
+            "points":   0.85,
+            "rebounds": 0.80,
+            "assists":  0.75,
+            "threes":   0.55,
+            "default":  0.70,
+        },
+        # ---- DISABLED — set to 0 so optimizer doesn't promote them ----
+        "defender_matchup":      0.0,   # Hardcoded 24 players, ~5% fire rate
+        "matchup_history":       0.0,   # Sparse data
+        "home_away":             0.0,   # Home advantage too weak (~2 pts)
+        "usage_redistribution":  0.0,   # Dependent on injury_alpha, not independent
+        "positional_defense":    0.0,   # Redundant with defense
+        "blowout_risk":          0.0,   # 43% accuracy
+        "referee":               0.0,   # Insufficient data, adds noise
+        "referee_impact":        0.0,   # Insufficient data, adds noise
     }
 
     # Maps stat_type strings (as passed by calculate_weights) to the nested

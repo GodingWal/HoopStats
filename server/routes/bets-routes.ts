@@ -69,11 +69,14 @@ export function registerBetsRoutes(app: Express): void {
             // Fix 2: XGBoost confidence promotion/demotion
             // Promotes tier when XGBoost strongly agrees with recommendation direction;
             // demotes one level when XGBoost disagrees (prob <= 0.40 in our direction).
+            // Coin-flip guard: if prob_over is 0.45–0.55, XGBoost is too uncertain
+            // to promote — block all tier promotions in that range.
             const currentTier = bet.confidence_tier as string | undefined;
             const relevantProb: number = bet.recommendation === "OVER" ? pred.prob_over : pred.prob_under;
-            if (relevantProb >= 0.80 && (currentTier === "STRONG" || currentTier === "LEAN")) {
+            const xgbCoinFlip = pred.prob_over >= 0.45 && pred.prob_over <= 0.55;
+            if (!xgbCoinFlip && relevantProb >= 0.80 && (currentTier === "STRONG" || currentTier === "LEAN")) {
               bet.confidence_tier = "SMASH";
-            } else if (relevantProb >= 0.70 && currentTier === "LEAN") {
+            } else if (!xgbCoinFlip && relevantProb >= 0.70 && currentTier === "LEAN") {
               bet.confidence_tier = "STRONG";
             } else if (relevantProb <= 0.40) {
               if (currentTier === "SMASH") bet.confidence_tier = "STRONG";
