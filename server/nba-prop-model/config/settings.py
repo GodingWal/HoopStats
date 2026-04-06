@@ -76,14 +76,17 @@ class XGBoostConfig:
     reg_alpha: float = 0.1        # L1 regularization
     reg_lambda: float = 1.0       # L2 regularization
 
-    # Early stopping
-    early_stopping_rounds: int = 30  # Stop if no improvement for N rounds
+    # Early stopping — 50 rounds gives the model enough room to find improvements
+    # without overfitting. 30 was too aggressive, stopping trees prematurely.
+    early_stopping_rounds: int = 50  # Stop if no improvement for N rounds
 
     # Calibration
     use_calibration: bool = True     # Post-hoc isotonic calibration
 
-    # Sample weighting (recency bias)
-    sample_weight_halflife_days: int = 90  # Recent games weighted more (0 = disabled)
+    # Sample weighting (recency bias): 60-day half-life weights recent games ~2x
+    # vs games from 2 months ago, keeping the model current with team/player changes
+    # without discarding older data entirely.
+    sample_weight_halflife_days: int = 60  # Recent games weighted more (0 = disabled)
 
     # Data requirements
     min_training_samples: int = 100   # Minimum to attempt training

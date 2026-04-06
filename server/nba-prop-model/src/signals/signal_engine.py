@@ -280,18 +280,17 @@ class SignalEngine:
 
         DEFAULT WEIGHT RATIONALE (audited 2026-04-06):
         Weights are calibrated conservatively against actual data coverage.
-        Reducing weights across the board to prevent over-confident tier
-        assignments from low-sample or noisy signals.
+        6 noisy signals removed (see DISABLED_SIGNALS); remaining weights
+        reduced to prevent over-triggering STRONG/SMASH on marginal evidence.
 
         Signals disabled at 0.01 (no data flowing into them):
           - fatigue:         requires minutes_last_7/14 + recent_schedule — NOT in context
           - win_probability: requires team_net_rating + opp_net_rating — NOT in context
           - pace:            requires opponent_pace — NOT in context
 
-        Conservative reweight rationale:
-          - Removed 6 noisy signals (see DISABLED_SIGNALS); remaining weights
-            reduced to compensate for the now-smaller signal pool and avoid
-            over-triggering STRONG/SMASH tiers on marginal evidence.
+        Active signals (fire correctly when data present):
+          - b2b, rest_days, recent_form, defense
+          - injury_alpha, minutes_projection, line_movement, opponent_recent_form
         """
         self._weights = {
             # ---- ACTIVE SIGNALS ----
@@ -317,14 +316,17 @@ class SignalEngine:
             # Rest days: fires when game schedule data is in DB.
             "rest_days": 0.30,
 
+            # Opponent recent form: fires when team_game_logs table is populated.
+            "opponent_recent_form": 0.20,
+
+            # ---- SIGNALS DISABLED AT 0.01 (no data in pipeline) ----
+
             # Win probability: requires team_net_rating + opp_net_rating — NOT in context.
+            # Kept loaded so it activates automatically when pipeline provides the data.
             "win_probability": 0.01,
 
             # Pace: requires opponent_pace — NOT in context.
             "pace": 0.01,
-
-            # Opponent recent form: fires when team_game_logs table is populated.
-            "opponent_recent_form": 0.20,
 
             # Fatigue: requires schedule density + minutes load data not currently
             # injected into context. Kept low until pipeline provides this data.

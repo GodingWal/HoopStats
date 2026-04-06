@@ -122,7 +122,6 @@ class WeightOptimizer:
         "minutes_projection":    0.10,  # High-value signal
         "recent_form":           0.09,  # 53-56% accuracy
         "defense":               0.07,  # 50-52%; keep modest
-        "win_probability":       0.08,  # Game-level signal
         "opponent_recent_form":  0.04,  # Opponent defensive form
         "rest_days":             0.04,  # Partially overlaps b2b
         # b2b fatigue hits scoring hardest, assists least, shooting worst
@@ -133,13 +132,12 @@ class WeightOptimizer:
             "threes":   0.45,
             "default":  0.50,
         },
-        # pace is a stronger predictor for counting stats than for shooting
-        "pace": {
-            "points":   0.75,
-            "rebounds": 0.70,
-            "assists":  0.60,
-            "default":  0.65,
-        },
+        # win_probability requires team_net_rating + opp_net_rating — NOT in context yet.
+        # Prior set to 0.01 so optimizer doesn't over-weight until data flows in.
+        "win_probability":       0.01,
+        # pace requires opponent_pace — NOT in context yet.
+        # Prior set to 0.01 so optimizer doesn't over-weight until data flows in.
+        "pace":                  0.01,
         # fatigue affects scoring more than playmaking/perimeter shooting
         "fatigue": {
             "points":   0.85,

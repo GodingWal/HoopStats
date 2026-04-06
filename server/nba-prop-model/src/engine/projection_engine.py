@@ -437,7 +437,8 @@ def _baseline_from_averages(prop_type, season_averages):
 
 def _confidence_tier(aligned, edge_pct, conflict):
     if conflict: return "SKIP"
-    if aligned >= 3 and edge_pct > 8.0: return "SMASH"
+    # SMASH requires 4+ aligned signals — 3-signal SMASH is a coincidence, not conviction
+    if aligned >= 4 and edge_pct > 8.0: return "SMASH"
     if aligned >= 2 and 5.0 <= edge_pct <= 8.0: return "STRONG"
     if aligned >= 1 and 3.0 <= edge_pct < 5.0: return "LEAN"
     return "SKIP"
