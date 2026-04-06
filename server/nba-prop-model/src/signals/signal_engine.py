@@ -278,40 +278,32 @@ class SignalEngine:
     def _load_weights(self) -> None:
         """Pull weights from weight_registry table. Falls back to defaults.
 
-        DEFAULT WEIGHT RATIONALE (audited 2026-04-03):
-        Weights are calibrated against actual data coverage in the projection
-        pipeline.  Signals that never receive their required context keys are set
-        to 0.01 (essentially disabled until the data pipeline provides them).
+        DEFAULT WEIGHT RATIONALE (audited 2026-04-06):
+        Weights are calibrated conservatively against actual data coverage.
+        Reducing weights across the board to prevent over-confident tier
+        assignments from low-sample or noisy signals.
 
         Signals disabled at 0.01 (no data flowing into them):
           - fatigue:         requires minutes_last_7/14 + recent_schedule — NOT in context
           - win_probability: requires team_net_rating + opp_net_rating — NOT in context
           - pace:            requires opponent_pace — NOT in context
 
-        Signals with reduced weight (low coverage or no proven accuracy):
-          - defender_matchup: hardcoded list of 24 players only (~5% coverage)
-          - matchup_history:  depends on vs_team_history DB population
-          - usage_redistribution: correlated with injury_alpha; reduce to avoid double-count
-          - opponent_recent_form: depends on team_game_logs DB population
-
-        Signals kept moderate (fire correctly when data present):
-          - b2b, rest_days, recent_form, home_away, defense, positional_defense
-          - injury_alpha, minutes_projection, line_movement
+        Conservative reweight rationale:
+          - Removed 6 noisy signals (see DISABLED_SIGNALS); remaining weights
+            reduced to compensate for the now-smaller signal pool and avoid
+            over-triggering STRONG/SMASH tiers on marginal evidence.
         """
         self._weights = {
             # ---- ACTIVE SIGNALS ----
 
             # Line movement: highest quality signal when it fires.
-            "line_movement": 0.55,
+            "line_movement": 0.50,
 
             # Injury alpha: strong when absent_players data is present.
-            "injury_alpha": 0.50,
+            "injury_alpha": 0.45,
 
             # Recent form: fires when L5 avg differs from season by 10%+.
-            "recent_form": 0.45,
-
-            # Win probability: requires team_net_rating + opp_net_rating — NOT in context.
-            "win_probability": 0.01,
+            "recent_form": 0.40,
 
             # Defense vs position: fires for teams where positional data is available.
             "defense": 0.40,
@@ -319,14 +311,17 @@ class SignalEngine:
             # Minutes projection: fires when 'min' key is in averages dicts.
             "minutes_projection": 0.40,
 
-            # Pace: requires opponent_pace — NOT in context.
-            "pace": 0.01,
-
             # B2B: reliable, well-documented signal. Fires on ~15% of games.
-            "b2b": 0.40,
+            "b2b": 0.35,
 
             # Rest days: fires when game schedule data is in DB.
             "rest_days": 0.30,
+
+            # Win probability: requires team_net_rating + opp_net_rating — NOT in context.
+            "win_probability": 0.01,
+
+            # Pace: requires opponent_pace — NOT in context.
+            "pace": 0.01,
 
             # Opponent recent form: fires when team_game_logs table is populated.
             "opponent_recent_form": 0.20,
