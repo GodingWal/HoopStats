@@ -93,10 +93,6 @@ export function analyzeEdges(
   const usageEdge = detectUsageRedistributionEdge(player, statType, recommendation);
   if (usageEdge) edges.push(usageEdge);
 
-  // 15. Positional defense matchup
-  const posDefEdge = detectPositionalDefenseEdge(player, statType, recommendation);
-  if (posDefEdge) edges.push(posDefEdge);
-
   // Calculate total edge score
   const totalScore = edges.reduce((sum, edge) => sum + edge.score, 0);
 
@@ -493,41 +489,6 @@ function detectUsageRedistributionEdge(player: Player, statType: string, recomme
       type: "USAGE_REDISTRIBUTION",
       score: Math.min(8, Math.round(4 + totalBoost)),
       description: `Usage redistribution: +${totalBoost.toFixed(1)} ${statType} projected (${uniqueOut.length} teammates out: ${uniqueOut.join(', ')})`,
-      tier: 2,
-    };
-  }
-
-  return null;
-}
-
-/**
- * Detect positional defense matchup edge.
- * If the opponent is bottom-10 defending the player's position, favor OVER.
- * If top-10 defending, favor UNDER.
- */
-function detectPositionalDefenseEdge(player: Player, statType: string, recommendation: "OVER" | "UNDER"): Edge | null {
-  // Only relevant for counting stats
-  if (!["PTS", "REB", "AST", "FG3M", "PRA", "PR", "PA"].includes(statType)) return null;
-  if (!player.position || !player.opp_def_vs_position_rank) return null;
-
-  const rank = player.opp_def_vs_position_rank;
-
-  // Bottom-10 defending (rank 21-30 = worst defense) favors OVER
-  if (rank >= 21 && recommendation === "OVER") {
-    return {
-      type: "POSITIONAL_DEFENSE",
-      score: Math.min(7, 4 + Math.floor((rank - 20) / 3)),
-      description: `Weak positional D: Opponent ranks #${rank} vs ${player.position} (bottom-10)`,
-      tier: 2,
-    };
-  }
-
-  // Top-10 defending (rank 1-10 = best defense) favors UNDER
-  if (rank <= 10 && recommendation === "UNDER") {
-    return {
-      type: "POSITIONAL_DEFENSE",
-      score: Math.min(7, 4 + Math.floor((11 - rank) / 3)),
-      description: `Strong positional D: Opponent ranks #${rank} vs ${player.position} (top-10)`,
       tier: 2,
     };
   }

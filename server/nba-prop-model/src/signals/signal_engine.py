@@ -310,26 +310,26 @@ class SignalEngine:
             # Recent form: fires when L5 avg differs from season by 10%+.
             "recent_form": 0.45,
 
-            # Win probability: game-level signal using team net ratings.
-            "win_probability": 0.45,
+            # Win probability: requires team_net_rating + opp_net_rating — NOT in context.
+            "win_probability": 0.01,
 
             # Defense vs position: fires for teams where positional data is available.
-            "defense": 0.45,
+            "defense": 0.40,
 
             # Minutes projection: fires when 'min' key is in averages dicts.
-            "minutes_projection": 0.45,
+            "minutes_projection": 0.40,
 
-            # Pace: requires opponent_pace in context.
-            "pace": 0.40,
+            # Pace: requires opponent_pace — NOT in context.
+            "pace": 0.01,
 
             # B2B: reliable, well-documented signal. Fires on ~15% of games.
             "b2b": 0.40,
 
             # Rest days: fires when game schedule data is in DB.
-            "rest_days": 0.35,
+            "rest_days": 0.30,
 
             # Opponent recent form: fires when team_game_logs table is populated.
-            "opponent_recent_form": 0.25,
+            "opponent_recent_form": 0.20,
 
             # Fatigue: requires schedule density + minutes load data not currently
             # injected into context. Kept low until pipeline provides this data.

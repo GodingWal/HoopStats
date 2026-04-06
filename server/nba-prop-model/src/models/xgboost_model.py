@@ -121,7 +121,7 @@ class XGBoostPropModel:
         reg_alpha: float = 0.1,
         reg_lambda: float = 1.0,
         model_dir: str = "models/xgboost",
-        early_stopping_rounds: int = 20,
+        early_stopping_rounds: int = 30,
         use_calibration: bool = True,
         sample_weight_halflife_days: int = 90,
     ):
