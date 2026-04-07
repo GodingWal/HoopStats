@@ -18,6 +18,7 @@ import TrackRecord from "@/pages/track-record";
 import TeamStatsPage from "@/pages/team-stats";
 import BacktestPage from "@/pages/backtest";
 import ParlayCorrelationPage from "@/pages/parlay-correlation";
+import TeamsPage from "@/pages/teams";
 import { ThemeToggle } from "@/components/theme-toggle";
 import {
   SidebarProvider,
@@ -58,6 +59,7 @@ import {
   Zap,
   MoreHorizontal,
   X,
+  Brain,
 } from "lucide-react";
 
 
@@ -170,6 +172,7 @@ function Router() {
       <Route path="/track-record" component={TrackRecord} />
       <Route path="/live" component={LiveGames} />
       <Route path="/line-history" component={LineHistory} />
+      <Route path="/teams" component={TeamsPage} />
       <Route path="/team-stats" component={TeamStatsPage} />
       <Route path="/backtest" component={BacktestPage} />
       <Route path="/parlay-correlations" component={ParlayCorrelationPage} />
@@ -181,6 +184,7 @@ function Router() {
 const navItems = [
   { title: "Dashboard",           url: "/dashboard",            icon: LayoutDashboard },
   { title: "Players",             url: "/",                     icon: Users },
+  { title: "Teams",               url: "/teams",                icon: Brain },
   { title: "Team Stats",          url: "/team-stats",           icon: BarChart3 },
   { title: "Potential Bets",      url: "/bets",                 icon: Target },
   { title: "My Bets",             url: "/my-bets",              icon: Wallet },
@@ -202,6 +206,7 @@ const mobileNavItems = [
 
 /* Items shown in the "More" drawer */
 const moreNavItems = [
+  { title: "Teams",               url: "/teams",                icon: Brain },
   { title: "Team Stats",          url: "/team-stats",           icon: BarChart3 },
   { title: "Track Record",        url: "/track-record",         icon: Award },
   { title: "Line History",        url: "/line-history",         icon: History },
