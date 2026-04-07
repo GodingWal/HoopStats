@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -40,6 +40,13 @@ import {
   Brain,
   Activity,
   Trophy,
+  Calendar,
+  ChevronDown,
+  ChevronUp,
+  CheckCircle2,
+  XCircle,
+  Clock,
+  Tv2,
 } from "lucide-react";
 
 interface TeamInfo {
@@ -110,6 +117,28 @@ interface PredictionResult {
   };
 }
 
+interface TodayGamePrediction {
+  team1: { abbr: string; name: string; winProb: number; projectedScore: number; ppg: number; };
+  team2: { abbr: string; name: string; winProb: number; projectedScore: number; ppg: number; };
+  prediction: { winner: string; winnerName: string; winProb: number; confidence: number; projectedTotal: number; projectedSpread: number; homeTeam: string; modelInfo: { type: string; features: number; description: string; }; };
+  featureImportance: Array<{ feature: string; contribution: number; favors: string; team1Value: any; team2Value: any; }>;
+  comparison: { stats: StatComparison[]; quarterScoring: any; };
+}
+
+interface TodayGame {
+  gameId: string;
+  homeTeam: string;
+  awayTeam: string;
+  gameTime: string;
+  status: string; // "pre", "in", "post"
+  homeScore: number | null;
+  awayScore: number | null;
+  venue: string;
+  broadcast: string;
+  prediction: TodayGamePrediction | null;
+  predictionCorrect: boolean | null;
+}
+
 // Team colors for visual differentiation
 const TEAM_COLORS: Record<string, string> = {
   ATL: "#E03A3E", BOS: "#007A33", BKN: "#000000", CHA: "#1D1160",
@@ -132,9 +161,34 @@ export default function TeamsPage() {
   const [homeTeam, setHomeTeam] = useState<string>("");
   const [shouldPredict, setShouldPredict] = useState(false);
 
+  // Today's games state
+  const [todayGames, setTodayGames] = useState<TodayGame[]>([]);
+  const [todayLoading, setTodayLoading] = useState(true);
+  const [todayError, setTodayError] = useState<string | null>(null);
+  const [expandedGame, setExpandedGame] = useState<string | null>(null);
+
   const { data: teams, isLoading: teamsLoading } = useQuery<TeamInfo[]>({
     queryKey: ["/api/teams"],
   });
+
+  // Fetch today's games on mount
+  useEffect(() => {
+    async function fetchTodayGames() {
+      setTodayLoading(true);
+      setTodayError(null);
+      try {
+        const res = await fetch("/api/teams/today");
+        if (!res.ok) throw new Error("Failed to fetch today's games");
+        const data = await res.json();
+        setTodayGames(data.games || []);
+      } catch (err: any) {
+        setTodayError(err.message || "Unknown error");
+      } finally {
+        setTodayLoading(false);
+      }
+    }
+    fetchTodayGames();
+  }, []);
 
   const { data: prediction, isLoading: predicting, error: predictionError } = useQuery<PredictionResult>({
     queryKey: ["/api/teams/predict", team1, team2, homeTeam],
@@ -182,6 +236,63 @@ export default function TeamsPage() {
             </p>
           </div>
         </div>
+      </div>
+
+      {/* Today's Games Section */}
+      <div className="space-y-3">
+        <div className="flex items-center gap-2">
+          <Calendar className="w-5 h-5 text-primary" />
+          <h2 className="text-lg font-semibold">Today's NBA Games</h2>
+          <Badge variant="outline" className="text-xs">
+            {new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+          </Badge>
+        </div>
+
+        {todayLoading && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {[1, 2, 3].map((i) => (
+              <Card key={i} className="animate-pulse">
+                <CardContent className="py-4">
+                  <div className="h-5 bg-muted rounded w-3/4 mb-3" />
+                  <div className="h-3 bg-muted rounded w-1/2 mb-2" />
+                  <div className="h-2 bg-muted rounded w-full mb-1" />
+                  <div className="h-4 bg-muted rounded w-2/3 mt-3" />
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        )}
+
+        {!todayLoading && todayError && (
+          <Card className="border-destructive/30">
+            <CardContent className="py-6 text-center">
+              <p className="text-destructive text-sm font-medium">Could not load today's games</p>
+              <p className="text-xs text-muted-foreground mt-1">{todayError}</p>
+            </CardContent>
+          </Card>
+        )}
+
+        {!todayLoading && !todayError && todayGames.length === 0 && (
+          <Card className="border-dashed">
+            <CardContent className="py-10 text-center">
+              <Calendar className="w-8 h-8 text-muted-foreground mx-auto mb-3" />
+              <p className="font-medium">No NBA games scheduled for today.</p>
+            </CardContent>
+          </Card>
+        )}
+
+        {!todayLoading && !todayError && todayGames.length > 0 && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
+            {todayGames.map((game) => (
+              <TodayGameCard
+                key={game.gameId}
+                game={game}
+                isExpanded={expandedGame === game.gameId}
+                onToggle={() => setExpandedGame(expandedGame === game.gameId ? null : game.gameId)}
+              />
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Team Selection */}
@@ -373,6 +484,212 @@ export default function TeamsPage() {
 }
 
 // ==================== Subcomponents ====================
+
+function formatGameTime(isoString: string): string {
+  try {
+    const date = new Date(isoString);
+    return date.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZoneName: "short" });
+  } catch {
+    return isoString;
+  }
+}
+
+function TodayGameCard({
+  game,
+  isExpanded,
+  onToggle,
+}: {
+  game: TodayGame;
+  isExpanded: boolean;
+  onToggle: () => void;
+}) {
+  const pred = game.prediction;
+  const awayColor = getTeamColor(game.awayTeam);
+  const homeColor = getTeamColor(game.homeTeam);
+
+  // Which team is favored (from pred perspective: pred.team1 = away, pred.team2 = home)
+  const awayWinProb = pred?.team1?.winProb ?? 50;
+  const homeWinProb = pred?.team2?.winProb ?? 50;
+  const projAwayScore = pred?.team1?.projectedScore ?? null;
+  const projHomeScore = pred?.team2?.projectedScore ?? null;
+
+  const confidence = pred?.prediction?.confidence ?? 0;
+  const confidenceLabel = confidence >= 60 ? "High" : confidence >= 40 ? "Medium" : "Low";
+  const confidenceClass = confidence >= 60
+    ? "border-emerald-500/40 text-emerald-500"
+    : confidence >= 40
+    ? "border-amber-500/40 text-amber-500"
+    : "border-muted-foreground/40 text-muted-foreground";
+
+  const spread = pred?.prediction?.projectedSpread ?? null; // positive = away team (team1) favored
+  const ou = pred?.prediction?.projectedTotal ?? null;
+  const predictedWinner = pred?.prediction?.winner ?? null;
+
+  // Top 2 factors by absolute contribution
+  const topFactors = pred?.featureImportance
+    ?.slice()
+    .sort((a, b) => Math.abs(b.contribution) - Math.abs(a.contribution))
+    .slice(0, 2) ?? [];
+
+  const statusBadge = game.status === "in" ? (
+    <Badge className="text-xs bg-red-500/20 text-red-400 border border-red-500/30 animate-pulse">LIVE</Badge>
+  ) : game.status === "post" ? (
+    <Badge variant="outline" className="text-xs text-muted-foreground">Final</Badge>
+  ) : (
+    <span className="flex items-center gap-1 text-xs text-muted-foreground">
+      <Clock className="w-3 h-3" />
+      {formatGameTime(game.gameTime)}
+    </span>
+  );
+
+  return (
+    <Card className="overflow-hidden border-border/60 hover:border-primary/30 transition-colors">
+      <CardContent className="p-4 space-y-3">
+        {/* Header: Matchup + status */}
+        <div className="flex items-start justify-between gap-2">
+          <div className="space-y-0.5">
+            {/* Away @ Home */}
+            <div className="flex items-center gap-1.5 text-base font-bold">
+              <span style={{ color: awayColor }}>{game.awayTeam}</span>
+              <span className="text-muted-foreground text-xs font-normal">@</span>
+              <span style={{ color: homeColor }}>{game.homeTeam}</span>
+            </div>
+            {game.venue && (
+              <p className="text-xs text-muted-foreground truncate max-w-[180px]">{game.venue}</p>
+            )}
+          </div>
+          <div className="flex flex-col items-end gap-1">
+            {statusBadge}
+            {game.broadcast && (
+              <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                <Tv2 className="w-3 h-3" />
+                {game.broadcast}
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Live / Final score */}
+        {(game.status === "in" || game.status === "post") && game.awayScore !== null && game.homeScore !== null && (
+          <div className="flex items-center justify-center gap-4 py-1.5 px-3 bg-muted/50 rounded-lg">
+            <span className="text-lg font-bold tabular-nums" style={{ color: awayColor }}>{game.awayScore}</span>
+            <span className="text-xs text-muted-foreground font-medium">
+              {game.status === "post" ? "FINAL" : "LIVE"}
+            </span>
+            <span className="text-lg font-bold tabular-nums" style={{ color: homeColor }}>{game.homeScore}</span>
+          </div>
+        )}
+
+        {pred && (
+          <>
+            {/* Win probability bar */}
+            <div className="space-y-1">
+              <div className="flex justify-between text-xs font-medium">
+                <span style={{ color: awayColor }}>{game.awayTeam} {awayWinProb}%</span>
+                <span style={{ color: homeColor }}>{homeWinProb}% {game.homeTeam}</span>
+              </div>
+              <div className="h-2 rounded-full overflow-hidden bg-muted flex">
+                <div className="h-full rounded-l-full transition-all duration-700" style={{ width: `${awayWinProb}%`, backgroundColor: awayColor }} />
+                <div className="h-full rounded-r-full transition-all duration-700" style={{ width: `${homeWinProb}%`, backgroundColor: homeColor }} />
+              </div>
+            </div>
+
+            {/* Projected score + betting lines */}
+            {projAwayScore !== null && projHomeScore !== null && (
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-muted-foreground">
+                  Proj: <span className="font-semibold text-foreground">{game.awayTeam} {projAwayScore} – {projHomeScore} {game.homeTeam}</span>
+                </span>
+              </div>
+            )}
+            <div className="flex items-center gap-2 flex-wrap">
+              {spread !== null && (
+                <Badge variant="outline" className="text-xs font-mono">
+                  {spread > 0 ? `${game.awayTeam} -${Math.abs(spread)}` : `${game.homeTeam} -${Math.abs(spread)}`}
+                </Badge>
+              )}
+              {ou !== null && (
+                <Badge variant="outline" className="text-xs font-mono">O/U {ou}</Badge>
+              )}
+              <Badge variant="outline" className={`text-xs ${confidenceClass}`}>
+                {confidenceLabel} Conf
+              </Badge>
+              {game.status === "post" && game.predictionCorrect !== null && (
+                game.predictionCorrect ? (
+                  <span className="flex items-center gap-0.5 text-xs text-emerald-500">
+                    <CheckCircle2 className="w-3 h-3" /> Correct
+                  </span>
+                ) : (
+                  <span className="flex items-center gap-0.5 text-xs text-red-500">
+                    <XCircle className="w-3 h-3" /> Incorrect
+                  </span>
+                )
+              )}
+            </div>
+
+            {/* Top 2 key factors */}
+            {topFactors.length > 0 && (
+              <div className="space-y-1 pt-1 border-t border-border/40">
+                <p className="text-xs text-muted-foreground font-medium">Key Factors</p>
+                {topFactors.map((f) => {
+                  const favoredTeam = f.favors === pred.team1.abbr ? game.awayTeam : f.favors === pred.team2.abbr ? game.homeTeam : null;
+                  const favorColor = favoredTeam === game.awayTeam ? awayColor : favoredTeam === game.homeTeam ? homeColor : undefined;
+                  return (
+                    <div key={f.feature} className="flex items-center justify-between text-xs">
+                      <span className="text-muted-foreground">{f.feature}</span>
+                      {favoredTeam && (
+                        <span className="font-medium" style={{ color: favorColor }}>{favoredTeam}</span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Expand / collapse */}
+            <button
+              onClick={onToggle}
+              className="w-full flex items-center justify-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors pt-1 border-t border-border/30"
+            >
+              {isExpanded ? (
+                <><ChevronUp className="w-3 h-3" /> Hide Details</>
+              ) : (
+                <><ChevronDown className="w-3 h-3" /> Full Prediction</>
+              )}
+            </button>
+
+            {/* Expanded: full prediction details */}
+            {isExpanded && (
+              <div className="pt-2 border-t border-border/40 space-y-4">
+                <PredictionHeader prediction={pred as unknown as PredictionResult} />
+                <Tabs defaultValue="breakdown" className="space-y-3">
+                  <TabsList className="grid w-full grid-cols-3 h-8 text-xs">
+                    <TabsTrigger value="breakdown" className="text-xs">Breakdown</TabsTrigger>
+                    <TabsTrigger value="features" className="text-xs">Features</TabsTrigger>
+                    <TabsTrigger value="stats" className="text-xs">Stats</TabsTrigger>
+                  </TabsList>
+                  <TabsContent value="breakdown">
+                    <PredictionBreakdown prediction={pred as unknown as PredictionResult} />
+                  </TabsContent>
+                  <TabsContent value="features">
+                    <FeatureImportancePanel prediction={pred as unknown as PredictionResult} />
+                  </TabsContent>
+                  <TabsContent value="stats">
+                    <HeadToHeadStats prediction={pred as unknown as PredictionResult} />
+                  </TabsContent>
+                </Tabs>
+              </div>
+            )}
+          </>
+        )}
+
+        {!pred && (
+          <p className="text-xs text-muted-foreground text-center py-2">Prediction unavailable</p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
 
 function PredictionHeader({ prediction }: { prediction: PredictionResult }) {
   const { team1, team2, prediction: pred } = prediction;
