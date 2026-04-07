@@ -778,14 +778,21 @@ export async function fetchNBAStandings(): Promise<TeamStandings[]> {
                             return stat ? stat.displayValue : '';
                         };
 
+                        const wins = getStatValue('wins');
+                        const losses = getStatValue('losses');
+                        const gamesPlayed = getStatValue('gamesPlayed') || (wins + losses);
+                        // ESPN may use 'winPercent' or 'PCT' depending on the endpoint; fall back to computing from wins/gamesPlayed
+                        const winPct = getStatValue('winPercent') || getStatValue('PCT') ||
+                            (gamesPlayed > 0 ? wins / gamesPlayed : 0);
+
                         standings.push({
                             teamId: team.id,
                             abbreviation: team.abbreviation || '',
                             displayName: team.displayName || team.name || '',
-                            wins: getStatValue('wins'),
-                            losses: getStatValue('losses'),
-                            winPct: getStatValue('winPercent'),
-                            gamesPlayed: getStatValue('gamesPlayed'),
+                            wins,
+                            losses,
+                            winPct,
+                            gamesPlayed,
                             streak: getStatString('streak'),
                             conferenceRank: getStatValue('rank'),
                             divisionRank: getStatValue('divisionRank'),

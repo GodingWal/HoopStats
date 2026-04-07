@@ -411,10 +411,39 @@ export function registerTeamsRoutes(app: Express): void {
       }).sort((a, b) => Math.abs(b.contribution) - Math.abs(a.contribution));
 
       // Projected score
-      const projectedTotal = ((t1Basic.ppg + t2Basic.oppPpg) / 2 + (t2Basic.ppg + t1Basic.oppPpg) / 2);
-      const scoreDiff = (team1WinProb - 0.5) * 20;
-      const team1ProjectedScore = Math.round((projectedTotal / 2) + (scoreDiff / 2));
-      const team2ProjectedScore = Math.round((projectedTotal / 2) - (scoreDiff / 2));
+      // Sanity-clamp PPG: ESPN may return partial game scores (~60 at halftime) for
+      // recently-completed games, yielding artificially low season averages.
+      // Fallback order: offRating/defRating from DB (real pace-adjusted data) → 112 (NBA avg).
+      const LEAGUE_AVG_PPG = 112;
+      const clampPpg = (ppg: number, ratingFallback?: number): number =>
+        ppg >= 90 ? ppg : (ratingFallback != null && ratingFallback >= 90 ? ratingFallback : LEAGUE_AVG_PPG);
+
+      const t1Ppg    = clampPpg(t1Basic.ppg,    t1Adv?.offRating);
+      const t2Ppg    = clampPpg(t2Basic.ppg,    t2Adv?.offRating);
+      const t1OppPpg = clampPpg(t1Basic.oppPpg, t1Adv?.defRating);
+      const t2OppPpg = clampPpg(t2Basic.oppPpg, t2Adv?.defRating);
+
+      // Per-team base score: average of team offense vs. opponent defense strength
+      let t1Score = (t1Ppg + t2OppPpg) / 2;
+      let t2Score = (t2Ppg + t1OppPpg) / 2;
+
+      // Home advantage: NBA home teams score ~1.5 pts more per game on average
+      const HOME_PTS_ADV = 1.5;
+      if (homeTeam === team1.toUpperCase()) { t1Score += HOME_PTS_ADV; t2Score -= HOME_PTS_ADV; }
+      else if (homeTeam === team2.toUpperCase()) { t2Score += HOME_PTS_ADV; t1Score -= HOME_PTS_ADV; }
+
+      // B2B fatigue: ~-2.5 pts for a team on a back-to-back
+      if (t1IsB2B) t1Score -= 2.5;
+      if (t2IsB2B) t2Score -= 2.5;
+
+      // Injury penalty: fractional team-strength reduction (0.04–0.08) → 2–4 pts
+      t1Score -= t1InjuryPenalty * 50;
+      t2Score -= t2InjuryPenalty * 50;
+
+      const team1ProjectedScore = Math.round(t1Score);
+      const team2ProjectedScore = Math.round(t2Score);
+      const projectedTotal = team1ProjectedScore + team2ProjectedScore;
+      const projectedSpread = team1ProjectedScore - team2ProjectedScore;
 
       res.json({
         team1: {
@@ -454,8 +483,8 @@ export function registerTeamsRoutes(app: Express): void {
           winnerName: team1WinProb > team2WinProb ? t1.teamName : t2.teamName,
           winProb: Math.round(Math.max(team1WinProb, team2WinProb) * 1000) / 10,
           confidence: Math.round(confidence * 100),
-          projectedTotal: Math.round(projectedTotal),
-          projectedSpread: Math.round(scoreDiff * 10) / 10,
+          projectedTotal: projectedTotal,
+          projectedSpread: projectedSpread,
           homeTeam: homeTeam,
           contextFactors: {
             t1IsB2B,
