@@ -222,7 +222,7 @@ export default function TeamsPage() {
   }, [teams]);
 
   return (
-    <div className="p-4 md:p-6 space-y-6 max-w-7xl mx-auto">
+    <div className="p-3 sm:p-4 md:p-6 space-y-6 max-w-7xl mx-auto min-w-0 overflow-hidden">
       {/* Page Header */}
       <div className="space-y-1">
         <div className="flex items-center gap-3">
@@ -230,7 +230,7 @@ export default function TeamsPage() {
             <Brain className="w-6 h-6 text-primary" />
           </div>
           <div>
-            <h1 className="text-2xl md:text-3xl font-bold">Game Predictor</h1>
+            <h1 className="text-xl sm:text-2xl md:text-3xl font-bold">Game Predictor</h1>
             <p className="text-sm text-muted-foreground">
               ML-powered game outcome predictions using 17+ statistical features
             </p>
@@ -436,11 +436,11 @@ export default function TeamsPage() {
           <PredictionHeader prediction={prediction} />
 
           <Tabs defaultValue="breakdown" className="space-y-4">
-            <TabsList className="grid w-full grid-cols-4">
-              <TabsTrigger value="breakdown">Breakdown</TabsTrigger>
-              <TabsTrigger value="features">Features</TabsTrigger>
-              <TabsTrigger value="stats">Head-to-Head</TabsTrigger>
-              <TabsTrigger value="scoring">Scoring</TabsTrigger>
+            <TabsList className="flex w-full overflow-x-auto">
+              <TabsTrigger value="breakdown" className="whitespace-nowrap">Breakdown</TabsTrigger>
+              <TabsTrigger value="features" className="whitespace-nowrap">Features</TabsTrigger>
+              <TabsTrigger value="stats" className="whitespace-nowrap">Head-to-Head</TabsTrigger>
+              <TabsTrigger value="scoring" className="whitespace-nowrap">Scoring</TabsTrigger>
             </TabsList>
 
             <TabsContent value="breakdown">
@@ -544,12 +544,12 @@ function TodayGameCard({
 
   return (
     <Card className="overflow-hidden border-border/60 hover:border-primary/30 transition-colors">
-      <CardContent className="p-4 space-y-3">
+      <CardContent className="p-3 sm:p-4 space-y-3">
         {/* Header: Matchup + status */}
-        <div className="flex items-start justify-between gap-2">
+        <div className="flex items-start justify-between gap-2 flex-wrap">
           <div className="space-y-0.5">
             {/* Away @ Home */}
-            <div className="flex items-center gap-1.5 text-base font-bold">
+            <div className="flex items-center gap-1.5 flex-wrap text-base font-bold">
               <span style={{ color: awayColor }}>{game.awayTeam}</span>
               <span className="text-muted-foreground text-xs font-normal">@</span>
               <span style={{ color: homeColor }}>{game.homeTeam}</span>
@@ -602,7 +602,7 @@ function TodayGameCard({
                 </span>
               </div>
             )}
-            <div className="flex items-center gap-2 flex-wrap">
+            <div className="flex items-center gap-1 sm:gap-2 flex-wrap">
               {spread !== null && (
                 <Badge variant="outline" className="text-xs font-mono">
                   {spread > 0 ? `${game.awayTeam} -${Math.abs(spread)}` : `${game.homeTeam} -${Math.abs(spread)}`}
@@ -660,13 +660,13 @@ function TodayGameCard({
 
             {/* Expanded: full prediction details */}
             {isExpanded && (
-              <div className="pt-2 border-t border-border/40 space-y-4">
+              <div className="pt-2 border-t border-border/40 space-y-4 overflow-hidden">
                 <PredictionHeader prediction={pred as unknown as PredictionResult} />
                 <Tabs defaultValue="breakdown" className="space-y-3">
-                  <TabsList className="grid w-full grid-cols-3 h-8 text-xs">
-                    <TabsTrigger value="breakdown" className="text-xs">Breakdown</TabsTrigger>
-                    <TabsTrigger value="features" className="text-xs">Features</TabsTrigger>
-                    <TabsTrigger value="stats" className="text-xs">Stats</TabsTrigger>
+                  <TabsList className="flex w-full overflow-x-auto h-8 text-xs">
+                    <TabsTrigger value="breakdown" className="text-xs whitespace-nowrap">Breakdown</TabsTrigger>
+                    <TabsTrigger value="features" className="text-xs whitespace-nowrap">Features</TabsTrigger>
+                    <TabsTrigger value="stats" className="text-xs whitespace-nowrap">Stats</TabsTrigger>
                   </TabsList>
                   <TabsContent value="breakdown">
                     <PredictionBreakdown prediction={pred as unknown as PredictionResult} />
@@ -702,7 +702,7 @@ function PredictionHeader({ prediction }: { prediction: PredictionResult }) {
         {/* Gradient background */}
         <div className="absolute inset-0 bg-gradient-to-r from-primary/5 via-transparent to-primary/5" />
 
-        <CardContent className="relative py-6">
+        <CardContent className="relative py-4 sm:py-6 px-3 sm:px-6">
           {/* Score & Probability */}
           <div className="grid grid-cols-[1fr_auto_1fr] gap-4 md:gap-8 items-center">
             {/* Team 1 */}
@@ -720,11 +720,11 @@ function PredictionHeader({ prediction }: { prediction: PredictionResult }) {
               >
                 {pred.confidence >= 70 ? "High" : pred.confidence >= 40 ? "Medium" : "Low"} Confidence
               </Badge>
-              <div className="text-3xl md:text-4xl font-bold tabular-nums">
+              <div className="text-xl sm:text-3xl md:text-4xl font-bold tabular-nums">
                 {team1.projectedScore} - {team2.projectedScore}
               </div>
               <div className="text-xs text-muted-foreground">Projected Score</div>
-              <div className="flex items-center justify-center gap-1.5 mt-2">
+              <div className="flex items-center justify-center gap-1 sm:gap-1.5 flex-wrap mt-2">
                 <span className="text-xs text-muted-foreground">O/U</span>
                 <Badge variant="outline" className="text-xs font-mono">
                   {pred.projectedTotal}
@@ -799,7 +799,7 @@ function TeamScorePanel({
       <div className={`flex items-center gap-2 ${alignRight ? "justify-end" : ""}`}>
         {isHome && <Home className="w-3.5 h-3.5 text-muted-foreground" />}
         {!isHome && team.winProb > 0 && <Plane className="w-3.5 h-3.5 text-muted-foreground" />}
-        <span className="text-2xl md:text-3xl font-bold" style={{ color: getTeamColor(team.abbr) }}>
+        <span className="text-lg sm:text-2xl md:text-3xl font-bold" style={{ color: getTeamColor(team.abbr) }}>
           {team.abbr}
         </span>
         {isWinner && <Trophy className="w-4 h-4 text-amber-500" />}
@@ -834,7 +834,7 @@ function PredictionBreakdown({ prediction }: { prediction: PredictionResult }) {
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
       {/* Radar Chart */}
-      <Card>
+      <Card className="max-w-full overflow-hidden">
         <CardHeader className="pb-2">
           <CardTitle className="text-base">Team Comparison Radar</CardTitle>
         </CardHeader>
@@ -920,8 +920,8 @@ function FeatureImportancePanel({ prediction }: { prediction: PredictionResult }
   return (
     <div className="space-y-4">
       {/* Feature Importance Chart */}
-      <Card>
-        <CardHeader className="pb-2">
+      <Card className="overflow-hidden">
+        <CardHeader className="pb-2 px-3 sm:px-6">
           <CardTitle className="text-base flex items-center gap-2">
             <Activity className="w-4 h-4 text-primary" />
             Feature Contribution to Prediction
@@ -930,7 +930,7 @@ function FeatureImportancePanel({ prediction }: { prediction: PredictionResult }
             Positive values favor {team1.abbr}, negative values favor {team2.abbr}
           </CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="px-2 sm:px-6 overflow-x-auto">
           <ResponsiveContainer width="100%" height={Math.max(400, featureImportance.length * 32)}>
             <BarChart data={chartData} layout="vertical" margin={{ left: 100, right: 20, top: 10, bottom: 10 }}>
               <CartesianGrid strokeDasharray="3 3" className="stroke-muted" horizontal={false} />
@@ -1017,7 +1017,7 @@ function HeadToHeadStats({ prediction }: { prediction: PredictionResult }) {
           Statistical Comparison
         </CardTitle>
       </CardHeader>
-      <CardContent className="space-y-1">
+      <CardContent className="space-y-1 overflow-x-auto">
         {comparison.stats.map((stat) => {
           const t1Val = parseFloat(stat.team1);
           const t2Val = parseFloat(stat.team2);
@@ -1110,7 +1110,7 @@ function ScoringAnalysis({ prediction }: { prediction: PredictionResult }) {
           </ResponsiveContainer>
 
           {/* Quarter averages */}
-          <div className="grid grid-cols-4 gap-2 mt-4">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-4">
             {["Q1", "Q2", "Q3", "Q4"].map((q, i) => {
               const t1Val = [qs.team1.q1, qs.team1.q2, qs.team1.q3, qs.team1.q4][i];
               const t2Val = [qs.team2.q1, qs.team2.q2, qs.team2.q3, qs.team2.q4][i];
