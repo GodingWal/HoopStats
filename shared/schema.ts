@@ -315,6 +315,8 @@ export const potentialBets = pgTable("potential_bets", {
   edge_description: text("edge_description"),
   expected_value: real("expected_value"),
   kelly_size: real("kelly_size"),
+  signal_score: real("signal_score"),
+  signal_confidence: text("signal_confidence"),
 });
 
 export const insertPotentialBetSchema = createInsertSchema(potentialBets).omit({ id: true });

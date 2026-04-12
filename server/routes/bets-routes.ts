@@ -338,10 +338,54 @@ export function registerBetsRoutes(app: Express): void {
       // Return all bets (sorted best-first) — frontend groups by game
       const limitedBets = sortedBets.slice(0, 200);
 
-      res.json(limitedBets);
-    } catch (error) {
-      apiLogger.error("Error fetching bets:", error);
-      res.status(500).json({ error: "Failed to fetch bets" });
+    const betsWithEdges = bets.filter(b => {
+      // Require positive edge score
+      if (!b.edge_score || b.edge_score <= 0) return false;
+      // Filter out negative EV bets (same logic as GET /api/bets)
+      if (b.expected_value !== null && b.expected_value !== undefined) {
+        if (b.expected_value < BETTING_CONFIG.MIN_EV_THRESHOLD) return false;
+      }
+      return true;
+    });
+    const topPicks = betsWithEdges.slice(0, 10);
+
+    res.json(topPicks);
+  } catch (error) {
+    apiLogger.error("Error fetching top picks", error);
+    res.status(500).json({ error: "Failed to fetch top picks" });
+  }
+});
+
+/**
+ * GET /api/bets/status
+ * Health check - reports data freshness
+ */
+router.get("/status", async (req, res) => {
+  try {
+    const players = await storage.getPlayers();
+    const bets = await storage.getPotentialBets();
+
+    res.json({
+      hasPlayerData: players.length > 0,
+      playerCount: players.length,
+      betCount: bets.length,
+      dataStatus: players.length === 0 ? "No data - run refresh" : "Ready",
+    });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to check status" });
+  }
+});
+
+/**
+ * POST /api/explain
+ * Generate AI explanation for a bet
+ */
+router.post("/explain", async (req, res) => {
+  try {
+    const { player_name, prop, line, side, season_average, last_5_average, hit_rate, opponent } = req.body;
+
+    if (!player_name || !prop || !line || !side) {
+      return res.status(400).json({ error: "Missing required bet details" });
     }
   });
 
