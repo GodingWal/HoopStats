@@ -11,6 +11,7 @@ from datetime import datetime, timedelta
 from src.signals.signal_engine import SignalEngine, GameContext
 
 logger = logging.getLogger(__name__)
+from config.db_config import get_connection as _shared_get_connection, DATABASE_URL
 PRIZEPICKS_PAYOUT = 0.85
 
 def _normalize_averages(avgs):
@@ -36,25 +37,13 @@ def _normalize_averages(avgs):
 
 def _get_db_connection(autocommit=False):
     try:
-        import psycopg2
-        db_url = os.environ.get("DATABASE_URL")
-        if db_url:
-            conn = psycopg2.connect(db_url)
-        else:
-            conn = psycopg2.connect(
-                host=os.environ.get("DB_HOST", "localhost"),
-                port=int(os.environ.get("DB_PORT", 5432)),
-                database=os.environ.get("DB_NAME", "courtsideedge"),
-                user=os.environ.get("DB_USER", "postgres"),
-                password=os.environ.get("DB_PASSWORD", ""),
-            )
+        conn = _shared_get_connection()
         if autocommit:
             conn.autocommit = True
         return conn
     except Exception as e:
         logger.error(f"DB connection failed: {e}")
         return None
-
 
 def _safe_query(conn, sql, params=None, fetch="all"):
     """Execute a query safely - rollback on error, return empty on failure."""
@@ -129,14 +118,124 @@ def _enrich_injury_data(conn, team_id: str, game_date: str) -> Dict[str, Any]:
     return result
 
 
-def _enrich_referee_data(conn, game_date: str, home_team: str, away_team: str) -> List[str]:
-    # games table has: game_date, home_team, visitor_team, spread - NO referee column
-    # For now return empty until referee data source is added
-    return []
+def _enrich_referee_data(conn, game_date: str, home_team: str, away_team: str) -> Dict[str, Any]:
+    """Query referee_assignments table for referee crew and stats."""
+    result = {"referee_crew": [], "referee_names": [], "game_referees": []}
+    if not conn:
+        return result
+    rows = _safe_query(conn, """
+        SELECT referee_name, avg_fouls_per_game
+        FROM referee_assignments
+        WHERE game_date = %s
+          AND ((UPPER(home_team) = UPPER(%s) AND UPPER(away_team) = UPPER(%s))
+            OR (UPPER(home_team) = UPPER(%s) AND UPPER(away_team) = UPPER(%s)))
+    """, (game_date, home_team, away_team, away_team, home_team))
+    for row in (rows or []):
+        ref_name = row[0]
+        avg_fouls = float(row[1]) if row[1] else None
+        result["referee_crew"].append(ref_name)
+        result["referee_names"].append(ref_name)
+        result["game_referees"].append({
+            "name": ref_name,
+            "avg_fouls_per_game": avg_fouls,
+            "avg_fouls": avg_fouls,
+        })
+    return result
+
+
+def _enrich_matchup_history(conn, player_name: str, opp_team_id: str, game_date: str) -> List[Dict]:
+    """Get player's historical performance vs opponent from players.vs_team JSONB."""
+    if not conn or not player_name or not opp_team_id:
+        return []
+    row = _safe_query(conn, """
+        SELECT vs_team FROM players
+        WHERE LOWER(player_name) = LOWER(%s)
+        LIMIT 1
+    """, (player_name,), fetch="one")
+    if not row or not row[0]:
+        return []
+    vs_team = row[0] if isinstance(row[0], dict) else json.loads(row[0]) if row[0] else {}
+    # NBA team abbreviation variants (PrizePicks uses 3-letter, vs_team may use 2-3 letter)
+    TEAM_ALIASES = {
+        "GSW": "GS", "GS": "GSW", "NOP": "NO", "NO": "NOP", "NYK": "NY", "NY": "NYK",
+        "SAS": "SA", "SA": "SAS", "OKC": "OKC", "PHX": "PHX", "WAS": "WSH", "WSH": "WAS",
+        "BKN": "BK", "BK": "BKN", "LAL": "LAL", "LAC": "LAC", "CHA": "CHA", "CHI": "CHI",
+        "UTA": "UTAH", "UTAH": "UTA",
+    }
+    opp_key = opp_team_id.upper()
+    team_data = vs_team.get(opp_key)
+    if not team_data:
+        alt_key = TEAM_ALIASES.get(opp_key, "")
+        team_data = vs_team.get(alt_key)
+    if not team_data:
+        team_data = vs_team.get(opp_team_id) or vs_team.get(opp_team_id.lower())
+    if not team_data:
+        return []
+    n_games = int(team_data.get("games", 1))
+    if n_games < 1:
+        return []
+    # Build synthetic game entries from aggregate vs_team data
+    # The matchup_history signal uses recency-weighted averaging,
+    # so we create n_games entries with the per-game averages
+    avg_pts = float(team_data.get("PTS", 0))
+    avg_reb = float(team_data.get("REB", 0))
+    avg_ast = float(team_data.get("AST", 0))
+    avg_fg3m = float(team_data.get("FG3M", 0))
+    avg_pra = float(team_data.get("PRA", 0))
+    history = []
+    for i in range(n_games):
+        history.append({
+            "game_date": game_date, "GAME_DATE": game_date,
+            "pts": avg_pts, "PTS": avg_pts,
+            "reb": avg_reb, "REB": avg_reb,
+            "ast": avg_ast, "AST": avg_ast,
+            "fg3m": avg_fg3m, "FG3M": avg_fg3m,
+            "stl": 0, "STL": 0, "blk": 0, "BLK": 0,
+            "tov": 0, "TOV": 0, "min": 30, "MIN": 30,
+            "pra": avg_pra, "PRA": avg_pra,
+        })
+    return history
+
+
+def _enrich_defender_data(conn, player_name: str, opp_team_id: str, position: str) -> Dict[str, Any]:
+    """Get likely primary defender info from team_defense_by_position."""
+    result = {"primary_defender": "", "defender_stats": {}}
+    if not conn or not opp_team_id:
+        return result
+    # Map player position codes to team_defense_by_position position codes
+    # The table uses: PG, SG, SF, PF, C
+    pos_map = {"G": "PG", "F": "SF", "C": "C", "G-F": "SG", "F-G": "SG",
+               "F-C": "PF", "C-F": "PF", "PG": "PG", "SG": "SG", "SF": "SF", "PF": "PF"}
+    mapped_pos = pos_map.get(position, "")
+    if mapped_pos:
+        row = _safe_query(conn, """
+            SELECT pts_allowed, fg_pct_allowed, reb_allowed, ast_allowed
+            FROM team_defense_by_position
+            WHERE UPPER(team_id) = UPPER(%s)
+              AND UPPER(position) = UPPER(%s)
+            ORDER BY updated_at DESC NULLS LAST
+            LIMIT 1
+        """, (opp_team_id, mapped_pos), fetch="one")
+        if row:
+            pts_allowed = float(row[0] or 0)
+            # League avg pts allowed per position varies; use ~20 as baseline
+            league_avg_pts = 20.0
+            if pts_allowed > 0:
+                factor = pts_allowed / league_avg_pts
+                reb_allowed = float(row[2] or 0)
+                ast_allowed = float(row[3] or 0)
+                result["defender_stats"] = {
+                    "pts": factor,
+                    "reb": reb_allowed / 5.0 if reb_allowed > 0 else 1.0,
+                    "ast": ast_allowed / 4.0 if ast_allowed > 0 else 1.0,
+                    "fg3m": float(row[1] or 0.45) / 0.45 if row[1] else 1.0,
+                }
+    return result
 
 
 def _enrich_b2b_and_rest(conn, team_id: str, game_date: str) -> Dict[str, Any]:
-    result = {"is_b2b": False, "rest_days": 2, "home_game": None}
+    # rest_days=None means "no game data found — signal must not fire with a default"
+    result = {"is_b2b": False, "rest_days": None, "home_game": None}
     if not conn:
         return result
 
@@ -179,7 +278,7 @@ def _enrich_recent_stats(conn, player_name: str, game_date: str) -> Dict[str, An
     rows = _safe_query(conn, """
         SELECT pgs.pts, pgs.reb, pgs.ast, pgs.fg3m, pgs.stl, pgs.blk, pgs.tov, pgs.minutes_played
         FROM player_game_stats pgs
-        JOIN players p ON pgs.player_id = p.id
+        JOIN players p ON pgs.player_id = p.player_id::text
         WHERE LOWER(p.player_name) = LOWER(%s)
           AND pgs.game_date < %s
         ORDER BY pgs.game_date DESC LIMIT 10
@@ -205,6 +304,23 @@ def _enrich_recent_stats(conn, player_name: str, game_date: str) -> Dict[str, An
 
     result["last_5_averages"] = avg_stats(rows[:5])
     result["last_10_averages"] = avg_stats(rows[:10])
+    return result
+
+
+def _enrich_team_stats(conn, team_id: str) -> Dict[str, Any]:
+    """Query team_stats for pace and net rating."""
+    result = {"pace": None, "off_rating": None, "def_rating": None, "net_rating": None}
+    if not conn or not team_id:
+        return result
+    row = _safe_query(conn, """
+        SELECT pace, off_rating, def_rating, net_rating
+        FROM team_stats WHERE UPPER(team_id) = UPPER(%s) LIMIT 1
+    """, (team_id,), fetch="one")
+    if row:
+        result["pace"] = float(row[0]) if row[0] is not None else None
+        result["off_rating"] = float(row[1]) if row[1] is not None else None
+        result["def_rating"] = float(row[2]) if row[2] is not None else None
+        result["net_rating"] = float(row[3]) if row[3] is not None else None
     return result
 
 
@@ -321,7 +437,8 @@ def _baseline_from_averages(prop_type, season_averages):
 
 def _confidence_tier(aligned, edge_pct, conflict):
     if conflict: return "SKIP"
-    if aligned >= 3 and edge_pct > 8.0: return "SMASH"
+    # SMASH requires 4+ aligned signals — 3-signal SMASH is a coincidence, not conviction
+    if aligned >= 4 and edge_pct > 8.0: return "SMASH"
     if aligned >= 2 and 5.0 <= edge_pct <= 8.0: return "STRONG"
     if aligned >= 1 and 3.0 <= edge_pct < 5.0: return "LEAN"
     return "SKIP"
@@ -355,7 +472,7 @@ def project_player(player_id, game_date, prop_type, prizepicks_line,
 
     engine_result = signal_engine.run(ctx)
     signal_delta = engine_result.weighted_delta
-    final = round(baseline * (1 + signal_delta), 2)
+    final = round(baseline + signal_delta, 2)
     edge_pct = round((final - prizepicks_line) / prizepicks_line * 100, 2) if prizepicks_line else 0.0
 
     over_c = sum(1 for s in engine_result.signals_fired if s["direction"] == "OVER")
@@ -444,6 +561,7 @@ def run_daily(target_date=None, db_conn=None):
         team_b2b_cache = {}
         player_stats_cache = {}
         game_ctx_cache = {}
+        team_stats_cache = {}
 
         for row in rows:
             data = dict(zip(columns, row))
@@ -469,10 +587,32 @@ def run_daily(target_date=None, db_conn=None):
                 player_stats_cache[player_name] = _enrich_recent_stats(conn, player_name, target_date)
             recent_stats = player_stats_cache[player_name]
 
+            # Enrich referee data for this game
+            ref_key = f"{target_date}_{team_id}_{opp_team_id}"
+            if ref_key not in getattr(run_daily, '_ref_cache', {}):
+                if not hasattr(run_daily, '_ref_cache'):
+                    run_daily._ref_cache = {}
+                run_daily._ref_cache[ref_key] = _enrich_referee_data(conn, target_date, team_id, opp_team_id)
+            ref_data = run_daily._ref_cache.get(ref_key, {})
+
+            # Enrich matchup history
+            matchup_hist = _enrich_matchup_history(conn, player_name, opp_team_id, target_date)
+
+            # Enrich defender data
+            defender_info = _enrich_defender_data(conn, player_name, opp_team_id, data.get("position", ""))
+
             ck = f"{team_id}_{opp_team_id}"
             if ck not in game_ctx_cache:
                 game_ctx_cache[ck] = _enrich_game_context_data(conn, target_date, team_id)
             game_ctx = game_ctx_cache[ck]
+
+            if team_id not in team_stats_cache:
+                team_stats_cache[team_id] = _enrich_team_stats(conn, team_id)
+            team_stats = team_stats_cache[team_id]
+
+            if opp_team_id not in team_stats_cache:
+                team_stats_cache[opp_team_id] = _enrich_team_stats(conn, opp_team_id)
+            opp_stats = team_stats_cache[opp_team_id]
 
             extra = {
                 "team_id": team_id, "opp_team_id": opp_team_id,
@@ -480,23 +620,39 @@ def run_daily(target_date=None, db_conn=None):
                 "season_averages": _normalize_averages(data.get("season_averages") or {}),
                 "player_name": player_name,
                 "absent_players": injury_data.get("absent_players", []),
+                # injured_teammates is the key InjuryAlphaSignal reads; alias absent_players
+                "injured_teammates": injury_data.get("absent_players", []),
                 "out_players": injury_data.get("out_players", []),
                 "injury_boosts": injury_data.get("injury_boosts", {}),
                 "is_b2b": b2b_data.get("is_b2b", False) or game_ctx.get("is_b2b", False),
-                "rest_days": b2b_data.get("rest_days", 2),
+                # rest_days=None when no game data — rest_days signal will not fire
+                "rest_days": b2b_data.get("rest_days"),
                 "home_game": b2b_data.get("home_game"),
                 "is_home": b2b_data.get("home_game"),
                 "last_5_averages": _normalize_averages(data.get("last_5_averages") or recent_stats.get("last_5_averages") or {}),
                 "last_10_averages": _normalize_averages(data.get("last_10_averages") or recent_stats.get("last_10_averages") or {}),
                 "spread": game_ctx.get("spread"),
                 "projected_total": game_ctx.get("projected_total"),
-                "referee_crew": [],
+                "referee_crew": ref_data.get("referee_crew", []),
                 # Home/away splits (feeds home_away signal)
+                "referee_names": ref_data.get("referee_names", []),
+                "game_referees": ref_data.get("game_referees", []),
+                "vs_team_history": matchup_hist,
+                "primary_defender": defender_info.get("primary_defender", ""),
+                "defender_stats": defender_info.get("defender_stats", {}),
                 "home_averages": _normalize_averages(data.get("home_averages") or recent_stats.get("home_averages") or {}),
                 "away_averages": _normalize_averages(data.get("away_averages") or recent_stats.get("away_averages") or {}),
                 # Minutes load (feeds fatigue signal)
                 "minutes_last_7": recent_stats.get("minutes_last_7"),
                 "minutes_last_14": recent_stats.get("minutes_last_14"),
+                # Pace matchup signal data
+                "opponent_pace": opp_stats.get("pace"),
+                "opponent_pace_rank": None,  # rank not stored; signal falls back to raw pace
+                # Win probability signal data
+                "team_net_rating": team_stats.get("net_rating"),
+                "opp_net_rating": opp_stats.get("net_rating"),
+                "team_off_rating": team_stats.get("off_rating"),
+                "team_def_rating": team_stats.get("def_rating"),
             }
 
             proj = project_player(

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -22,14 +22,14 @@ const safeFixed = (val: number | string | null | undefined, digits: number = 1):
   if (val === null || val === undefined) return "—";
   const num = typeof val === 'string' ? parseFloat(val) : val;
   if (isNaN(num)) return "—";
-  return num.toFixed(digits);
+  return Number(num).toFixed(digits);
 };
 
 const safePercentage = (val: number | string | null | undefined, digits: number = 0): string => {
   if (val === null || val === undefined) return "—";
   const num = typeof val === 'string' ? parseFloat(val) : val;
   if (isNaN(num)) return "—";
-  return (num * 100).toFixed(digits) + "%";
+  return Number(num * 100).toFixed(digits) + "%";
 };
 
 // ==================== TYPE DEFINITIONS ====================
@@ -161,6 +161,13 @@ interface XGBoostOverview {
   message?: string;
 }
 
+interface ShapDriver {
+  feature: string;
+  shap_value: number;
+  feature_value: number;
+  direction: string;
+}
+
 interface XGBoostPrediction {
   id: number;
   playerId: string;
@@ -178,6 +185,9 @@ interface XGBoostPrediction {
   closingLineValue: number | null;
   capturedAt: string;
   settledAt: string | null;
+  modelProb: number | null;
+  calibrationMethod: string | null;
+  shapTopDrivers: ShapDriver[] | null;
 }
 
 interface XGBoostFeature {
@@ -722,7 +732,7 @@ function AccuracyTrendChart({ data }: { data: Array<{ date: string; accuracy: nu
               }}
               labelFormatter={(v) => new Date(v).toLocaleDateString()}
               formatter={(value: number, name: string) => {
-                if (name === "accuracy") return [`${value.toFixed(1)}%`, "Accuracy"];
+                if (name === "accuracy") return [`${Number(value).toFixed(1)}%`, "Accuracy"];
                 return [value, name];
               }}
             />
@@ -934,7 +944,7 @@ function SignalAccuracySection({ signals, isLoading }: { signals: SignalData[]; 
                   border: "1px solid hsl(var(--border))",
                   borderRadius: "8px",
                 }}
-                formatter={(value: number) => [`${value.toFixed(1)}%`, "Accuracy"]}
+                formatter={(value: number) => [`${Number(value).toFixed(1)}%`, "Accuracy"]}
               />
               {/* 52.4% break-even reference */}
               <Bar dataKey="accuracy" radius={[0, 4, 4, 0]}>
@@ -1082,7 +1092,7 @@ function WeightsSection({ weightsData, signals }: { weightsData?: WeightsRespons
                   borderRadius: "8px",
                 }}
                 formatter={(value: number, name: string) => [
-                  `${value.toFixed(1)}%`,
+                  `${Number(value).toFixed(1)}%`,
                   name,
                 ]}
               />
@@ -1423,7 +1433,7 @@ function XGBoostAccuracyChart({ data }: { data: Array<{ date: string; accuracy: 
               }}
               labelFormatter={(v) => new Date(v).toLocaleDateString()}
               formatter={(value: number, name: string) => {
-                if (name === "accuracy") return [`${value.toFixed(1)}%`, "XGBoost Accuracy"];
+                if (name === "accuracy") return [`${Number(value).toFixed(1)}%`, "XGBoost Accuracy"];
                 return [value, name];
               }}
             />
@@ -1530,7 +1540,7 @@ function XGBoostConfidenceTierSection({ tiers }: { tiers: XGBoostOverview["byCon
                     borderRadius: "8px",
                   }}
                   formatter={(value: number, name: string) => {
-                    if (name === "hitRate") return [`${value.toFixed(1)}%`, "Hit Rate"];
+                    if (name === "hitRate") return [`${Number(value).toFixed(1)}%`, "Hit Rate"];
                     return [value, name];
                   }}
                 />
@@ -1589,7 +1599,7 @@ function XGBoostFeatureImportanceSection({ features, sampleSize }: { features: X
 
   const chartData = top12.map(f => ({
     name: FEATURE_LABELS[f.name] || f.name.replace(/_/g, " "),
-    importance: parseFloat(f.importance.toFixed(3)),
+    importance: parseFloat(Number(f.importance).toFixed(3)),
     positive: f.diff > 0,
   }));
 
@@ -1626,7 +1636,7 @@ function XGBoostFeatureImportanceSection({ features, sampleSize }: { features: X
                 border: "1px solid hsl(var(--border))",
                 borderRadius: "8px",
               }}
-              formatter={(value: number) => [value.toFixed(3), "Importance"]}
+              formatter={(value: number) => [Number(value).toFixed(3), "Importance"]}
             />
             <Bar dataKey="importance" radius={[0, 4, 4, 0]}>
               {chartData.map((entry, index) => (
@@ -1654,7 +1664,42 @@ function XGBoostFeatureImportanceSection({ features, sampleSize }: { features: X
   );
 }
 
+function ShapDriversBar({ drivers }: { drivers: ShapDriver[] }) {
+  if (!drivers || drivers.length === 0) return null;
+  const maxAbs = Math.max(...drivers.map(d => Math.abs(d.shap_value)), 0.01);
+
+  return (
+    <div className="space-y-1 py-1">
+      {drivers.slice(0, 5).map((d, i) => {
+        const pct = Math.abs(d.shap_value) / maxAbs * 100;
+        const isOver = d.shap_value > 0;
+        return (
+          <div key={i} className="flex items-center gap-2 text-xs">
+            <span className="w-36 text-right text-muted-foreground truncate" title={d.feature}>
+              {d.feature.replace(/_/g, " ")}
+            </span>
+            <div className="flex-1 flex items-center gap-1">
+              <div
+                className={`h-3 rounded-sm ${isOver ? "bg-emerald-500/70" : "bg-rose-500/70"}`}
+                style={{ width: `${Math.max(pct, 4)}%` }}
+              />
+              <span className={`text-[10px] font-mono ${isOver ? "text-emerald-400" : "text-rose-400"}`}>
+                {d.shap_value > 0 ? "+" : ""}{Number(d.shap_value).toFixed(3)}
+              </span>
+            </div>
+            <span className="text-[10px] text-muted-foreground font-mono w-10 text-right">
+              {Number(d.feature_value).toFixed(1)}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function XGBoostPredictionLogSection({ predictions, isLoading }: { predictions: XGBoostPrediction[]; isLoading: boolean }) {
+  const [expandedId, setExpandedId] = React.useState<number | null>(null);
+
   if (isLoading) {
     return (
       <Card>
@@ -1690,6 +1735,7 @@ function XGBoostPredictionLogSection({ predictions, isLoading }: { predictions: 
                 <th className="text-center py-2 text-muted-foreground font-medium">Stat</th>
                 <th className="text-center py-2 text-muted-foreground font-medium">Line</th>
                 <th className="text-center py-2 text-muted-foreground font-medium">Dir</th>
+                <th className="text-center py-2 text-muted-foreground font-medium">Prob</th>
                 <th className="text-center py-2 text-muted-foreground font-medium">Tier</th>
                 <th className="text-center py-2 text-muted-foreground font-medium">Edge</th>
                 <th className="text-center py-2 text-muted-foreground font-medium">Actual</th>
@@ -1699,56 +1745,86 @@ function XGBoostPredictionLogSection({ predictions, isLoading }: { predictions: 
             <tbody>
               {predictions.slice(0, 40).map((pred) => {
                 const hasActual = pred.actualValue !== null;
+                const hasShap = pred.shapTopDrivers && pred.shapTopDrivers.length > 0;
+                const isExpanded = expandedId === pred.id;
 
                 return (
-                  <tr key={pred.id} className="border-b border-border/30 hover:bg-muted/30">
-                    <td className="py-2">
-                      <span className="font-medium text-sm">{pred.playerId}</span>
-                    </td>
-                    <td className="text-center py-2 text-xs text-muted-foreground">
-                      {new Date(pred.gameDate).toLocaleDateString("en-US", {
-                        month: "short",
-                        day: "numeric",
-                      })}
-                    </td>
-                    <td className="text-center py-2 text-xs">{pred.statType}</td>
-                    <td className="text-center py-2 font-mono">{safeFixed(pred.lineValue)}</td>
-                    <td className="text-center py-2">
-                      {pred.predictedDirection === "OVER" || pred.predictedDirection === "Over" ? (
-                        <ArrowUpRight className="w-4 h-4 text-emerald-400 inline" />
-                      ) : pred.predictedDirection === "UNDER" || pred.predictedDirection === "Under" ? (
-                        <ArrowDownRight className="w-4 h-4 text-rose-400 inline" />
-                      ) : (
-                        <Minus className="w-4 h-4 text-muted-foreground inline" />
-                      )}
-                    </td>
-                    <td className="text-center py-2">
-                      {pred.confidenceTier ? (
-                        <Badge className={`text-[10px] ${GRADE_COLORS[pred.confidenceTier] || "bg-muted/50 text-muted-foreground border-muted"}`}>
-                          {pred.confidenceTier}
-                        </Badge>
-                      ) : (
-                        <span className="text-xs text-muted-foreground">—</span>
-                      )}
-                    </td>
-                    <td className="text-center py-2 font-mono text-xs">
-                      {safeFixed(pred.edgeTotal, 1)}
-                    </td>
-                    <td className="text-center py-2 font-mono">
-                      {hasActual ? safeFixed(pred.actualValue) : "—"}
-                    </td>
-                    <td className="text-center py-2">
-                      {hasActual ? (
-                        pred.hit ? (
-                          <CheckCircle2 className="w-4 h-4 text-emerald-400 inline" />
+                  <React.Fragment key={pred.id}>
+                    <tr
+                      className={`border-b border-border/30 hover:bg-muted/30 ${hasShap ? "cursor-pointer" : ""}`}
+                      onClick={() => hasShap && setExpandedId(isExpanded ? null : pred.id)}
+                    >
+                      <td className="py-2">
+                        <span className="font-medium text-sm">{pred.playerId}</span>
+                      </td>
+                      <td className="text-center py-2 text-xs text-muted-foreground">
+                        {new Date(pred.gameDate).toLocaleDateString("en-US", {
+                          month: "short",
+                          day: "numeric",
+                        })}
+                      </td>
+                      <td className="text-center py-2 text-xs">{pred.statType}</td>
+                      <td className="text-center py-2 font-mono">{safeFixed(pred.lineValue)}</td>
+                      <td className="text-center py-2">
+                        {pred.predictedDirection === "OVER" || pred.predictedDirection === "Over" ? (
+                          <ArrowUpRight className="w-4 h-4 text-emerald-400 inline" />
+                        ) : pred.predictedDirection === "UNDER" || pred.predictedDirection === "Under" ? (
+                          <ArrowDownRight className="w-4 h-4 text-rose-400 inline" />
                         ) : (
-                          <XCircle className="w-4 h-4 text-rose-400 inline" />
-                        )
-                      ) : (
-                        <span className="text-xs text-muted-foreground">Pending</span>
-                      )}
-                    </td>
-                  </tr>
+                          <Minus className="w-4 h-4 text-muted-foreground inline" />
+                        )}
+                      </td>
+                      <td className="text-center py-2">
+                        {pred.modelProb != null ? (
+                          <span className="font-mono text-xs">
+                            {Number((pred.modelProb * 100).toFixed(0))}%
+                            {pred.calibrationMethod === "isotonic" && (
+                              <span className="ml-1 text-[9px] text-blue-400" title="Isotonic calibration applied">CAL</span>
+                            )}
+                          </span>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">—</span>
+                        )}
+                      </td>
+                      <td className="text-center py-2">
+                        {pred.confidenceTier ? (
+                          <Badge className={`text-[10px] ${GRADE_COLORS[pred.confidenceTier] || "bg-muted/50 text-muted-foreground border-muted"}`}>
+                            {pred.confidenceTier}
+                          </Badge>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">—</span>
+                        )}
+                      </td>
+                      <td className="text-center py-2 font-mono text-xs">
+                        {safeFixed(pred.edgeTotal, 1)}
+                      </td>
+                      <td className="text-center py-2 font-mono">
+                        {hasActual ? safeFixed(pred.actualValue) : "—"}
+                      </td>
+                      <td className="text-center py-2">
+                        {hasActual ? (
+                          pred.hit ? (
+                            <CheckCircle2 className="w-4 h-4 text-emerald-400 inline" />
+                          ) : (
+                            <XCircle className="w-4 h-4 text-rose-400 inline" />
+                          )
+                        ) : (
+                          <span className="text-xs text-muted-foreground">Pending</span>
+                        )}
+                      </td>
+                    </tr>
+                    {isExpanded && hasShap && (
+                      <tr className="bg-muted/20">
+                        <td colSpan={10} className="px-4 py-2">
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="text-xs font-medium text-muted-foreground">SHAP Drivers</span>
+                            <span className="text-[10px] text-muted-foreground">(what drove this prediction)</span>
+                          </div>
+                          <ShapDriversBar drivers={pred.shapTopDrivers!} />
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
                 );
               })}
             </tbody>
@@ -1802,7 +1878,7 @@ function EvaluationMetricsSection({
           <div className="rounded-lg bg-card/50 border p-3">
             <div className="text-xs text-muted-foreground mb-1">Brier Score</div>
             <div className={`text-2xl font-bold font-mono ${brierColor}`}>
-              {metrics.brierScore.toFixed(4)}
+              {Number(metrics.brierScore).toFixed(4)}
             </div>
             <div className="text-xs text-muted-foreground mt-1">{brierQuality}</div>
           </div>
@@ -1810,7 +1886,7 @@ function EvaluationMetricsSection({
           <div className="rounded-lg bg-card/50 border p-3">
             <div className="text-xs text-muted-foreground mb-1">ECE</div>
             <div className={`text-2xl font-bold font-mono ${eceColor}`}>
-              {metrics.ece.toFixed(4)}
+              {Number(metrics.ece).toFixed(4)}
             </div>
             <div className="text-xs text-muted-foreground mt-1">{eceQuality}</div>
           </div>
@@ -1818,7 +1894,7 @@ function EvaluationMetricsSection({
           <div className="rounded-lg bg-card/50 border p-3">
             <div className="text-xs text-muted-foreground mb-1">Log Loss</div>
             <div className="text-2xl font-bold font-mono text-blue-400">
-              {metrics.logLoss.toFixed(4)}
+              {Number(metrics.logLoss).toFixed(4)}
             </div>
             <div className="text-xs text-muted-foreground mt-1">Lower is better</div>
           </div>
@@ -1826,7 +1902,7 @@ function EvaluationMetricsSection({
           <div className="rounded-lg bg-card/50 border p-3">
             <div className="text-xs text-muted-foreground mb-1">Avg CLV</div>
             <div className={`text-2xl font-bold font-mono ${metrics.avgClv > 0 ? "text-emerald-400" : metrics.avgClv < 0 ? "text-rose-400" : "text-muted-foreground"}`}>
-              {metrics.avgClv > 0 ? "+" : ""}{metrics.avgClv.toFixed(3)}
+              {metrics.avgClv > 0 ? "+" : ""}{Number(metrics.avgClv).toFixed(3)}
             </div>
             <div className="text-xs text-muted-foreground mt-1">{clvSampleSize} w/ closing</div>
           </div>
@@ -1834,7 +1910,7 @@ function EvaluationMetricsSection({
           <div className="rounded-lg bg-card/50 border p-3">
             <div className="text-xs text-muted-foreground mb-1">CLV+ Rate</div>
             <div className={`text-2xl font-bold font-mono ${metrics.clvPositiveRate > 0.5 ? "text-emerald-400" : "text-rose-400"}`}>
-              {(metrics.clvPositiveRate * 100).toFixed(1)}%
+              {Number(metrics.clvPositiveRate * 100).toFixed(1)}%
             </div>
             <div className="text-xs text-muted-foreground mt-1">Beat closing line</div>
           </div>
@@ -1852,7 +1928,7 @@ function EvaluationMetricsSection({
                   <YAxis domain={[0, 1]} tick={{ fontSize: 10 }} stroke="hsl(var(--muted-foreground))" />
                   <Tooltip
                     contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))" }}
-                    formatter={(value: number, name: string) => [(value * 100).toFixed(1) + "%", name === "predicted" ? "Predicted" : "Actual"]}
+                    formatter={(value: number, name: string) => [Number(value * 100).toFixed(1) + "%", name === "predicted" ? "Predicted" : "Actual"]}
                   />
                   <Bar dataKey="predicted" fill="hsl(217, 91%, 60%)" name="predicted" opacity={0.6} />
                   <Bar dataKey="actual" fill="hsl(142, 76%, 36%)" name="actual" />
@@ -1888,13 +1964,13 @@ function EvaluationMetricsSection({
                       <td className="py-2 px-2 font-medium">{stat}</td>
                       <td className="text-center py-2 px-2 text-muted-foreground">{data.count}</td>
                       <td className={`text-center py-2 px-2 font-mono ${data.hitRate > 0.52 ? "text-emerald-400" : "text-rose-400"}`}>
-                        {(data.hitRate * 100).toFixed(1)}%
+                        {Number(data.hitRate * 100).toFixed(1)}%
                       </td>
                       <td className={`text-center py-2 px-2 font-mono ${data.brierScore < 0.20 ? "text-emerald-400" : "text-orange-400"}`}>
-                        {data.brierScore.toFixed(4)}
+                        {Number(data.brierScore).toFixed(4)}
                       </td>
                       <td className={`text-center py-2 px-2 font-mono ${data.roi > 0 ? "text-emerald-400" : "text-rose-400"}`}>
-                        {data.roi > 0 ? "+" : ""}{(data.roi * 100).toFixed(1)}%
+                        {data.roi > 0 ? "+" : ""}{Number(data.roi * 100).toFixed(1)}%
                       </td>
                     </tr>
                   ))}
@@ -1933,7 +2009,7 @@ function MarketComparisonSection({
           <div className="rounded-lg bg-card/50 border p-3">
             <div className="text-xs text-muted-foreground mb-1">Agreement Rate</div>
             <div className="text-2xl font-bold font-mono text-blue-400">
-              {(comparison.agreementRate * 100).toFixed(1)}%
+              {Number(comparison.agreementRate * 100).toFixed(1)}%
             </div>
             <div className="text-xs text-muted-foreground mt-1">Model agrees w/ market</div>
           </div>
@@ -1950,7 +2026,7 @@ function MarketComparisonSection({
             <div className="rounded-lg bg-card/50 border p-3">
               <div className="text-xs text-muted-foreground mb-1">Model Closer to Actual</div>
               <div className={`text-2xl font-bold font-mono ${comparison.modelCloserToActualRate > 0.5 ? "text-emerald-400" : "text-rose-400"}`}>
-                {(comparison.modelCloserToActualRate * 100).toFixed(1)}%
+                {Number(comparison.modelCloserToActualRate * 100).toFixed(1)}%
               </div>
               <div className="text-xs text-muted-foreground mt-1">{comparison.totalWithActuals} settled</div>
             </div>
@@ -1989,11 +2065,11 @@ function MarketComparisonSection({
                     <tr key={i} className="border-b border-border/20">
                       <td className="py-2 px-2 font-medium truncate max-w-[120px]">{d.playerName}</td>
                       <td className="text-center py-2 px-2 text-xs">{d.statType}</td>
-                      <td className="text-center py-2 px-2 font-mono">{d.modelProjection.toFixed(1)}</td>
-                      <td className="text-center py-2 px-2 font-mono text-muted-foreground">{d.marketConsensus.toFixed(1)}</td>
-                      <td className="text-center py-2 px-2 font-mono">{d.line.toFixed(1)}</td>
+                      <td className="text-center py-2 px-2 font-mono">{Number(d.modelProjection).toFixed(1)}</td>
+                      <td className="text-center py-2 px-2 font-mono text-muted-foreground">{Number(d.marketConsensus).toFixed(1)}</td>
+                      <td className="text-center py-2 px-2 font-mono">{Number(d.line).toFixed(1)}</td>
                       <td className={`text-center py-2 px-2 font-mono font-bold ${d.differencePct > 5 ? "text-amber-400" : "text-yellow-400"}`}>
-                        {d.differencePct.toFixed(1)}%
+                        {Number(d.differencePct).toFixed(1)}%
                       </td>
                       <td className="text-center py-2 px-2">
                         {d.sidesAgree ? (

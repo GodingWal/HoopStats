@@ -1,468 +1,342 @@
-/**
- * Betting-related API routes
- *
- * Generates recommendations using sample-size-adjusted hit rates,
- * edge detection, and expected value filtering.
- */
-
-import { Router } from "express";
+import type { Express } from "express";
+import { spawn } from "child_process";
+import path from "path";
 import { storage } from "../storage";
+import { pool } from "../db";
 import { apiLogger } from "../logger";
-import { analyzeEdges } from "../edge-detection";
-import { fetchPrizePicksProjections } from "../prizepicks-api";
-import { generateBetExplanation, parseBetScreenshot } from "../services/openai";
-import { BETTING_CONFIG } from "../constants";
-import { validateBody, betSchema } from "../validation";
-import type { Player, HitRateEntry } from "@shared/schema";
-import { adjustedHitRate } from "../utils/statistics";
-import { evaluateBetValue } from "../utils/ev-calculator";
-import { logXGBoostPrediction } from "../services/xgboost-logger";
-import { calculateSignalScore } from "../signal-scoring";
+import { loadSignalWeights, calculateSignalScore, getSignalDescription } from "../signal-scoring";
+import { parseBetScreenshot } from "../services/openai";
+import { batchXGBoostPredict } from "../xgboost-service";
+import { ensurePlayersLoaded, generateBetsFromPrizePicks, enrichBetsWithCalibration, getPythonCommand } from "./route-helpers";
 
-const router = Router();
 
-/**
- * Extract raw hit rate and sample size from a HitRateEntry,
- * handling both legacy (number) and new ({ rate, sampleSize }) formats.
- */
-function parseHitRateEntry(entry: HitRateEntry): { rate: number; sampleSize: number } {
-  if (typeof entry === "number") {
-    return { rate: entry, sampleSize: 0 }; // Legacy format, no sample size
-  }
-  return { rate: entry.rate, sampleSize: entry.sampleSize };
-}
+// Track when bets were last refreshed so GET can detect staleness
+let lastBetsRefreshTime = 0;
+const BETS_STALE_MS = 20 * 60 * 1000; // 20 minutes - auto-refresh if older
+const AUTO_REFRESH_INTERVAL_MS = 15 * 60 * 1000; // 15 minutes
 
-/**
- * Determine confidence and recommendation from adjusted hit rate.
- * Uses Wilson-adjusted rate for sample-size-aware confidence thresholding.
- */
-function classifyBet(
-  rawRate: number,
-  sampleSize: number,
-): { confidence: "HIGH" | "MEDIUM" | "LOW"; recommendation: "OVER" | "UNDER"; adjustedRate: number } {
-  const { CONFIDENCE_THRESHOLDS } = BETTING_CONFIG;
+export function registerBetsRoutes(app: Express): void {
+  app.post("/api/bets/refresh", async (req, res) => {
+    try {
+      apiLogger.info("Refreshing bets from PrizePicks...");
 
-  // Determine direction first from raw rate
-  const isOver = rawRate >= 50;
-  const recommendation: "OVER" | "UNDER" = isOver ? "OVER" : "UNDER";
+      let players = await ensurePlayersLoaded();
 
-  // Use Wilson-adjusted rate for confidence (conservative estimate)
-  const adjusted = sampleSize > 0
-    ? adjustedHitRate(rawRate, sampleSize, recommendation)
-    : rawRate; // No sample size available, use raw
+      let generatedBets: any[] = await generateBetsFromPrizePicks(players);
+      generatedBets = await enrichBetsWithCalibration(generatedBets, players);
 
-  let confidence: "HIGH" | "MEDIUM" | "LOW" = "LOW";
+      // Fix 5: Run XGBoost at refresh-time (not on every GET request).
+      // Fix 2: XGBoost probability drives tier promotion/demotion.
+      try {
+        apiLogger.info("[XGBoost] Running batch prediction during refresh for " + generatedBets.length + " bets");
+        const xgbPlayerMap = new Map<string, any>();
+        for (const p of players) xgbPlayerMap.set(p.player_name.toLowerCase(), p);
 
-  if (recommendation === "OVER") {
-    if (adjusted >= CONFIDENCE_THRESHOLDS.HIGH_OVER) confidence = "HIGH";
-    else if (adjusted >= CONFIDENCE_THRESHOLDS.MEDIUM_OVER) confidence = "MEDIUM";
-  } else {
-    if (adjusted <= CONFIDENCE_THRESHOLDS.HIGH_UNDER) confidence = "HIGH";
-    else if (adjusted <= CONFIDENCE_THRESHOLDS.MEDIUM_UNDER) confidence = "MEDIUM";
-  }
+        const xgbRequests: Array<{ player: any; statType: string; line: number }> = [];
+        const xgbBetIndices: number[] = [];
+        const supportedStats = ["PTS", "REB", "AST", "FG3M", "STL", "BLK", "TOV"];
 
-  return { confidence, recommendation, adjustedRate: Math.round(adjusted * 10) / 10 };
-}
-
-/**
- * Generate potential bets from player data
- */
-function generatePotentialBets(players: Player[]) {
-  const bets: Array<{
-    player_id: number;
-    player_name: string;
-    team: string;
-    stat_type: string;
-    line: number;
-    hit_rate: number;
-    sample_size: number | null;
-    adjusted_hit_rate: number | null;
-    season_avg: number;
-    last_5_avg: number | null;
-    recommendation: string;
-    confidence: string;
-    edge_type: string | null;
-    edge_score: number | null;
-    edge_description: string | null;
-    expected_value: number | null;
-    kelly_size: number | null;
-    signal_score: number | null;
-    signal_confidence: string | null;
-  }> = [];
-
-  const statTypes = ["PTS", "REB", "AST", "PRA", "FG3M"];
-
-  for (const player of players) {
-    for (const statType of statTypes) {
-      const hitRates = player.hit_rates[statType];
-      if (!hitRates) continue;
-
-      for (const [line, entry] of Object.entries(hitRates)) {
-        const lineNum = parseFloat(line);
-        const { rate, sampleSize } = parseHitRateEntry(entry as HitRateEntry);
-        const seasonAvg = player.season_averages[statType as keyof typeof player.season_averages];
-        const last5Avg = player.last_5_averages[statType as keyof typeof player.last_5_averages];
-
-        if (typeof seasonAvg !== "number") continue;
-
-        // Skip bets with insufficient sample size when we know the sample size
-        if (sampleSize > 0 && sampleSize < BETTING_CONFIG.MIN_SAMPLE_SIZE) continue;
-
-        const { confidence, recommendation, adjustedRate } = classifyBet(rate, sampleSize);
-
-        if (confidence !== "LOW") {
-          const edgeAnalysis = analyzeEdges(player, statType, recommendation, rate);
-
-          // Calculate signal-weighted score from learned backtest weights
-          const signalResult = calculateSignalScore(
-            player, statType, recommendation, rate, edgeAnalysis.edges
-          );
-
-          // Calculate Expected Value using adjusted probability
-          const estimatedProb = adjustedRate / 100;
-          const evResult = evaluateBetValue(
-            recommendation === "OVER" ? estimatedProb : 1 - estimatedProb,
-            BETTING_CONFIG.DEFAULT_ODDS,
-            BETTING_CONFIG.MIN_EV_THRESHOLD
-          );
-
-          bets.push({
-            player_id: player.player_id,
-            player_name: player.player_name,
-            team: player.team,
-            stat_type: statType,
-            line: lineNum,
-            hit_rate: rate,
-            sample_size: sampleSize > 0 ? sampleSize : null,
-            adjusted_hit_rate: sampleSize > 0 ? adjustedRate : null,
-            season_avg: seasonAvg,
-            last_5_avg: typeof last5Avg === "number" ? last5Avg : null,
-            recommendation,
-            confidence,
-            edge_type: edgeAnalysis.bestEdge?.type || null,
-            edge_score: edgeAnalysis.totalScore || null,
-            edge_description: edgeAnalysis.bestEdge?.description || null,
-            expected_value: evResult.ev,
-            kelly_size: evResult.quarterKelly,
-            signal_score: Math.round(signalResult.signalScore * 1000) / 1000,
-            signal_confidence: signalResult.signalConfidence,
-          });
-
-          // Log prediction to XGBoost training table (fire-and-forget)
-          logXGBoostPrediction(
-            player, statType, lineNum, recommendation, confidence,
-            edgeAnalysis.edges,
-            { hitRate: rate, expectedValue: evResult.ev, edgeTotalScore: edgeAnalysis.totalScore },
-          );
+        for (let i = 0; i < generatedBets.length; i++) {
+          const bet = generatedBets[i];
+          const player = xgbPlayerMap.get((bet.player_name || "").toLowerCase());
+          if (player && bet.stat_type && bet.line && supportedStats.includes(bet.stat_type)) {
+            xgbRequests.push({ player, statType: bet.stat_type, line: Number(bet.line) });
+            xgbBetIndices.push(i);
+          }
         }
-      }
-    }
-  }
 
-  return bets.sort((a, b) => {
-    // Primary: EV (higher is better)
-    const aEV = a.expected_value ?? -1;
-    const bEV = b.expected_value ?? -1;
-    if (aEV !== bEV) return bEV - aEV;
-    // Secondary: signal score (learned weights)
-    const aSig = a.signal_score ?? 0;
-    const bSig = b.signal_score ?? 0;
-    if (aSig !== bSig) return bSig - aSig;
-    // Tertiary: edge score
-    if (a.edge_score && !b.edge_score) return -1;
-    if (!a.edge_score && b.edge_score) return 1;
-    if (a.edge_score && b.edge_score && a.edge_score !== b.edge_score) return b.edge_score - a.edge_score;
-    // Quaternary: confidence
-    if (a.confidence === "HIGH" && b.confidence !== "HIGH") return -1;
-    if (b.confidence === "HIGH" && a.confidence !== "HIGH") return 1;
-    // Final: hit rate deviation from 50 (works for both OVER and UNDER)
-    const aDeviation = Math.abs(a.hit_rate - 50);
-    const bDeviation = Math.abs(b.hit_rate - 50);
-    return bDeviation - aDeviation;
-  });
-}
+        if (xgbRequests.length > 0) {
+          const xgbResults = await batchXGBoostPredict(xgbRequests);
+          let xgbHits = 0;
+          for (let j = 0; j < xgbRequests.length; j++) {
+            const req = xgbRequests[j];
+            const idx = xgbBetIndices[j];
+            const key = `${req.player.player_name}_${req.statType}_${req.line}`;
+            const pred = xgbResults.get(key);
+            if (!pred) continue;
+            xgbHits++;
+            const bet = generatedBets[idx];
+            bet.xgb_prob_over = pred.prob_over;
+            bet.xgb_confidence = pred.confidence;
+            bet.xgb_model_type = pred.model_type;
+            bet.ml_explanation = {
+              shap_drivers: (pred.shap_top_drivers || []).slice(0, 8),
+              calibration: pred.calibration_method || "none",
+              calibration_shift: pred.calibration_shift || 0,
+              raw_prob_over: pred.raw_prob_over ?? null,
+            };
 
-/**
- * Generate potential bets from PrizePicks projections
- */
-/** Maximum distance between PrizePicks line and closest available hit rate line */
-const MAX_LINE_DISTANCE: Record<string, number> = {
-  PTS: 3.5, PRA: 4.5, PR: 3.0, PA: 3.0, FPTS: 5.0, FGA: 2.5, MIN: 2.5,
-  REB: 1.5, AST: 1.5, RA: 2.0,
-  FG3M: 1.0, STL: 0.5, BLK: 0.5, TO: 0.5, TOV: 0.5, PF: 0.5,
-};
-const DEFAULT_MAX_LINE_DISTANCE = 2.5;
-
-async function generateBetsFromPrizePicks(players: Player[]) {
-  const bets: Array<{
-    player_id: number;
-    player_name: string;
-    team: string;
-    stat_type: string;
-    line: number;
-    hit_rate: number;
-    sample_size: number | null;
-    adjusted_hit_rate: number | null;
-    season_avg: number;
-    last_5_avg: number | null;
-    recommendation: string;
-    confidence: string;
-    edge_type: string | null;
-    edge_score: number | null;
-    edge_description: string | null;
-    expected_value: number | null;
-    kelly_size: number | null;
-    signal_score: number | null;
-    signal_confidence: string | null;
-  }> = [];
-
-  try {
-    const projections = await fetchPrizePicksProjections();
-    apiLogger.info(`Fetched ${projections.length} PrizePicks projections`);
-
-    const playerMap = new Map<string, Player>();
-    for (const player of players) {
-      playerMap.set(player.player_name.toLowerCase(), player);
-    }
-
-    for (const proj of projections) {
-      const player = playerMap.get(proj.playerName.toLowerCase());
-      if (!player) continue;
-
-      const statType = proj.statTypeAbbr;
-      const line = proj.line;
-
-      const hitRates = player.hit_rates[statType];
-      if (!hitRates) continue;
-
-      // Find hit rate for exact line or closest line
-      const lineStr = line.toString();
-      let hitRateEntry: HitRateEntry | undefined = hitRates[lineStr] as HitRateEntry | undefined;
-
-      if (hitRateEntry === undefined) {
-        const lines = Object.keys(hitRates).map(l => parseFloat(l)).sort((a, b) => a - b);
-        if (lines.length === 0) continue;
-        const closestLine = lines.reduce((prev, curr) =>
-          Math.abs(curr - line) < Math.abs(prev - line) ? curr : prev
-        );
-        // Reject if closest line is too far from the PrizePicks line
-        const maxDist = MAX_LINE_DISTANCE[statType] ?? DEFAULT_MAX_LINE_DISTANCE;
-        if (Math.abs(closestLine - line) > maxDist) continue;
-        hitRateEntry = hitRates[closestLine.toString()] as HitRateEntry | undefined;
+            // Fix 2: XGBoost confidence promotion/demotion
+            // Promotes tier when XGBoost strongly agrees with recommendation direction;
+            // demotes one level when XGBoost disagrees (prob <= 0.40 in our direction).
+            // Coin-flip guard: if prob_over is 0.45–0.55, XGBoost is too uncertain
+            // to promote — block all tier promotions in that range.
+            const currentTier = bet.confidence_tier as string | undefined;
+            const relevantProb: number = bet.recommendation === "OVER" ? pred.prob_over : pred.prob_under;
+            const xgbCoinFlip = pred.prob_over >= 0.45 && pred.prob_over <= 0.55;
+            if (!xgbCoinFlip && relevantProb >= 0.80 && (currentTier === "STRONG" || currentTier === "LEAN")) {
+              bet.confidence_tier = "SMASH";
+            } else if (!xgbCoinFlip && relevantProb >= 0.70 && currentTier === "LEAN") {
+              bet.confidence_tier = "STRONG";
+            } else if (relevantProb <= 0.40) {
+              if (currentTier === "SMASH") bet.confidence_tier = "STRONG";
+              else if (currentTier === "STRONG") bet.confidence_tier = "LEAN";
+              else if (currentTier === "LEAN") bet.confidence_tier = "AVOID";
+            }
+          }
+          apiLogger.info(`[XGBoost] Refresh: predicted ${xgbHits}/${xgbRequests.length} bets`);
+        }
+      } catch (xgbErr: any) {
+        apiLogger.error("[XGBoost] Refresh prediction error (non-fatal):", xgbErr?.message || xgbErr);
       }
 
-      if (hitRateEntry === undefined) continue;
-
-      const { rate, sampleSize } = parseHitRateEntry(hitRateEntry);
-      const seasonAvg = player.season_averages[statType as keyof typeof player.season_averages];
-      const last5Avg = player.last_5_averages[statType as keyof typeof player.last_5_averages];
-
-      if (typeof seasonAvg !== "number") continue;
-
-      // Skip bets with insufficient sample size
-      if (sampleSize > 0 && sampleSize < BETTING_CONFIG.MIN_SAMPLE_SIZE) continue;
-
-      const { confidence, recommendation, adjustedRate } = classifyBet(rate, sampleSize);
-
-      if (confidence !== "LOW") {
-        const edgeAnalysis = analyzeEdges(player, statType, recommendation, rate);
-
-        // Calculate signal-weighted score from learned backtest weights
-        const signalResult = calculateSignalScore(
-          player, statType, recommendation, rate, edgeAnalysis.edges
-        );
-
-        // Calculate Expected Value
-        const estimatedProb = adjustedRate / 100;
-        const evResult = evaluateBetValue(
-          recommendation === "OVER" ? estimatedProb : 1 - estimatedProb,
-          BETTING_CONFIG.DEFAULT_ODDS,
-          BETTING_CONFIG.MIN_EV_THRESHOLD
-        );
-
-        bets.push({
-          player_id: player.player_id,
-          player_name: player.player_name,
-          team: player.team,
-          stat_type: statType,
-          line: line,
-          hit_rate: rate,
-          sample_size: sampleSize > 0 ? sampleSize : null,
-          adjusted_hit_rate: sampleSize > 0 ? adjustedRate : null,
-          season_avg: seasonAvg,
-          last_5_avg: typeof last5Avg === "number" ? last5Avg : null,
-          recommendation,
-          confidence,
-          edge_type: edgeAnalysis.bestEdge?.type || null,
-          edge_score: edgeAnalysis.totalScore || null,
-          edge_description: edgeAnalysis.bestEdge?.description || null,
-          expected_value: evResult.ev,
-          kelly_size: evResult.quarterKelly,
-          signal_score: Math.round(signalResult.signalScore * 1000) / 1000,
-          signal_confidence: signalResult.signalConfidence,
-        });
-
-        // Log prediction to XGBoost training table (fire-and-forget)
-        logXGBoostPrediction(
-          player, statType, line, recommendation, confidence,
-          edgeAnalysis.edges,
-          { hitRate: rate, expectedValue: evResult.ev, edgeTotalScore: edgeAnalysis.totalScore },
-        );
+      await storage.clearPotentialBets();
+      for (const bet of generatedBets) {
+        await storage.createPotentialBet(bet);
       }
-    }
 
-    return bets.sort((a, b) => {
-      // Primary: EV (higher is better)
-      const aEV = a.expected_value ?? -1;
-      const bEV = b.expected_value ?? -1;
-      if (aEV !== bEV) return bEV - aEV;
-      // Secondary: signal score (learned weights)
-      const aSig = a.signal_score ?? 0;
-      const bSig = b.signal_score ?? 0;
-      if (aSig !== bSig) return bSig - aSig;
-      // Tertiary: edge score
-      if (a.edge_score && !b.edge_score) return -1;
-      if (!a.edge_score && b.edge_score) return 1;
-      if (a.edge_score && b.edge_score && a.edge_score !== b.edge_score) return b.edge_score - a.edge_score;
-      // Quaternary: confidence
-      if (a.confidence === "HIGH" && b.confidence !== "HIGH") return -1;
-      if (b.confidence === "HIGH" && a.confidence !== "HIGH") return 1;
-      // Final: hit rate deviation from 50 (works for both OVER and UNDER)
-      const aDeviation = Math.abs(a.hit_rate - 50);
-      const bDeviation = Math.abs(b.hit_rate - 50);
-      return bDeviation - aDeviation;
-    });
-  } catch (error) {
-    apiLogger.error("Error generating bets from PrizePicks", error);
-    apiLogger.info("Falling back to generating bets from all hit rates");
-    return generatePotentialBets(players);
-  }
-}
+      // Persist extra fields via raw SQL (bypasses Drizzle type restrictions):
+      // calibration data + XGBoost results + ml_signals_fired
+      if (pool) {
+        let updatedCount = 0;
+        for (const bet of generatedBets) {
+          try {
+            await pool.query(
+              `UPDATE potential_bets SET
+                confidence_tier = $1, signal_agreement = $2, calibrated_probability = $3,
+                agreeing_signals = $4, total_signals = $5, signal_details = $6,
+                xgb_prob_over = $7, ml_explanation = $8, ml_signals_fired = $9
+              WHERE player_name = $10 AND stat_type = $11 AND line = $12`,
+              [
+                bet.confidence_tier ?? null,
+                bet.signal_agreement ?? null,
+                bet.calibrated_probability ?? null,
+                bet.agreeing_signals ?? null,
+                bet.total_signals ?? null,
+                JSON.stringify(bet.signal_details || []),
+                bet.xgb_prob_over ?? null,
+                bet.ml_explanation ? JSON.stringify(bet.ml_explanation) : null,
+                bet.ml_signals_fired ?? null,
+                bet.player_name, bet.stat_type, Number(bet.line),
+              ]
+            );
+            updatedCount++;
+          } catch (e: any) {
+            // Ignore individual update failures (column may not exist in older DB schemas)
+          }
+        }
+        apiLogger.info(`[Refresh] Persisted enriched data for ${updatedCount}/${generatedBets.length} bets to DB`);
+      }
 
-/**
- * POST /api/bets/refresh
- * Refresh bets from PrizePicks projections
- */
-router.post("/refresh", async (req, res) => {
-  try {
-    apiLogger.info("Refreshing bets from PrizePicks...");
+      lastBetsRefreshTime = Date.now();
+      apiLogger.info(`Refreshed ${generatedBets.length} bets from PrizePicks`);
 
-    const players = await storage.getPlayers();
-    if (players.length === 0) {
-      return res.json({
-        success: false,
-        betsCount: 0,
-        message: "No player data available. Run data refresh first.",
+      // Trigger parlay regeneration for all leg counts so parlays stay in sync
+      // with today's fresh PrizePicks lines. Fire-and-forget (non-blocking).
+      try {
+        const targetDate = new Intl.DateTimeFormat("en-CA", {
+          timeZone: "America/New_York",
+        }).format(new Date());
+        const pythonCmd = getPythonCommand();
+        const scriptPath = path.join(
+          process.cwd(),
+          "server",
+          "nba-prop-model",
+          "scripts",
+          "cron_jobs.py"
+        );
+        for (const size of [2, 3, 4, 5, 6]) {
+          const child = spawn(pythonCmd, [
+            scriptPath, "parlays", "--date", targetDate, "--size", String(size),
+          ], { detached: true, stdio: ["ignore", "pipe", "pipe"], env: { ...process.env } });
+          let bgStderr = "";
+          child.stderr?.on("data", (d: Buffer) => { bgStderr += d.toString(); });
+          child.on("close", (code: number) => {
+            if (code !== 0) {
+              apiLogger.error(`[Parlays] post-refresh size=${size} exited ${code}: ${bgStderr}`);
+            } else {
+              apiLogger.info(`[Parlays] post-refresh regeneration done for ${targetDate} size=${size}`);
+            }
+          });
+          child.unref();
+        }
+        apiLogger.info("[Parlays] Triggered parlay regeneration after bets refresh");
+      } catch (parlayErr: any) {
+        apiLogger.warn(`[Parlays] Could not trigger regeneration after refresh: ${parlayErr.message}`);
+      }
+
+      res.json({
+        success: true,
+        betsCount: generatedBets.length,
+        message: `Successfully refreshed ${generatedBets.length} betting opportunities from PrizePicks`
+      });
+    } catch (error) {
+      apiLogger.error("Error refreshing bets:", error);
+      res.status(500).json({
+        error: "Failed to refresh bets",
+        message: error instanceof Error ? error.message : "Unknown error"
       });
     }
+  });
 
-    const generatedBets = await generateBetsFromPrizePicks(players);
+  // Parse a screenshot of a betting slip using Claude vision
+  app.post("/api/bets/upload-screenshot", async (req, res) => {
+    try {
+      const { image } = req.body;
+      if (!image) {
+        return res.status(400).json({ error: "Missing image data" });
+      }
 
-    await storage.clearPotentialBets();
-    for (const bet of generatedBets) {
-      await storage.createPotentialBet(bet);
+      const mediaTypeMatch = image.match(/^data:(image\/\w+);base64,/);
+      const mediaType = (mediaTypeMatch?.[1] || "image/jpeg") as "image/jpeg" | "image/png" | "image/gif" | "image/webp";
+      const base64Image = image.replace(/^data:image\/\w+;base64,/, "");
+
+      const bets = await parseBetScreenshot(base64Image, mediaType);
+      res.json(bets);
+    } catch (error) {
+      apiLogger.error("Error parsing screenshot", error);
+      res.status(500).json({ error: "Failed to parse screenshot" });
     }
+  });
 
-    apiLogger.info(`Refreshed ${generatedBets.length} bets from PrizePicks`);
+  app.get("/api/bets", async (req, res) => {
+    try {
+      // Load signal weights for enrichment
+      await loadSignalWeights(pool);
 
-    res.json({
-      success: true,
-      betsCount: generatedBets.length,
-      message: `Successfully refreshed ${generatedBets.length} betting opportunities from PrizePicks`
-    });
-  } catch (error) {
-    apiLogger.error("Error refreshing bets", error);
-    res.status(500).json({
-      error: "Failed to refresh bets",
-      message: error instanceof Error ? error.message : "Unknown error"
-    });
-  }
-});
-
-/**
- * GET /api/bets
- * Get all potential bets (filtered and sorted)
- */
-router.get("/", async (req, res) => {
-  try {
-    let bets = await storage.getPotentialBets();
-
-    if (bets.length === 0) {
-      const players = await storage.getPlayers();
-      if (players.length === 0) {
-        return res.json([]);
+      let bets = await storage.getPotentialBets();
+      const isStale = lastBetsRefreshTime === 0 || (Date.now() - lastBetsRefreshTime > BETS_STALE_MS);
+      if (bets.length === 0 || isStale) {
+        try {
+          apiLogger.info("Auto-refreshing stale bets (last refresh: " + (lastBetsRefreshTime ? new Date(lastBetsRefreshTime).toISOString() : "never") + ")");
+          let players = await ensurePlayersLoaded();
+          let generatedBets: any[] = await generateBetsFromPrizePicks(players);
+          generatedBets = await enrichBetsWithCalibration(generatedBets, players);
+          await storage.clearPotentialBets();
+          for (const bet of generatedBets) {
+            await storage.createPotentialBet(bet);
+          }
+          lastBetsRefreshTime = Date.now();
+          bets = await storage.getPotentialBets();
+        } catch (refreshErr: any) {
+          apiLogger.error("Auto-refresh failed, serving existing bets: " + refreshErr.message);
+          if (bets.length === 0) {
+            return res.status(503).json({ error: "No bets available and refresh failed" });
+          }
+        }
       }
-      const generatedBets = await generateBetsFromPrizePicks(players);
-      await storage.clearPotentialBets();
-      for (const bet of generatedBets) {
-        await storage.createPotentialBet(bet);
+
+      // Fix 3 + Fix 5: Augment bets with DB columns not in Drizzle schema.
+      // These include pre-computed calibration data and XGBoost results stored during refresh.
+      if (pool && bets.length > 0) {
+        try {
+          const ids = (bets as any[]).map(b => b.id).filter((id): id is number => typeof id === "number");
+          if (ids.length > 0) {
+            const augResult = await pool.query(
+              `SELECT id, confidence_tier, signal_agreement, calibrated_probability,
+                      agreeing_signals, total_signals, signal_details,
+                      xgb_prob_over, ml_explanation, ml_signals_fired
+               FROM potential_bets WHERE id = ANY($1)`,
+              [ids]
+            );
+            const augMap = new Map<number, any>(augResult.rows.map((r: any) => [r.id, r]));
+            bets = (bets as any[]).map(b => {
+              const aug = augMap.get(b.id);
+              if (!aug) return b;
+              return {
+                ...b,
+                confidence_tier: aug.confidence_tier ?? b.confidence_tier,
+                signal_agreement: aug.signal_agreement ?? b.signal_agreement,
+                calibrated_probability: aug.calibrated_probability ?? b.calibrated_probability,
+                agreeing_signals: aug.agreeing_signals ?? b.agreeing_signals,
+                total_signals: aug.total_signals ?? b.total_signals,
+                signal_details: aug.signal_details ?? b.signal_details,
+                xgb_prob_over: aug.xgb_prob_over ?? b.xgb_prob_over,
+                ml_explanation: aug.ml_explanation ?? b.ml_explanation,
+                ml_signals_fired: aug.ml_signals_fired ?? b.ml_signals_fired,
+              };
+            }) as any;
+          }
+        } catch (augErr: any) {
+          apiLogger.warn("[GET bets] DB augmentation failed: " + augErr.message);
+        }
       }
-      bets = await storage.getPotentialBets();
-    }
 
-    const { EDGE_THRESHOLDS, HIT_RATE_THRESHOLDS, MAX_BETS_DISPLAY } = BETTING_CONFIG;
-
-    // Filter to best bets - require positive EV when available
-    const filteredBets = bets.filter(bet => {
-      // If we have EV data, require positive EV above threshold
-      if (bet.expected_value !== null && bet.expected_value !== undefined) {
-        if (bet.expected_value < BETTING_CONFIG.MIN_EV_THRESHOLD) return false;
+      // --- Calibration enrichment (fallback: runs only if confidence_tier not in DB yet) ---
+      try {
+        const players = await ensurePlayersLoaded();
+        const betsAsAny = bets as any[];
+        if (betsAsAny.length > 0 && !betsAsAny[0].confidence_tier) {
+          const enriched = await enrichBetsWithCalibration(betsAsAny, players);
+          bets = enriched as any;
+          apiLogger.info(`[Calibration] GET enriched ${bets.length} bets`);
+        }
+      } catch (calErr: any) {
+        apiLogger.error(`[Calibration] GET enrichment failed: ${calErr.message}`);
       }
-      if (bet.confidence === "HIGH") return true;
-      if (bet.edge_score && bet.edge_score >= EDGE_THRESHOLDS.STRONG) return true;
-      if (bet.edge_score && bet.edge_score >= EDGE_THRESHOLDS.GOOD) {
-        if (bet.hit_rate >= HIT_RATE_THRESHOLDS.STRONG_OVER || bet.hit_rate <= HIT_RATE_THRESHOLDS.STRONG_UNDER) return true;
-      }
-      if (bet.hit_rate >= HIT_RATE_THRESHOLDS.EXTREME_OVER || bet.hit_rate <= HIT_RATE_THRESHOLDS.EXTREME_UNDER) return true;
-      return false;
-    });
 
-    // Sort by EV, then edge score, then confidence, then hit rate deviation
-    const sortedBets = filteredBets.sort((a, b) => {
-      // Primary: EV
-      const aEV = a.expected_value ?? -1;
-      const bEV = b.expected_value ?? -1;
-      if (aEV !== bEV) return bEV - aEV;
-      // Secondary: edge score
-      if (a.edge_score && !b.edge_score) return -1;
-      if (!a.edge_score && b.edge_score) return 1;
-      if (a.edge_score && b.edge_score && a.edge_score !== b.edge_score) return b.edge_score - a.edge_score;
-      // Tertiary: confidence
-      if (a.confidence === "HIGH" && b.confidence !== "HIGH") return -1;
-      if (b.confidence === "HIGH" && a.confidence !== "HIGH") return 1;
-      const aDeviation = Math.abs(a.hit_rate - 50);
-      const bDeviation = Math.abs(b.hit_rate - 50);
-      return bDeviation - aDeviation;
-    });
+      // Enrich bets with signal scores if not already present
+      const enrichedBets = bets.map(bet => {
+        // If bet already has signal_score, return as-is
+        if ((bet as any).signal_score !== undefined && (bet as any).signal_score !== null) {
+          return bet;
+        }
 
-    const limitedBets = sortedBets.slice(0, MAX_BETS_DISPLAY);
-    res.json(limitedBets);
-  } catch (error) {
-    apiLogger.error("Error fetching bets", error);
-    res.status(500).json({ error: "Failed to fetch bets" });
-  }
-});
+        // Compute signal score based on edge type
+        const edges: Array<{ type: string; score: number }> = [];
+        if (bet.edge_type) {
+          edges.push({ type: bet.edge_type, score: bet.edge_score || 5 });
+        }
 
-/**
- * GET /api/bets/top-picks
- * Get top 10 best picks based on edge analysis and EV
- */
-router.get("/top-picks", async (req, res) => {
-  try {
-    let bets = await storage.getPotentialBets();
+        const recommendation = bet.recommendation as 'OVER' | 'UNDER';
+        const signalScore = calculateSignalScore(
+          {} as any, // Player not needed for edge-based scoring
+          bet.stat_type || '',
+          recommendation,
+          bet.hit_rate || 50,
+          edges
+        );
 
-    if (bets.length === 0) {
-      const players = await storage.getPlayers();
-      if (players.length === 0) {
-        return res.json([]);
-      }
-      const generatedBets = generatePotentialBets(players);
-      await storage.clearPotentialBets();
-      for (const bet of generatedBets) {
-        await storage.createPotentialBet(bet);
-      }
-      bets = await storage.getPotentialBets();
-    }
+        return {
+          ...bet,
+          signal_score: signalScore.signalScore,
+          signal_confidence: signalScore.signalConfidence,
+          active_signals: signalScore.signals.length > 0 ? signalScore.signals : null,
+          signal_description: getSignalDescription(signalScore),
+        };
+      });
+
+      // Show all PrizePicks props with our analysis — sorted by quality
+      // Sort by signal score first (backtest-backed), then edge score, then hit rate
+      const sortedBets = enrichedBets.sort((a, b) => {
+        // Priority 1: Signal score (backtest-proven signals)
+        const aSignal = (a as any).signal_score || 0;
+        const bSignal = (b as any).signal_score || 0;
+        if (Math.abs(aSignal - bSignal) > 0.1) return bSignal - aSignal;
+
+        // Priority 2: Signal confidence level
+        if ((a as any).signal_confidence === "HIGH" && (b as any).signal_confidence !== "HIGH") return -1;
+        if ((b as any).signal_confidence === "HIGH" && (a as any).signal_confidence !== "HIGH") return 1;
+
+        // Priority 3: Edge score
+        if (a.edge_score && !b.edge_score) return -1;
+        if (!a.edge_score && b.edge_score) return 1;
+        if (a.edge_score && b.edge_score) {
+          if (a.edge_score !== b.edge_score) return b.edge_score - a.edge_score;
+        }
+
+        // Priority 4: Basic confidence
+        if (a.confidence === "HIGH" && b.confidence !== "HIGH") return -1;
+        if (b.confidence === "HIGH" && a.confidence !== "HIGH") return 1;
+
+        // For hit rate, sort by distance from 50% (more extreme = better)
+        const aDeviation = Math.abs(a.hit_rate - 50);
+        const bDeviation = Math.abs(b.hit_rate - 50);
+        return bDeviation - aDeviation;
+      });
+
+      // Return all bets (sorted best-first) — frontend groups by game
+      const limitedBets = sortedBets.slice(0, 200);
 
     const betsWithEdges = bets.filter(b => {
       // Require positive edge score
@@ -513,117 +387,60 @@ router.post("/explain", async (req, res) => {
     if (!player_name || !prop || !line || !side) {
       return res.status(400).json({ error: "Missing required bet details" });
     }
+  });
 
-    const explanation = await generateBetExplanation({
-      player_name,
-      prop,
-      line,
-      side,
-      season_average: season_average || 0,
-      last_5_average: last_5_average || 0,
-      hit_rate: hit_rate || 0,
-      opponent: opponent || "Unknown",
-    });
-
-    res.json({ explanation });
-  } catch (error) {
-    apiLogger.error("Error generating explanation", error);
-    res.status(500).json({ error: "Failed to generate explanation" });
-  }
-});
-
-/**
- * POST /api/bets/upload-screenshot
- * Parse a screenshot of a betting slip
- */
-router.post("/upload-screenshot", async (req, res) => {
-  try {
-    const { image } = req.body;
-    if (!image) {
-      return res.status(400).json({ error: "Missing image data" });
+  // Get top 10 best picks - uses projection model data for highest probability picks
+  app.get("/api/bets/top-picks", async (req, res) => {
+    try {
+      if (!pool) return res.json([]);
+      const result = await pool.query(`
+        WITH ranked_picks AS (
+          SELECT DISTINCT ON (pdl.player_name, po.prop_type)
+            pdl.player_name,
+            COALESCE(pdl.team, '') as team,
+            po.prop_type as stat_type,
+            COALESCE(pdl.closing_line, po.prizepicks_line) as line,
+            CASE WHEN po.edge_pct > 0 THEN 'OVER' ELSE 'UNDER' END as recommendation,
+            CASE
+              WHEN ABS(po.edge_pct) >= 8 THEN 'HIGH'
+              WHEN ABS(po.edge_pct) >= 4 THEN 'MEDIUM'
+              ELSE 'LOW'
+            END as confidence,
+            'PROJECTION' as edge_type,
+            ROUND(ABS(po.edge_pct)::numeric, 2) as edge_score,
+            'Model projects ' || ROUND(po.final_projection::numeric, 1) || ' vs line ' || COALESCE(pdl.closing_line, po.prizepicks_line) || ' (' || ROUND(ABS(po.edge_pct)::numeric, 1) || '% edge)' as edge_description,
+            ROUND(po.final_projection::numeric, 2) as season_avg,
+            ROUND(po.final_projection::numeric, 2) as last_5_avg,
+            LEAST(50 + ABS(po.edge_pct) * 4, 95)::numeric as hit_rate,
+            LEAST(50 + ABS(po.edge_pct) * 4, 95)::numeric as adjusted_hit_rate,
+            ROUND((ABS(po.edge_pct) / 100 * 2)::numeric, 4) as expected_value,
+            ROUND((ABS(po.edge_pct) / 100)::numeric, 4) as kelly_size,
+            10 as sample_size,
+            ABS(po.edge_pct) as abs_edge
+          FROM projection_outputs po
+          INNER JOIN prizepicks_daily_lines pdl
+            ON po.player_id::text = pdl.prizepicks_player_id::text
+            AND po.prop_type = pdl.stat_type
+            AND ((pdl.game_time AT TIME ZONE 'UTC') AT TIME ZONE 'America/New_York')::date = (NOW() AT TIME ZONE 'America/New_York')::date
+          WHERE po.game_date = (NOW() AT TIME ZONE 'America/New_York')::date
+            AND po.confidence_tier != 'SKIP'
+            AND po.prizepicks_line IS NOT NULL AND po.prizepicks_line > 0.5
+          ORDER BY pdl.player_name, po.prop_type, ABS(po.edge_pct) DESC
+        )
+        SELECT player_name, team, stat_type, line, recommendation, confidence,
+               edge_type, edge_score, edge_description, season_avg, last_5_avg,
+               hit_rate, adjusted_hit_rate, expected_value, kelly_size, sample_size
+        FROM ranked_picks
+        ORDER BY abs_edge DESC
+        LIMIT 10
+      `);
+      res.json(result.rows);
+    } catch (error) {
+      apiLogger.error("Error fetching top picks:", error);
+      res.status(500).json({ error: "Failed to fetch top picks" });
     }
+  });
 
-    // Extract media type and strip data URL prefix
-    const mediaTypeMatch = image.match(/^data:(image\/\w+);base64,/);
-    const mediaType = (mediaTypeMatch?.[1] || "image/jpeg") as "image/jpeg" | "image/png" | "image/gif" | "image/webp";
-    const base64Image = image.replace(/^data:image\/\w+;base64,/, "");
+  // NOTE: Duplicate /api/bets/refresh route removed - using PrizePicks version above
 
-    const parsedSlip = await parseBetScreenshot(base64Image, mediaType);
-    res.json(parsedSlip);
-  } catch (error) {
-    apiLogger.error("Error parsing screenshot", error);
-    res.status(500).json({ error: "Failed to parse screenshot" });
-  }
-});
-
-/**
- * POST /api/bets/user
- * Save a user bet
- */
-router.post("/user", async (req, res) => {
-  try {
-    const bet = req.body;
-    const savedBet = await storage.saveUserBet(bet);
-    res.json(savedBet);
-  } catch (error) {
-    apiLogger.error("Error saving user bet", error);
-    res.status(500).json({ error: "Failed to save bet" });
-  }
-});
-
-/**
- * GET /api/bets/user
- * Get user bets
- */
-router.get("/user", async (req, res) => {
-  try {
-    const pending = req.query.pending === 'true';
-    const gameDate = req.query.gameDate as string | undefined;
-
-    const bets = await storage.getUserBets({ pending, gameDate });
-    res.json(bets);
-  } catch (error) {
-    apiLogger.error("Error fetching user bets", error);
-    res.status(500).json({ error: "Failed to fetch user bets" });
-  }
-});
-
-/**
- * PATCH /api/bets/user/:betId
- * Update user bet result
- */
-router.patch("/user/:betId", async (req, res) => {
-  try {
-    const betId = parseInt(req.params.betId, 10);
-    const { result, actualValue, profit } = req.body;
-
-    if (isNaN(betId) || !result || actualValue === undefined || profit === undefined) {
-      return res.status(400).json({ error: "Invalid parameters" });
-    }
-
-    await storage.updateUserBetResult(betId, result, actualValue, profit);
-    res.json({ success: true });
-  } catch (error) {
-    apiLogger.error("Error updating bet result", error);
-    res.status(500).json({ error: "Failed to update bet result" });
-  }
-});
-
-/**
- * GET /api/bets/xgboost-stats
- * Get XGBoost training data statistics
- */
-router.get("/xgboost-stats", async (req, res) => {
-  try {
-    const { getXGBoostTrainingStats } = await import("../services/xgboost-logger");
-    const stats = await getXGBoostTrainingStats();
-    res.json(stats);
-  } catch (error) {
-    apiLogger.error("Error fetching XGBoost stats", error);
-    res.status(500).json({ error: "Failed to fetch XGBoost training stats" });
-  }
-});
-
-// Export functions for use in other modules
-export { generatePotentialBets, generateBetsFromPrizePicks };
-export default router;
+}

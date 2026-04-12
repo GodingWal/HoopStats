@@ -73,7 +73,7 @@ export function HitRateGrid({ hitRates, stat }: HitRateGridProps) {
                   rate >= 40 ? "text-orange-400" :
                   "text-red-400"
                 }`}>
-                  {rate.toFixed(0)}%
+                  {Number(rate).toFixed(0)}%
                   {sampleSize !== null && (
                     <span className="text-muted-foreground font-normal ml-1">
                       ({sampleSize}g)
@@ -117,7 +117,7 @@ export function HitRateSummary({ hitRates }: HitRateSummaryProps) {
                   variant="secondary"
                   className={`mt-1 text-[10px] ${getHitRateColor(extractRate(bestLine[1]))}`}
                 >
-                  {extractRate(bestLine[1]).toFixed(0)}% hit
+                  {Number(extractRate(bestLine[1])).toFixed(0)}% hit
                 </Badge>
               </>
             ) : (

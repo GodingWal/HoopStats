@@ -455,7 +455,16 @@ class EnsembleProjector:
         When XGBoost is very confident, trust it more.
         When uncertain, lean on analytical model.
         Per-stat weights account for data volume and stat volatility.
+
+        Coin-flip guard: if XGBoost confidence < 0.10 (prob_over in 0.45–0.55),
+        the model is essentially guessing. Return 0 so it doesn't promote any tier.
         """
+        # Coin-flip zone: confidence = abs(prob_over - 0.5) * 2.0, so < 0.10
+        # means prob_over is between 0.45 and 0.55 — not a real signal.
+        COIN_FLIP_THRESHOLD = 0.10
+        if xgb_confidence < COIN_FLIP_THRESHOLD:
+            return 0.0
+
         # Start with per-stat base weight
         base_weight = self.per_stat_xgb_weights.get(stat_type, 0.40)
 

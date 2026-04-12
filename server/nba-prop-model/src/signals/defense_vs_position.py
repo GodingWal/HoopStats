@@ -78,8 +78,9 @@ class DefenseVsPositionSignal(BaseSignal):
     ) -> SignalResult:
         """Calculate defense vs position adjustment."""
 
-        # Get player position
-        player_pos = self._normalize_position(context.get('player_position'))
+        # Get player position — context may use either 'player_position' or 'position'
+        raw_pos = context.get('player_position') or context.get('position')
+        player_pos = self._normalize_position(raw_pos)
         if player_pos is None:
             return self._create_neutral_result()
 
@@ -114,7 +115,12 @@ class DefenseVsPositionSignal(BaseSignal):
         # Scale confidence by matchup magnitude
         confidence = min(0.52 + abs(matchup_diff) * 2, 0.70)
 
-        opponent_team = context.get('opponent_team', context.get('opponent', 'UNK'))
+        opponent_team = (
+            context.get('opponent_team')
+            or context.get('opponent')
+            or context.get('opp_team_id')
+            or 'UNK'
+        )
 
         return self._create_result(
             adjustment=adjustment,
@@ -148,32 +154,94 @@ class DefenseVsPositionSignal(BaseSignal):
 
         return None
 
+    # League average points allowed per position for ratio calculation
+    LEAGUE_AVG_BY_POS = {
+        'PG': 24.5, 'SG': 23.0, 'SF': 21.5, 'PF': 20.0, 'C': 19.0,
+        'G': 23.7, 'F': 20.7,
+    }
+
     def _get_matchup_factor(
         self,
         stat_type: str,
         player_pos: str,
         context: Dict[str, Any]
     ) -> Optional[float]:
-        """Get matchup factor for stat type and position."""
-
+        """Get matchup factor for stat type and position.
+        
+        Handles 3 data formats:
+        1. Nested G/F/C dict: {'G': {'pts': 1.06, 'reb': 0.98}}
+        2. opp_positional_def from team_defense_by_position: {'PG': 25.3, 'SG': 22.7}
+        3. Flat position values in opponent_def_vs_position
+        """
         stat_key = self._stat_to_key(stat_type)
 
-        # First, try context-provided defense ratings
+        # 1. Try nested dict format (preferred)
         opp_def = context.get('opponent_def_vs_position') or {}
         if player_pos in opp_def:
             pos_def = opp_def[player_pos]
             if isinstance(pos_def, dict) and stat_key in pos_def:
                 return pos_def[stat_key]
 
-        # Try opponent team lookup
-        opponent_team = context.get('opponent_team', context.get('opponent'))
+        # 2. Try opp_positional_def from team_defense_by_position table
+        opp_pos_def = context.get('opp_positional_def') or {}
+        if opp_pos_def:
+            return self._factor_from_positional_def(stat_type, player_pos, opp_pos_def)
+
+        # 3. Try flat format - convert raw pts allowed to ratio
+        if opp_def:
+            pos_map = {'G': ['PG', 'SG'], 'F': ['SF', 'PF'], 'C': ['C']}
+            group_positions = pos_map.get(player_pos, [player_pos])
+            vals = []
+            for p in group_positions:
+                v = opp_def.get(p)
+                if v is not None and not isinstance(v, dict):
+                    try:
+                        vals.append(float(v))
+                    except (TypeError, ValueError):
+                        pass
+            if vals:
+                avg_allowed = sum(vals) / len(vals)
+                league_avg = self.LEAGUE_AVG_BY_POS.get(player_pos, 22.0)
+                if league_avg > 0:
+                    return avg_allowed / league_avg
+
+        # 4. Fallback to hardcoded DEFAULT_DEFENSE_RATINGS
+        # Context may use 'opponent_team', 'opponent', or 'opp_team_id'
+        opponent_team = (
+            context.get('opponent_team')
+            or context.get('opponent')
+            or context.get('opp_team_id')
+        )
         if opponent_team and opponent_team in self.DEFAULT_DEFENSE_RATINGS:
+            logger.debug(
+                f"defense signal: using hardcoded ratings for {opponent_team} "
+                f"(only 5 teams have hardcoded data — consider populating opponent_def_vs_position)"
+            )
             team_def = self.DEFAULT_DEFENSE_RATINGS[opponent_team]
             if player_pos in team_def:
                 pos_def = team_def[player_pos]
                 if stat_key in pos_def:
                     return pos_def[stat_key]
 
+        return None
+
+    def _factor_from_positional_def(self, stat_type, player_pos, opp_pos_def):
+        """Convert raw positional defense stats to a ratio factor."""
+        pos_map = {'G': ['PG', 'SG'], 'F': ['SF', 'PF'], 'C': ['C']}
+        group_positions = pos_map.get(player_pos, [player_pos])
+        vals = []
+        for p in group_positions:
+            v = opp_pos_def.get(p)
+            if v is not None:
+                try:
+                    vals.append(float(v))
+                except (TypeError, ValueError):
+                    pass
+        if vals:
+            avg_allowed = sum(vals) / len(vals)
+            league_avg = self.LEAGUE_AVG_BY_POS.get(player_pos, 22.0)
+            if league_avg > 0:
+                return avg_allowed / league_avg
         return None
 
     def _stat_to_key(self, stat_type: str) -> str:

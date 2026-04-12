@@ -300,7 +300,7 @@ export default function LineHistory() {
     return a.playerName.localeCompare(b.playerName);
   });
 
-  const formatLine = (line: number) => line.toFixed(1);
+  const formatLine = (line: number) => Number(line).toFixed(1);
 
   const getMovementColor = (direction: "up" | "down", isSignificant: boolean) => {
     if (direction === "up") {
@@ -548,13 +548,13 @@ export default function LineHistory() {
                               <div className="flex items-center gap-3">
                                 <div className="text-center">
                                   <div className="text-xs text-muted-foreground">Open</div>
-                                  <div className="font-bold">{record.openingLine.toFixed(1)}</div>
+                                  <div className="font-bold">{Number(record.openingLine).toFixed(1)}</div>
                                 </div>
                                 <span className="text-muted-foreground">→</span>
                                 <div className="text-center">
                                   <div className="text-xs text-muted-foreground">Close</div>
                                   <div className="font-bold text-primary">
-                                    {(record.closingLine ?? record.openingLine).toFixed(1)}
+                                    {Number(record.closingLine ?? record.openingLine).toFixed(1)}
                                   </div>
                                 </div>
                                 {(record.netMovement ?? 0) !== 0 && (
@@ -567,7 +567,7 @@ export default function LineHistory() {
                                     }`}
                                   >
                                     {(record.netMovement ?? 0) > 0 ? "+" : ""}
-                                    {(record.netMovement ?? 0).toFixed(1)}
+                                    {Number(record.netMovement ?? 0).toFixed(1)}
                                   </Badge>
                                 )}
                               </div>
@@ -579,7 +579,7 @@ export default function LineHistory() {
                                 )}
                                 {record.highLine !== null && record.lowLine !== null && record.highLine !== record.lowLine && (
                                   <span className="text-xs text-muted-foreground">
-                                    Range: {record.lowLine.toFixed(1)}-{record.highLine.toFixed(1)}
+                                    Range: {Number(record.lowLine).toFixed(1)}-{Number(record.highLine).toFixed(1)}
                                   </span>
                                 )}
                                 {record.actualValue !== null && (
@@ -590,7 +590,7 @@ export default function LineHistory() {
                                         : "bg-red-500 text-white"
                                     }`}
                                   >
-                                    Actual: {record.actualValue.toFixed(1)} {record.hitOver ? "OVER" : "UNDER"}
+                                    Actual: {Number(record.actualValue).toFixed(1)} {record.hitOver ? "OVER" : "UNDER"}
                                   </Badge>
                                 )}
                               </div>
@@ -669,7 +669,7 @@ export default function LineHistory() {
                               )}
                             </div>
                             <div className="flex items-center gap-3">
-                              <span className="text-lg font-bold text-primary">{line.line.toFixed(1)}</span>
+                              <span className="text-lg font-bold text-primary">{Number(line.line).toFixed(1)}</span>
                               <div className="text-right">
                                 <div className="text-xs text-muted-foreground">
                                   {format(new Date(line.capturedAt), "MMM d, h:mm a")}
@@ -750,13 +750,13 @@ export default function LineHistory() {
                     </div>
                     <div className="grid grid-cols-4 md:grid-cols-7 gap-3">
                       {[
-                        { label: "PTS", val: bdlSearchResult.pts.toFixed(1) },
-                        { label: "REB", val: bdlSearchResult.reb.toFixed(1) },
-                        { label: "AST", val: bdlSearchResult.ast.toFixed(1) },
-                        { label: "STL", val: bdlSearchResult.stl.toFixed(1) },
-                        { label: "BLK", val: bdlSearchResult.blk.toFixed(1) },
-                        { label: "3PM", val: bdlSearchResult.fg3m.toFixed(1) },
-                        { label: "FG%", val: (bdlSearchResult.fg_pct * 100).toFixed(1) + "%" },
+                        { label: "PTS", val: Number(bdlSearchResult.pts).toFixed(1) },
+                        { label: "REB", val: Number(bdlSearchResult.reb).toFixed(1) },
+                        { label: "AST", val: Number(bdlSearchResult.ast).toFixed(1) },
+                        { label: "STL", val: Number(bdlSearchResult.stl).toFixed(1) },
+                        { label: "BLK", val: Number(bdlSearchResult.blk).toFixed(1) },
+                        { label: "3PM", val: Number(bdlSearchResult.fg3m).toFixed(1) },
+                        { label: "FG%", val: Number(bdlSearchResult.fg_pct * 100).toFixed(1) + "%" },
                       ].map(({ label, val }) => (
                         <div key={label} className="text-center p-2 rounded-lg bg-muted/40">
                           <div className="text-lg font-bold text-primary">{val}</div>
@@ -801,17 +801,17 @@ export default function LineHistory() {
                               <div className="text-xs text-muted-foreground">{player.team} · {player.position} · {player.gamesPlayed} GP</div>
                             </div>
                             <div className="flex gap-2">
-                              <Badge variant="outline" className="text-xs">{player.pts.toFixed(1)} PTS</Badge>
-                              <Badge variant="outline" className="text-xs">{player.reb.toFixed(1)} REB</Badge>
-                              <Badge variant="outline" className="text-xs">{player.ast.toFixed(1)} AST</Badge>
+                              <Badge variant="outline" className="text-xs">{Number(player.pts).toFixed(1)} PTS</Badge>
+                              <Badge variant="outline" className="text-xs">{Number(player.reb).toFixed(1)} REB</Badge>
+                              <Badge variant="outline" className="text-xs">{Number(player.ast).toFixed(1)} AST</Badge>
                             </div>
                           </div>
                           <div className="grid grid-cols-4 gap-2 mt-2">
                             {[
-                              { label: "STL", val: player.stl.toFixed(1) },
-                              { label: "BLK", val: player.blk.toFixed(1) },
-                              { label: "3PM", val: player.fg3m.toFixed(1) },
-                              { label: "FG%", val: (player.fg_pct * 100).toFixed(1) + "%" },
+                              { label: "STL", val: Number(player.stl).toFixed(1) },
+                              { label: "BLK", val: Number(player.blk).toFixed(1) },
+                              { label: "3PM", val: Number(player.fg3m).toFixed(1) },
+                              { label: "FG%", val: Number(player.fg_pct * 100).toFixed(1) + "%" },
                             ].map(({ label, val }) => (
                               <div key={label} className="text-center p-1.5 rounded bg-muted/30">
                                 <div className="font-bold text-sm">{val}</div>
@@ -917,7 +917,7 @@ export default function LineHistory() {
                             }`}
                           >
                             {movement.direction === "up" ? "+" : ""}
-                            {movement.lineChange.toFixed(1)}
+                            {Number(movement.lineChange).toFixed(1)}
                           </Badge>
                         </div>
                         <div className="text-xs text-muted-foreground mt-1">
@@ -990,7 +990,7 @@ export default function LineHistory() {
                             }`}
                           >
                             {movement.direction === "up" ? "+" : ""}
-                            {movement.lineChange.toFixed(1)}
+                            {Number(movement.lineChange).toFixed(1)}
                           </Badge>
                         </div>
                         <div className="text-xs text-muted-foreground mt-1">
@@ -1154,7 +1154,7 @@ export default function LineHistory() {
                         }
                       >
                         {daily.netMovement > 0 ? "+" : ""}
-                        {daily.netMovement.toFixed(1)}
+                        {Number(daily.netMovement).toFixed(1)}
                       </Badge>
                     </div>
                     <div className="flex items-center justify-between text-sm">

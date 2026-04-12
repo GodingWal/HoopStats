@@ -1,70 +1,50 @@
 /**
- * Route aggregator - combines all route modules
+ * Route aggregator - imports and registers all route modules
  */
-
-import { Express } from "express";
-import { Server } from "http";
-import playerRoutes from "./player-routes";
-import betsRoutes from "./bets-routes";
+import type { Express } from "express";
+import { type Server } from "http";
+import bankrollRoutes from "./bankroll-routes";
+import { registerPlayerRoutes } from "./player-routes";
+import { registerBetsRoutes } from "./bets-routes";
+import { registerAdminRoutes } from "./admin-routes";
+import { registerLiveRoutes } from "./live-routes";
+import { registerProjectionRoutes } from "./projection-routes";
+import { registerLinesRoutes } from "./lines-routes";
+import { registerParlayRoutes } from "./parlay-routes";
+import { registerStatsRoutes } from "./stats-routes";
+import { registerPrizePicksRoutes } from "./prizepicks-routes";
+import { registerInjuryRoutes } from "./injury-routes";
+import { registerSplitsRoutes } from "./splits-routes";
+import { registerTeamsRoutes } from "./teams-routes";
+import { registerBacktestRoutes } from "./backtest-routes";
+import { registerSignalsRoutes } from "./signals-routes";
+import { registerMlRoutes } from "./ml-routes";
 import { lineWatcher } from "../services/line-watcher";
-import { apiLogger } from "../logger";
-
-// Import remaining route handlers from legacy routes file
-// These will be migrated to separate modules over time
-import { registerLegacyRoutes } from "./legacy-routes";
 
 export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
 
-  // Mount modular routes
-  app.use("/api/players", playerRoutes);
-  app.use("/api/bets", betsRoutes);
+  // Mount router-based modules
+  app.use("/api/bankroll", bankrollRoutes);
 
-  // Search endpoint (attached to root since it's /api/search not /api/players/search)
-  app.get("/api/search", async (req, res) => {
-    // Forward to player routes search handler
-    const { storage } = await import("../storage");
-    const { injuryWatcher } = await import("../injury-watcher");
-
-    try {
-      const query = req.query.q as string;
-      let players;
-
-      if (!query || query.trim().length === 0) {
-        players = await storage.getPlayers();
-      } else {
-        players = await storage.searchPlayers(query.trim());
-      }
-
-      // Enrich with injuries
-      const allInjuries = injuryWatcher.getKnownInjuries();
-      const playersWithInjuries = players.map(player => {
-        const playerInjury = allInjuries.find(inj =>
-          player.player_name.toLowerCase().includes(inj.playerName.toLowerCase()) ||
-          inj.playerName.toLowerCase().includes(player.player_name.toLowerCase())
-        );
-
-        return {
-          ...player,
-          injury_status: playerInjury ? {
-            status: playerInjury.status,
-            description: playerInjury.description,
-            isOut: playerInjury.status === 'out',
-          } : null,
-        };
-      });
-
-      res.json(playersWithInjuries);
-    } catch (error) {
-      apiLogger.error("Error searching players", error);
-      res.status(500).json({ error: "Failed to search players" });
-    }
-  });
-
-  // Register legacy routes (will be migrated incrementally)
-  await registerLegacyRoutes(httpServer, app);
+  // Register function-based route modules
+  registerPlayerRoutes(app);
+  registerBetsRoutes(app);
+  registerAdminRoutes(app);
+  registerLiveRoutes(app);
+  registerProjectionRoutes(app);
+  registerLinesRoutes(app);
+  registerParlayRoutes(app);
+  registerStatsRoutes(app);
+  registerPrizePicksRoutes(app);
+  registerInjuryRoutes(app);
+  registerSplitsRoutes(app);
+  registerTeamsRoutes(app);
+  registerBacktestRoutes(app);
+  registerSignalsRoutes(app);
+  registerMlRoutes(app);
 
   // Start background services
   lineWatcher.start();

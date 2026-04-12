@@ -8,10 +8,10 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 sys.path.insert(0, '/var/www/courtsideedge/server/nba-prop-model')
+from config.db_config import get_connection as _shared_get_connection, DATABASE_URL
 
 import psycopg2
 
-DB_URL = os.environ.get("DATABASE_URL", "postgres://courtsideedge_user:CourtSideEdge2026Secure!@localhost:5432/courtsideedge")
 
 def ensure_table(conn):
     cur = conn.cursor()
@@ -72,7 +72,7 @@ def get_positional_defense_data():
 
 def get_fallback_positional_defense():
     """Generate approximate positional defense data from team ratings."""
-    conn = psycopg2.connect(DB_URL)
+    conn = psycopg2.connect(DATABASE_URL)
     cur = conn.cursor()
     cur.execute("SELECT team_id, def_rating FROM team_stats WHERE season = '2025-26'")
     teams = dict(cur.fetchall())
@@ -108,7 +108,7 @@ def get_fallback_positional_defense():
     return data
 
 def save_to_db(data):
-    conn = psycopg2.connect(DB_URL)
+    conn = psycopg2.connect(DATABASE_URL)
     cur = conn.cursor()
     ensure_table(conn)
     

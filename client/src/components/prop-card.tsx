@@ -41,7 +41,7 @@ export function PropCard(prop: PropCardProps) {
           </div>
           <div className="flex gap-2">
             <Badge className={`${edgeColor} text-white`}>
-              {(prop.edge * 100).toFixed(1)}% edge
+              {Number(prop.edge * 100).toFixed(1)}% edge
             </Badge>
             <Badge className={`${confidenceColor} text-white`}>
               {prop.confidence.toUpperCase()}
@@ -55,10 +55,10 @@ export function PropCard(prop: PropCardProps) {
         <div>
           <div className="flex justify-between text-xs mb-1">
             <span className="text-muted-foreground">
-              Under: {(prop.probUnder * 100).toFixed(0)}%
+              Under: {Number(prop.probUnder * 100).toFixed(0)}%
             </span>
             <span className="text-muted-foreground">
-              Over: {(prop.probOver * 100).toFixed(0)}%
+              Over: {Number(prop.probOver * 100).toFixed(0)}%
             </span>
           </div>
           <div className="h-2 bg-secondary rounded overflow-hidden">
@@ -73,16 +73,16 @@ export function PropCard(prop: PropCardProps) {
         <div className="grid grid-cols-2 gap-2 text-sm">
           <div>
             <p className="text-muted-foreground">Projection</p>
-            <p className="font-semibold">{prop.projectedMean.toFixed(1)}</p>
+            <p className="font-semibold">{Number(prop.projectedMean).toFixed(1)}</p>
           </div>
           <div>
             <p className="text-muted-foreground">Hit Probability</p>
-            <p className="font-semibold">{(displayProb * 100).toFixed(1)}%</p>
+            <p className="font-semibold">{Number(displayProb * 100).toFixed(1)}%</p>
           </div>
         </div>
 
         <div className="text-xs text-muted-foreground">
-          Range: {(prop.projectedMean - prop.projectedStd).toFixed(1)} - {(prop.projectedMean + prop.projectedStd).toFixed(1)}
+          Range: {Number(prop.projectedMean - prop.projectedStd).toFixed(1)} - {Number(prop.projectedMean + prop.projectedStd).toFixed(1)}
         </div>
 
         {/* Action button */}

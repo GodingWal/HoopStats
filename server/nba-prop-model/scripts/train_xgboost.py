@@ -24,6 +24,7 @@ import numpy as np
 
 # Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from config.db_config import get_connection as _shared_get_connection, DATABASE_URL
 
 from src.models.xgboost_model import XGBoostPropModel, HAS_XGBOOST, XGBOOST_FEATURE_NAMES
 from src.evaluation.outcome_logger import OutcomeLogger
@@ -47,23 +48,9 @@ logger = logging.getLogger(__name__)
 TRAINABLE_STATS = ['Points', 'Rebounds', 'Assists', '3-Pointers Made', 'Steals', 'Blocks', 'Turnovers']
 
 
-def get_db_connection():
-    """Get database connection from environment."""
-    try:
-        import psycopg2
-        db_url = os.environ.get('DATABASE_URL')
-        if db_url:
-            return psycopg2.connect(db_url)
-        return psycopg2.connect(
-            host=os.environ.get('DB_HOST', 'localhost'),
-            port=os.environ.get('DB_PORT', 5432),
-            database=os.environ.get('DB_NAME', 'courtsideedge'),
-            user=os.environ.get('DB_USER', 'postgres'),
-            password=os.environ.get('DB_PASSWORD', ''),
-        )
-    except Exception as e:
-        logger.error(f"Database connection failed: {e}")
-        return None
+def get_connection():
+    return _shared_get_connection()
+
 
 
 def get_training_stats(conn) -> Dict[str, Any]:
@@ -110,7 +97,7 @@ def bootstrap_training_data(conn, stat_types: List[str] = None) -> int:
     if stat_types is None:
         stat_types = TRAINABLE_STATS
 
-    feature_builder = XGBoostFeatureBuilder()
+    feature_builder = XGBoostFeatureBuilder(use_advanced=True)
     inserted = 0
 
     try:
@@ -134,8 +121,7 @@ def bootstrap_training_data(conn, stat_types: List[str] = None) -> int:
                 p.away_averages,
                 p.position,
                 p.recent_games,
-                p.usage_rate,
-                p.ts_pct
+                p.usage_rate
             FROM prizepicks_daily_lines pdl
             LEFT JOIN players p ON LOWER(pdl.player_name) = LOWER(p.player_name)
             WHERE pdl.actual_value IS NOT NULL
@@ -163,14 +149,14 @@ def bootstrap_training_data(conn, stat_types: List[str] = None) -> int:
                 line = float(data['line'])
                 hit = actual > line
 
-                # Insert into training log
+                # Insert into training log (tagged as synthetic bootstrap data)
                 cursor.execute("""
                     INSERT INTO xgboost_training_log (
                         player_id, game_date, stat_type, line_value,
                         features, signal_score, edge_total,
                         predicted_direction, confidence_tier,
-                        actual_value, hit, captured_at, settled_at
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        actual_value, hit, source, captured_at, settled_at
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     ON CONFLICT (player_id, game_date, stat_type) DO NOTHING
                 """, (
                     str(data.get('player_id', data['player_name'])),
@@ -184,6 +170,7 @@ def bootstrap_training_data(conn, stat_types: List[str] = None) -> int:
                     'LEAN',
                     actual,
                     hit,
+                    'synthetic',  # bootstrap data — not a live prediction
                     datetime.utcnow(),
                     datetime.utcnow(),
                 ))
@@ -446,6 +433,8 @@ def save_training_metadata(stat_type: str, metrics: Dict[str, Any]) -> None:
 
     meta = {
         "last_train_date": datetime.utcnow().isoformat(),
+        "real_rows_at_last_train": metrics.get("n_real", 0),
+        "model_version": metrics.get("model_version", "1"),
         "metrics": {k: v for k, v in metrics.items()
                     if isinstance(v, (int, float, str, bool))},
     }
@@ -515,7 +504,7 @@ def train_models(
             results[stat_type] = {'status': 'skipped', 'reason': 'no_new_data'}
             continue
 
-        # Get training data
+        # Get training data (includes 'source' field: 'real' or 'synthetic')
         training_data = outcome_logger.get_training_data(
             stat_type=stat_type,
             limit=10000,
@@ -525,6 +514,14 @@ def train_models(
             logger.warning(f"Skipping {stat_type}: only {len(training_data)} samples (need 30+)")
             results[stat_type] = {'status': 'skipped', 'reason': 'insufficient_data', 'n_samples': len(training_data)}
             continue
+
+        # Log training data composition
+        n_real = sum(1 for r in training_data if r.get('source', 'real') == 'real')
+        n_synthetic = len(training_data) - n_real
+        logger.info(
+            f"Training on {n_real} real outcomes + {n_synthetic} synthetic rows "
+            f"(real weight=3x, synthetic weight=1x)"
+        )
 
         if len(training_data) < config.min_training_samples:
             logger.warning(
@@ -587,6 +584,11 @@ def train_models(
         if tuned_params:
             metrics["tuned_params"] = tuned_params
 
+        # Attach composition info to metrics before saving metadata
+        metrics["n_real"] = n_real
+        metrics["n_synthetic"] = n_synthetic
+        metrics["model_version"] = str(int(datetime.utcnow().timestamp()))
+
         # Save model
         if model.save(stat_type):
             logger.info(f"Saved {stat_type} model to {model_dir}/{stat_type}.json")
@@ -644,6 +646,7 @@ def main():
     parser.add_argument('--tune', action='store_true', help='Run Optuna hyperparameter tuning')
     parser.add_argument('--tune-trials', type=int, default=50, help='Number of Optuna trials (default: 50)')
     parser.add_argument('--auto', action='store_true', help='Auto-retrain only if enough new data')
+    parser.add_argument('--force', action='store_true', help='Force retrain all stat types regardless of new data count (overrides --auto)')
     parser.add_argument('--verbose', '-v', action='store_true', help='Verbose logging')
     args = parser.parse_args()
 
@@ -665,13 +668,15 @@ def main():
             logger.info(f"Bootstrap complete: {inserted} records inserted")
 
         # Train
+        # --force explicitly disables auto mode so all stat types are retrained
+        auto_mode = args.auto and not args.force
         results = train_models(
             conn,
             stat_types=stat_types,
             dry_run=args.dry_run,
             run_cv=args.cv,
             run_tune=args.tune,
-            auto_mode=args.auto,
+            auto_mode=auto_mode,
             tune_trials=args.tune_trials,
         )
 

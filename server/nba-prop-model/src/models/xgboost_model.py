@@ -35,6 +35,7 @@ from src.features.xgboost_features import (
     XGBoostFeatureBuilder,
     XGBoostFeatureVector,
     XGBOOST_FEATURE_NAMES,
+    XGBOOST_FEATURE_NAMES_EXTENDED,
 )
 
 logger = logging.getLogger(__name__)
@@ -120,7 +121,7 @@ class XGBoostPropModel:
         reg_alpha: float = 0.1,
         reg_lambda: float = 1.0,
         model_dir: str = "models/xgboost",
-        early_stopping_rounds: int = 20,
+        early_stopping_rounds: int = 30,
         use_calibration: bool = True,
         sample_weight_halflife_days: int = 90,
     ):
@@ -138,7 +139,10 @@ class XGBoostPropModel:
         self.early_stopping_rounds = early_stopping_rounds
         self.use_calibration = use_calibration and HAS_SKLEARN_CALIBRATION
         self.sample_weight_halflife_days = sample_weight_halflife_days
-        self.feature_builder = XGBoostFeatureBuilder()
+        self.feature_builder = XGBoostFeatureBuilder(use_advanced=True)
+        # Use the extended feature set — falls back gracefully if advanced
+        # pipeline isn't available (missing ADVANCED_XGBOOST_FEATURES = [])
+        self.feature_names = self.feature_builder.feature_names
         self.models: Dict[str, Any] = {}  # stat_type -> trained model
         self.calibrators: Dict[str, Any] = {}  # stat_type -> IsotonicRegression
         self.shap_explainers: Dict[str, Any] = {}  # stat_type -> shap.TreeExplainer
@@ -245,6 +249,15 @@ class XGBoostPropModel:
 
         model = self.models[stat_type]
         if HAS_XGBOOST and isinstance(model, xgb.XGBClassifier):
+            # Truncate features to match model's expected count
+            n_expected = getattr(model, 'n_features_in_', X.shape[1])
+            if X.shape[1] > n_expected:
+                logger.warning(
+                    f"Feature count mismatch: got {X.shape[1]} features, model expects "
+                    f"{n_expected}. Truncating — new features will be ignored until model "
+                    f"is retrained."
+                )
+                X = X[:, :n_expected]
             proba = model.predict_proba(X)[0]
             raw_prob = float(proba[1])  # Probability of class 1 (hit)
         else:
@@ -317,7 +330,7 @@ class XGBoostPropModel:
 
         if HAS_XGBOOST and isinstance(model, xgb.XGBClassifier):
             importances = model.feature_importances_
-            return dict(zip(XGBOOST_FEATURE_NAMES, importances))
+            return dict(zip(self.feature_names, importances))
         else:
             return model.get_feature_importance()
 
@@ -354,6 +367,11 @@ class XGBoostPropModel:
             fv = self.feature_builder.build(context)
             X = fv.to_array().reshape(1, -1)
 
+            # Truncate features to match model's expected count
+            n_expected = getattr(model, 'n_features_in_', X.shape[1])
+            if X.shape[1] > n_expected:
+                X = X[:, :n_expected]
+
             shap_values = explainer.shap_values(X)
 
             # For binary classification, shap_values may be a list [class_0, class_1]
@@ -372,7 +390,10 @@ class XGBoostPropModel:
                 base_value = float(base_value)
 
             # Build feature name -> SHAP value mapping
-            feature_names = list(XGBOOST_FEATURE_NAMES)
+            # Use only the features the model was trained with
+            model_m = self.models[stat_type]
+            n_exp = getattr(model_m, 'n_features_in_', len(self.feature_names))
+            feature_names = list(self.feature_names)[:n_exp]
             shap_dict = {}
             feature_values = X[0]
             drivers = []
@@ -438,6 +459,11 @@ class XGBoostPropModel:
                 X = X[indices]
 
             explainer = self._get_shap_explainer(stat_type)
+            # Truncate if needed
+            model_s = self.models[stat_type]
+            n_exp_s = getattr(model_s, 'n_features_in_', X.shape[1])
+            if X.shape[1] > n_exp_s:
+                X = X[:, :n_exp_s]
             shap_values = explainer.shap_values(X)
 
             if isinstance(shap_values, list):
@@ -449,7 +475,10 @@ class XGBoostPropModel:
 
             # Mean absolute SHAP value per feature
             mean_abs = np.mean(np.abs(sv), axis=0)
-            feature_names = list(XGBOOST_FEATURE_NAMES)
+            # Use only the features the model was trained with
+            model_m = self.models[stat_type]
+            n_exp = getattr(model_m, 'n_features_in_', len(self.feature_names))
+            feature_names = list(self.feature_names)[:n_exp]
 
             return dict(zip(feature_names, [float(v) for v in mean_abs]))
 
@@ -564,9 +593,10 @@ class XGBoostPropModel:
                 continue
 
             # Build feature array in canonical order
+            # Build feature array in canonical order (advanced features default to 0.0 if absent)
             x = np.array([
                 float(features.get(name, 0.0))
-                for name in XGBOOST_FEATURE_NAMES
+                for name in self.feature_names
             ])
             X_list.append(x)
             y_list.append(int(target))
@@ -577,7 +607,11 @@ class XGBoostPropModel:
         self, training_data: List[Dict[str, Any]]
     ) -> Optional[np.ndarray]:
         """Compute exponential decay sample weights based on game date recency.
-        More recent games get higher weight. Half-life is configurable."""
+        More recent games get higher weight. Half-life is configurable.
+
+        Real settled outcomes (source='real') receive 3x weight over synthetic
+        bootstrap data (source='synthetic') to prioritize actual game results.
+        """
         if self.sample_weight_halflife_days <= 0:
             return None
 
@@ -601,7 +635,10 @@ class XGBoostPropModel:
                     days_ago = 90  # default to half-weight
             else:
                 days_ago = 90
-            weights.append(np.exp(-decay_rate * days_ago))
+            recency_weight = np.exp(-decay_rate * days_ago)
+            # Real outcomes are 3x more valuable than synthetic bootstrap data
+            source_weight = 3.0 if row.get("source", "real") == "real" else 1.0
+            weights.append(recency_weight * source_weight)
 
         if not weights:
             return None
@@ -688,7 +725,7 @@ class XGBoostPropModel:
         val_brier = float(np.mean((val_proba - y_val) ** 2))
 
         # Feature importance
-        importances = dict(zip(XGBOOST_FEATURE_NAMES, model.feature_importances_))
+        importances = dict(zip(self.feature_names, model.feature_importances_))
         top_features = sorted(importances.items(), key=lambda x: x[1], reverse=True)[:10]
 
         # Best iteration (from early stopping)
@@ -719,7 +756,7 @@ class XGBoostPropModel:
                     sv = shap_values
 
                 mean_abs_shap = np.mean(np.abs(sv), axis=0)
-                shap_importance = dict(zip(XGBOOST_FEATURE_NAMES, [float(v) for v in mean_abs_shap]))
+                shap_importance = dict(zip(self.feature_names, [float(v) for v in mean_abs_shap]))
                 shap_top = sorted(shap_importance.items(), key=lambda x: x[1], reverse=True)[:10]
 
                 metrics["shap_importances"] = shap_importance
@@ -752,7 +789,7 @@ class XGBoostPropModel:
 
         # Convert classification to regression on log-odds
         y_train_logodds = np.where(y_train == 1, 1.0, -1.0)
-        model.fit(X_train, y_train_logodds, feature_names=list(XGBOOST_FEATURE_NAMES))
+        model.fit(X_train, y_train_logodds, feature_names=list(self.feature_names))
 
         self.models[stat_type] = model
 

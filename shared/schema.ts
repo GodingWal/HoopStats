@@ -203,6 +203,8 @@ export const playerSchema = z.object({
   next_game_location: z.enum(['home', 'away']).optional(),
   next_opponent: z.string().optional(),
   usage_rate: z.number().optional(),
+  // Positional defense rank of opponent vs player's position (1=best, 30=worst)
+  opp_def_vs_position_rank: z.number().optional(),
 });
 
 export type Player = z.infer<typeof playerSchema>;
@@ -268,8 +270,27 @@ export const potentialBetSchema = z.object({
   edge_description: z.string().optional(),
   expected_value: z.number().optional(),
   kelly_size: z.number().optional(),
-  signal_score: z.number().optional(),
-  signal_confidence: z.enum(["HIGH", "MEDIUM", "LOW"]).optional(),
+  xgb_prob_over: z.number().optional(),
+  xgb_confidence: z.number().optional(),
+  xgb_model_type: z.string().optional(),
+  confidence_tier: z.string().optional(),
+  signal_agreement: z.number().optional(),
+  calibrated_probability: z.number().optional(),
+  agreeing_signals: z.number().optional(),
+  total_signals: z.number().optional(),
+  signal_details: z.array(z.any()).optional(),
+  ml_signals_fired: z.array(z.string()).optional(),
+  ml_explanation: z.object({
+    shap_drivers: z.array(z.object({
+      feature: z.string(),
+      shap_value: z.number(),
+      feature_value: z.number(),
+      direction: z.string(),
+    })),
+    calibration: z.string(),
+    calibration_shift: z.number(),
+    raw_prob_over: z.number().nullable(),
+  }).optional(),
 });
 
 export type PotentialBet = z.infer<typeof potentialBetSchema>;

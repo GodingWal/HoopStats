@@ -73,7 +73,7 @@ export function TrendChart({ games, stat, seasonAvg, className = "" }: TrendChar
                 <span className="text-sm font-medium">{statLabels[stat]} Trend</span>
                 {seasonAvg && (
                     <span className="text-xs text-muted-foreground">
-                        Season avg: {seasonAvg.toFixed(1)}
+                        Season avg: {Number(seasonAvg).toFixed(1)}
                     </span>
                 )}
             </div>

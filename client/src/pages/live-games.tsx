@@ -150,8 +150,8 @@ export default function LiveGames() {
         );
     }
 
-    const liveGames = games?.filter((g) => g.status.type.state === "in") || [];
-    const scheduledGames = games?.filter((g) => g.status.type.state === "pre") || [];
+    const liveGames = games?.filter((g) => g?.status?.type?.state === "in") || [];
+    const scheduledGames = games?.filter((g) => g?.status?.type?.state === "pre") || [];
     const finishedGames = games?.filter((g) => g.status.type.completed) || [];
 
     return (

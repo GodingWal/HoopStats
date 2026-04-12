@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef } from "react";
+import { useState, useMemo, useRef, useEffect, Component, type ReactNode, type ErrorInfo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -13,8 +13,9 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { TrendingUp, TrendingDown, DollarSign, Target, Trophy, Loader2, CheckCircle, XCircle, MinusCircle, ChevronDown, ChevronUp, Plus, AlertCircle, RefreshCw, Upload, Image as ImageIcon, FileText } from "lucide-react";
+import { TrendingUp, TrendingDown, DollarSign, Target, Trophy, Loader2, CheckCircle, XCircle, MinusCircle, ChevronDown, ChevronUp, Plus, AlertCircle, RefreshCw, Upload, Image as ImageIcon, FileText, Radio, Activity, Clock } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { BankrollSummaryCard } from "@/components/bets/bankroll-tracker";
 
 interface ParlayPick {
   id: number;
@@ -342,6 +343,218 @@ function ImportBetsDialog({
   );
 }
 
+
+// ============= LIVE SCORES =============
+
+interface LiveScoreTeam {
+  abbreviation: string;
+  name: string;
+  displayName: string;
+  score: string;
+  logo: string;
+}
+
+interface LiveScore {
+  gameId: string;
+  state: "pre" | "in" | "post";
+  completed: boolean;
+  statusDetail: string;
+  period: number;
+  clock: string;
+  home: LiveScoreTeam;
+  away: LiveScoreTeam;
+}
+
+// NBA team abbreviation mapping for matching player teams
+const TEAM_NAME_MAP: Record<string, string[]> = {
+  ATL: ["Hawks", "Atlanta"],
+  BOS: ["Celtics", "Boston"],
+  BKN: ["Nets", "Brooklyn"],
+  CHA: ["Hornets", "Charlotte"],
+  CHI: ["Bulls", "Chicago"],
+  CLE: ["Cavaliers", "Cleveland"],
+  DAL: ["Mavericks", "Dallas"],
+  DEN: ["Nuggets", "Denver"],
+  DET: ["Pistons", "Detroit"],
+  GSW: ["Warriors", "Golden State"],
+  HOU: ["Rockets", "Houston"],
+  IND: ["Pacers", "Indiana"],
+  LAC: ["Clippers", "LA Clippers"],
+  LAL: ["Lakers", "LA Lakers", "Los Angeles Lakers"],
+  MEM: ["Grizzlies", "Memphis"],
+  MIA: ["Heat", "Miami"],
+  MIL: ["Bucks", "Milwaukee"],
+  MIN: ["Timberwolves", "Minnesota"],
+  NOP: ["Pelicans", "New Orleans"],
+  NYK: ["Knicks", "New York"],
+  OKC: ["Thunder", "Oklahoma City"],
+  ORL: ["Magic", "Orlando"],
+  PHI: ["76ers", "Philadelphia"],
+  PHX: ["Suns", "Phoenix"],
+  POR: ["Trail Blazers", "Portland"],
+  SAC: ["Kings", "Sacramento"],
+  SAS: ["Spurs", "San Antonio"],
+  TOR: ["Raptors", "Toronto"],
+  UTA: ["Jazz", "Utah"],
+  WAS: ["Wizards", "Washington"],
+};
+
+function findGameForTeam(team: string, liveScores: LiveScore[]): LiveScore | null {
+  if (!team || !liveScores.length) return null;
+  const teamUpper = team.toUpperCase().trim();
+
+  for (const game of liveScores) {
+    // Direct abbreviation match
+    if (game.home.abbreviation === teamUpper || game.away.abbreviation === teamUpper) {
+      return game;
+    }
+    // Name-based match
+    const homeNames = TEAM_NAME_MAP[game.home.abbreviation] || [];
+    const awayNames = TEAM_NAME_MAP[game.away.abbreviation] || [];
+    if (homeNames.some(n => n.toLowerCase() === team.toLowerCase()) ||
+        awayNames.some(n => n.toLowerCase() === team.toLowerCase())) {
+      return game;
+    }
+    // Fuzzy: check if team abbrev is in display name
+    if (game.home.displayName.toLowerCase().includes(team.toLowerCase()) ||
+        game.away.displayName.toLowerCase().includes(team.toLowerCase())) {
+      return game;
+    }
+  }
+  return null;
+}
+
+// Error boundary to prevent crashes
+class LiveScoreErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
+  constructor(props: { children: ReactNode }) {
+    super(props);
+    this.state = { hasError: false };
+  }
+  static getDerivedStateFromError(_error: Error) {
+    return { hasError: true };
+  }
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error("LiveScore error:", error, info);
+  }
+  render() {
+    if (this.state.hasError) {
+      return null; // Silently hide on error
+    }
+    return this.props.children;
+  }
+}
+
+function LiveGameBadge({ game }: { game: LiveScore }) {
+  if (!game) return null;
+
+  const isLive = game.state === "in";
+  const isPost = game.state === "post" || game.completed;
+  const isPre = game.state === "pre";
+
+  const homeScore = game.home.score || "0";
+  const awayScore = game.away.score || "0";
+
+  return (
+    <div className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-mono ${
+      isLive ? "bg-red-500/10 border border-red-500/30 text-red-400" :
+      isPost ? "bg-muted/50 border border-border/50 text-muted-foreground" :
+      "bg-blue-500/10 border border-blue-500/30 text-blue-400"
+    }`}>
+      {isLive && <Radio className="w-3 h-3 animate-pulse" />}
+      {isPost && <CheckCircle className="w-3 h-3" />}
+      {isPre && <Clock className="w-3 h-3" />}
+      <span className="font-bold">{game.away.abbreviation} {awayScore}</span>
+      <span className="text-muted-foreground">@</span>
+      <span className="font-bold">{game.home.abbreviation} {homeScore}</span>
+      {isLive && (
+        <span className="text-[10px] ml-1 opacity-80">
+          Q{game.period} {game.clock}
+        </span>
+      )}
+      {isPre && (
+        <span className="text-[10px] ml-1 opacity-80">
+          {game.statusDetail}
+        </span>
+      )}
+      {isPost && (
+        <span className="text-[10px] ml-1 opacity-80">Final</span>
+      )}
+    </div>
+  );
+}
+
+function LiveScoresBanner({ liveScores }: { liveScores: LiveScore[] }) {
+  if (!liveScores || liveScores.length === 0) return null;
+
+  const liveGames = liveScores.filter(g => g.state === "in");
+  const preGames = liveScores.filter(g => g.state === "pre");
+  const postGames = liveScores.filter(g => g.state === "post" || g.completed);
+
+  return (
+    <Card className="premium-card mb-6 border-primary/20">
+      <CardContent className="p-4">
+        <div className="flex items-center gap-2 mb-3">
+          <Activity className="w-4 h-4 text-primary" />
+          <span className="text-sm font-semibold">Today&apos;s Games</span>
+          {liveGames.length > 0 && (
+            <Badge className="text-[10px] bg-red-500/20 text-red-400 border-red-500/30 animate-pulse">
+              {liveGames.length} LIVE
+            </Badge>
+          )}
+          {preGames.length > 0 && (
+            <Badge variant="outline" className="text-[10px] text-blue-400 border-blue-500/30">
+              {preGames.length} Upcoming
+            </Badge>
+          )}
+          {postGames.length > 0 && (
+            <Badge variant="outline" className="text-[10px] text-muted-foreground">
+              {postGames.length} Final
+            </Badge>
+          )}
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2">
+          {liveScores.map((game) => {
+            const isLive = game.state === "in";
+            const isPost = game.state === "post" || game.completed;
+
+            return (
+              <div
+                key={game.gameId}
+                className={`flex items-center justify-between p-2 rounded-lg text-xs ${
+                  isLive ? "bg-red-500/5 border border-red-500/20" :
+                  isPost ? "bg-muted/30 border border-border/30" :
+                  "bg-blue-500/5 border border-blue-500/20"
+                }`}
+              >
+                <div className="flex-1 space-y-1">
+                  <div className="flex items-center justify-between">
+                    <span className="font-medium">{game.away.abbreviation}</span>
+                    <span className="font-bold font-mono">{game.away.score || "-"}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="font-medium">{game.home.abbreviation}</span>
+                    <span className="font-bold font-mono">{game.home.score || "-"}</span>
+                  </div>
+                </div>
+                <div className={`ml-3 text-[10px] text-center min-w-[50px] ${
+                  isLive ? "text-red-400 font-bold" :
+                  isPost ? "text-muted-foreground" :
+                  "text-blue-400"
+                }`}>
+                  {isLive && <Radio className="w-3 h-3 mx-auto mb-0.5 animate-pulse" />}
+                  {isLive ? `Q${game.period} ${game.clock}` :
+                   isPost ? "Final" :
+                   game.statusDetail || "Scheduled"}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 function StatCard({ title, value, icon: Icon, color, subtitle }: { title: string; value: string | number; icon: any; color: string; subtitle?: string }) {
   return (
     <Card className="premium-card">
@@ -357,10 +570,11 @@ function StatCard({ title, value, icon: Icon, color, subtitle }: { title: string
   );
 }
 
-function PickRow({ pick }: { pick: ParlayPick }) {
+function PickRow({ pick, liveScores }: { pick: ParlayPick; liveScores?: LiveScore[] }) {
   const isOver = pick.side === "over";
   const pickResult = pick.result || "pending";
   const hasActual = pick.actualValue !== undefined && pick.actualValue !== null;
+  const matchedGame = liveScores ? findGameForTeam(pick.team, liveScores) : null;
 
   return (
     <div
@@ -416,11 +630,18 @@ function PickRow({ pick }: { pick: ParlayPick }) {
           )}
         </div>
       </div>
+      {matchedGame && pickResult === "pending" && (
+        <div className="mt-2">
+          <LiveScoreErrorBoundary>
+            <LiveGameBadge game={matchedGame} />
+          </LiveScoreErrorBoundary>
+        </div>
+      )}
     </div>
   );
 }
 
-function ParlayCard({ parlay }: { parlay: Parlay }) {
+function ParlayCard({ parlay, liveScores }: { parlay: Parlay; liveScores?: LiveScore[] }) {
   const [isExpanded, setIsExpanded] = useState(true);
   const isPending = !parlay.result || parlay.result === "pending";
 
@@ -455,12 +676,12 @@ function ParlayCard({ parlay }: { parlay: Parlay }) {
               <div className="flex items-center gap-4 text-sm">
                 <div>
                   <span className="text-muted-foreground">Entry:</span>
-                  <span className="font-mono font-bold ml-2">${parlay.entryAmount.toFixed(2)}</span>
+                  <span className="font-mono font-bold ml-2">${Number(parlay.entryAmount).toFixed(2)}</span>
                 </div>
                 <div className="text-muted-foreground">|</div>
                 <div>
                   <span className="text-muted-foreground">To Win:</span>
-                  <span className="font-mono font-bold ml-2 text-emerald-400">${potentialWin.toFixed(2)}</span>
+                  <span className="font-mono font-bold ml-2 text-emerald-400">${Number(potentialWin).toFixed(2)}</span>
                 </div>
               </div>
 
@@ -468,7 +689,7 @@ function ParlayCard({ parlay }: { parlay: Parlay }) {
                 <div className="text-sm">
                   <span className="text-muted-foreground">P&L:</span>
                   <span className={`font-bold ml-2 ${parlay.profit! > 0 ? 'text-emerald-400' : parlay.profit! < 0 ? 'text-rose-400' : 'text-muted-foreground'}`}>
-                    {parlay.profit! > 0 ? '+' : ''}{parlay.profit?.toFixed(2)}
+                    {parlay.profit! > 0 ? '+' : ''}{Number(parlay.profit ?? 0).toFixed(2)}
                   </span>
                 </div>
               )}
@@ -504,7 +725,7 @@ function ParlayCard({ parlay }: { parlay: Parlay }) {
             {isExpanded && (
               <div className="mt-3 space-y-2">
                 {parlay.picks.map((pick) => (
-                  <PickRow key={pick.id} pick={pick} />
+                  <PickRow key={pick.id} pick={pick} liveScores={liveScores} />
                 ))}
               </div>
             )}
@@ -523,6 +744,18 @@ export default function MyBets() {
     queryKey: ["/api/parlays"],
     refetchInterval: 60000, // Auto-refresh every minute to pick up settlements
   });
+
+  // Live scores polling - every 30 seconds
+  const { data: liveScores } = useQuery<LiveScore[]>({
+    queryKey: ["/api/live-scores"],
+    refetchInterval: 30000,
+    staleTime: 15000,
+    retry: 1,
+  });
+
+  const hasLiveGames = useMemo(() => {
+    return (liveScores || []).some(g => g.state === "in");
+  }, [liveScores]);
 
   const settleMutation = useMutation({
     mutationFn: async () => {
@@ -643,7 +876,14 @@ export default function MyBets() {
             </div>
             <div>
               <h1 className="text-3xl font-bold">My Bets</h1>
-              <p className="text-muted-foreground">Each line tracked & settled automatically</p>
+              <p className="text-muted-foreground">
+              Each line tracked & settled automatically
+              {hasLiveGames && (
+                <span className="ml-2 inline-flex items-center gap-1 text-red-400 text-xs font-medium">
+                  <Radio className="w-3 h-3 animate-pulse" /> Live
+                </span>
+              )}
+            </p>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -689,24 +929,32 @@ export default function MyBets() {
           />
           <StatCard
             title="Pick Hit Rate"
-            value={stats.totalPicks > 0 ? `${((stats.hitsCount / stats.totalPicks) * 100).toFixed(1)}%` : "—"}
+            value={stats.totalPicks > 0 ? `${Number((stats.hitsCount / stats.totalPicks) * 100).toFixed(1)}%` : "—"}
             icon={Trophy}
             color="text-emerald-400"
             subtitle={`${stats.hitsCount}/${stats.totalPicks} picks`}
           />
           <StatCard
             title="Total P&L"
-            value={`$${stats.totalProfit >= 0 ? '+' : ''}${stats.totalProfit.toFixed(2)}`}
+            value={`$${stats.totalProfit >= 0 ? '+' : ''}${Number(stats.totalProfit).toFixed(2)}`}
             icon={DollarSign}
             color={stats.totalProfit >= 0 ? "text-emerald-400" : "text-rose-400"}
           />
           <StatCard
             title="ROI"
-            value={`${stats.roi >= 0 ? '+' : ''}${stats.roi.toFixed(1)}%`}
+            value={`${stats.roi >= 0 ? '+' : ''}${Number(stats.roi).toFixed(1)}%`}
             icon={TrendingUp}
             color={stats.roi >= 0 ? "text-emerald-400" : "text-rose-400"}
           />
         </div>
+
+        {/* Bankroll Tracker */}
+        <BankrollSummaryCard />
+
+        {/* Live Scores Banner */}
+        <LiveScoreErrorBoundary>
+          <LiveScoresBanner liveScores={liveScores || []} />
+        </LiveScoreErrorBoundary>
 
         <Tabs value={filter} onValueChange={(v) => setFilter(v as "all" | "pending" | "settled")} className="mb-6">
           <TabsList className="grid w-full max-w-md grid-cols-3">
@@ -734,6 +982,7 @@ export default function MyBets() {
               <ParlayCard
                 key={parlay.id}
                 parlay={parlay}
+                liveScores={liveScores}
               />
             ))}
           </div>
@@ -755,3 +1004,4 @@ export default function MyBets() {
     </div>
   );
 }
+

@@ -110,15 +110,65 @@ class WeightOptimizer:
     """
 
     # Default prior weights (should match signals/__init__.py)
-    DEFAULT_PRIORS = {
-        "injury_alpha": 0.20,
-        "b2b": 0.15,
-        "pace": 0.12,
-        "defense": 0.12,
-        "blowout": 0.12,
-        "referee_impact": 0.10,
-        "home_away": 0.08,
-        "recent_form": 0.06,
+    # Default prior weights reflecting current signal set and known accuracy.
+    # Disabled signals (blowout_risk, clv_tracker, referee*) are excluded.
+    # New signals start at modest priors; Bayesian update will correct them.
+    #
+    # Some signals accept a nested dict keyed by stat_type with a "default"
+    # fallback.  _get_prior() resolves the correct value for a given stat_type.
+    DEFAULT_PRIORS: Dict[str, Any] = {
+        "line_movement":         0.20,  # Best signal: 56-63% accuracy
+        "injury_alpha":          0.13,  # Strong when it fires
+        "minutes_projection":    0.10,  # High-value signal
+        "recent_form":           0.09,  # 53-56% accuracy
+        "defense":               0.07,  # 50-52%; keep modest
+        "opponent_recent_form":  0.04,  # Opponent defensive form
+        "rest_days":             0.04,  # Partially overlaps b2b
+        # b2b fatigue hits scoring hardest, assists least, shooting worst
+        "b2b": {
+            "points":   0.60,
+            "rebounds": 0.55,
+            "assists":  0.50,
+            "threes":   0.45,
+            "default":  0.50,
+        },
+        # win_probability requires team_net_rating + opp_net_rating — NOT in context yet.
+        # Prior set to 0.01 so optimizer doesn't over-weight until data flows in.
+        "win_probability":       0.01,
+        # pace requires opponent_pace — NOT in context yet.
+        # Prior set to 0.01 so optimizer doesn't over-weight until data flows in.
+        "pace":                  0.01,
+        # fatigue affects scoring more than playmaking/perimeter shooting
+        "fatigue": {
+            "points":   0.85,
+            "rebounds": 0.80,
+            "assists":  0.75,
+            "threes":   0.55,
+            "default":  0.70,
+        },
+        # ---- DISABLED — set to 0 so optimizer doesn't promote them ----
+        "defender_matchup":      0.0,   # Hardcoded 24 players, ~5% fire rate
+        "matchup_history":       0.0,   # Sparse data
+        "home_away":             0.0,   # Home advantage too weak (~2 pts)
+        "usage_redistribution":  0.0,   # Dependent on injury_alpha, not independent
+        "positional_defense":    0.0,   # Redundant with defense
+        "blowout_risk":          0.0,   # 43% accuracy
+        "referee":               0.0,   # Insufficient data, adds noise
+        "referee_impact":        0.0,   # Insufficient data, adds noise
+    }
+
+    # Maps stat_type strings (as passed by calculate_weights) to the nested
+    # dict keys used in DEFAULT_PRIORS.
+    _STAT_TYPE_KEY_MAP: Dict[str, str] = {
+        "points":            "points",
+        "pts":               "points",
+        "rebounds":          "rebounds",
+        "reb":               "rebounds",
+        "assists":           "assists",
+        "ast":               "assists",
+        "3-pointers made":   "threes",
+        "fg3m":              "threes",
+        "threepointersmade": "threes",
     }
 
     # Prior strength (equivalent sample size)
@@ -139,6 +189,20 @@ class WeightOptimizer:
             db_connection: Optional database connection
         """
         self.db_connection = db_connection
+
+    def _get_prior(self, signal_name: str, stat_type: str = "") -> float:
+        """
+        Look up the prior weight for a signal, optionally stat_type-specific.
+
+        For signals whose DEFAULT_PRIORS entry is a nested dict, checks for a
+        stat_type-specific weight first, then falls back to the "default" key.
+        For signals with a flat float prior, returns it directly.
+        """
+        prior_def = self.DEFAULT_PRIORS.get(signal_name, 0.10)
+        if not isinstance(prior_def, dict):
+            return prior_def
+        stat_key = self._STAT_TYPE_KEY_MAP.get(stat_type.lower(), stat_type.lower())
+        return prior_def.get(stat_key, prior_def.get("default", 0.10))
 
     def calculate_weights(
         self,
@@ -169,7 +233,7 @@ class WeightOptimizer:
 
         # Calculate weights based on method
         if method == 'simple':
-            weights = self._simple_weights(performance_data)
+            weights = self._simple_weights(performance_data, stat_type)
         else:
             weights = self._bayesian_weights(performance_data, stat_type)
 
@@ -199,7 +263,8 @@ class WeightOptimizer:
 
     def _simple_weights(
         self,
-        performance_data: Dict[str, Dict]
+        performance_data: Dict[str, Dict],
+        stat_type: str = "",
     ) -> Dict[str, SignalWeight]:
         """
         Simple weighting: weight = (accuracy - 0.50) / sum(all edges)
@@ -232,7 +297,7 @@ class WeightOptimizer:
                 weight=weight,
                 accuracy=accuracy,
                 sample_size=sample_size,
-                prior_weight=self.DEFAULT_PRIORS.get(signal_name, 0.10),
+                prior_weight=self._get_prior(signal_name, stat_type),
             )
 
         return weights
@@ -261,8 +326,9 @@ class WeightOptimizer:
             observed_accuracy = data.get('accuracy', 0.5)
             observed_n = data.get('total_predictions', 0)
 
-            # Prior accuracy: assume prior weight reflects expected edge
-            prior_weight = self.DEFAULT_PRIORS.get(signal_name, 0.10)
+            # Prior accuracy: assume prior weight reflects expected edge.
+            # Uses stat_type-specific prior when available (nested dict in DEFAULT_PRIORS).
+            prior_weight = self._get_prior(signal_name, stat_type)
             # Convert prior weight to implied accuracy (inverse of simple method)
             prior_accuracy = 0.50 + prior_weight * 0.20  # Assuming 20% total edge spread
 
@@ -305,7 +371,7 @@ class WeightOptimizer:
             if total_edge > 0:
                 weights[signal_name].weight = posterior_edges[signal_name] / total_edge
             else:
-                weights[signal_name].weight = self.DEFAULT_PRIORS.get(signal_name, 0.10)
+                weights[signal_name].weight = self._get_prior(signal_name, stat_type)
 
         return weights
 
@@ -352,7 +418,8 @@ class WeightOptimizer:
         """Return weights based only on priors (no observed data)."""
         weights = {}
 
-        for signal_name, prior_weight in self.DEFAULT_PRIORS.items():
+        for signal_name in self.DEFAULT_PRIORS:
+            prior_weight = self._get_prior(signal_name, stat_type)
             weights[signal_name] = SignalWeight(
                 signal_name=signal_name,
                 weight=prior_weight,
@@ -371,29 +438,59 @@ class WeightOptimizer:
             method='prior_only',
         )
 
+    @staticmethod
+    def _temporal_weight(days_ago: int) -> float:
+        """
+        Return the observation weight based on how many days ago it was recorded.
+
+        Recent observations are more relevant because NBA conditions change over
+        time (trades, injuries, rule changes, team adjustments).
+
+        - Last 30 days:  2x  (high relevance)
+        - 31–90 days:    1x  (standard relevance)
+        - Older than 90: 0.5x (stale; down-weighted but not discarded)
+        """
+        if days_ago <= 30:
+            return 2.0
+        if days_ago <= 90:
+            return 1.0
+        return 0.5
+
     def _load_performance_data(
         self,
         stat_type: str,
         days: int
     ) -> Dict[str, Dict]:
-        """Load signal performance data from database."""
+        """
+        Load signal performance data from database with temporal weighting.
+
+        Fetches per-date rows so that recent observations (last 30 days) are
+        counted 2× and stale observations (>90 days) are counted 0.5× in
+        the accuracy calculation.  This prevents stale weights from persisting
+        when NBA conditions change.
+
+        Temporal weighting is applied to the accuracy computation, not by
+        filtering out old data — old data still informs the estimate, just
+        with proportionally less influence.
+        """
         if self.db_connection is None:
             return {}
 
         end_date = datetime.now() - timedelta(days=1)
         start_date = end_date - timedelta(days=days)
 
+        # Fetch per-date rows so we can apply temporal weights in Python
         query = """
             SELECT
                 signal_name,
-                SUM(predictions_made) as total_predictions,
-                SUM(correct_predictions) as correct_predictions,
-                AVG(accuracy) as avg_accuracy
+                evaluation_date,
+                COALESCE(predictions_made, 0) as predictions_made,
+                COALESCE(correct_predictions, 0) as correct_predictions
             FROM signal_performance
             WHERE stat_type = %s
               AND evaluation_date >= %s
               AND evaluation_date <= %s
-            GROUP BY signal_name
+            ORDER BY signal_name, evaluation_date
         """
 
         try:
@@ -404,20 +501,45 @@ class WeightOptimizer:
                 end_date.strftime('%Y-%m-%d'),
             ))
 
-            result = {}
+            # Accumulate weighted counts per signal
+            raw: Dict[str, Dict[str, float]] = {}
+            today = datetime.now().date()
             for row in cursor.fetchall():
                 signal_name = row[0]
-                total = row[1] or 0
-                correct = row[2] or 0
-                accuracy = correct / total if total > 0 else 0.5
+                eval_date = row[1]
+                n = int(row[2])
+                correct = int(row[3])
 
+                if n == 0:
+                    continue
+
+                if isinstance(eval_date, str):
+                    eval_date = datetime.strptime(eval_date, '%Y-%m-%d').date()
+                elif hasattr(eval_date, 'date'):
+                    eval_date = eval_date.date()
+
+                days_ago = (today - eval_date).days
+                w = self._temporal_weight(days_ago)
+
+                if signal_name not in raw:
+                    raw[signal_name] = {'weighted_n': 0.0, 'weighted_correct': 0.0}
+
+                raw[signal_name]['weighted_n'] += n * w
+                raw[signal_name]['weighted_correct'] += correct * w
+
+            cursor.close()
+
+            result = {}
+            for signal_name, agg in raw.items():
+                w_n = agg['weighted_n']
+                w_correct = agg['weighted_correct']
+                accuracy = w_correct / w_n if w_n > 0 else 0.5
                 result[signal_name] = {
-                    'total_predictions': total,
-                    'correct_predictions': correct,
+                    'total_predictions': w_n,
+                    'correct_predictions': w_correct,
                     'accuracy': accuracy,
                 }
 
-            cursor.close()
             return result
 
         except Exception as e:

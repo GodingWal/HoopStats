@@ -28,6 +28,7 @@ import { DatabaseStorage, MemStorage } from "./legacy-storage";
 export interface IStorage {
   getPlayers(): Promise<Player[]>;
   getPlayer(id: number): Promise<Player | undefined>;
+  getPlayerByName(name: string): Promise<Player | undefined>;
   searchPlayers(query: string): Promise<Player[]>;
   createPlayer(player: InsertPlayer): Promise<Player>;
   getPotentialBets(): Promise<PotentialBet[]>;

@@ -20,6 +20,7 @@ from dotenv import load_dotenv
 
 # Add src to path
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+from config.db_config import get_connection as _shared_get_connection, DATABASE_URL
 from src.data.nba_api_client import NBADataClient
 
 # Setup logging

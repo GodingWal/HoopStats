@@ -30,6 +30,12 @@ function dbBetToPotentialBet(dbBet: typeof potentialBets.$inferSelect): Potentia
     edge_description: dbBet.edge_description ?? undefined,
     expected_value: dbBet.expected_value ?? undefined,
     kelly_size: dbBet.kelly_size ?? undefined,
+    confidence_tier: (dbBet as any).confidence_tier ?? undefined,
+    signal_agreement: (dbBet as any).signal_agreement ?? undefined,
+    calibrated_probability: (dbBet as any).calibrated_probability ?? undefined,
+    agreeing_signals: (dbBet as any).agreeing_signals ?? undefined,
+    total_signals: (dbBet as any).total_signals ?? undefined,
+    signal_details: (dbBet as any).signal_details ?? undefined,
   };
 }
 

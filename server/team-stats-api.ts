@@ -1,5 +1,6 @@
 import { apiCache } from "./cache";
 import { apiLogger } from "./logger";
+import { pool } from "./db";
 import {
   fetchLiveGames,
   fetchGameBoxScore,
@@ -276,9 +277,24 @@ function calculateBasicStats(games: GameContext[]): TeamBasicStats {
     homePpg: homeGames.length > 0 ? homePts / homeGames.length : 0,
     awayPpg: awayGames.length > 0 ? awayPts / awayGames.length : 0,
     avgQuarterScoring: avgQ,
-    oppAvgQuarterScoring: {
-      q1: 27, q2: 28, q3: 27, q4: 28, firstHalf: 55, secondHalf: 55,
-    },
+    // Opponent quarter scoring: derive from total opponent PPG split proportionally
+    // across quarters using the same Q1/Q2/Q3/Q4 ratios the team allows.
+    // This is a reasonable proxy when per-quarter opponent data isn't available from ESPN.
+    oppAvgQuarterScoring: (() => {
+      const oppPpg = totalOppPts / games.length;
+      // Use actual quarter proportions if we have them from team scoring (teams play similar pace both ways)
+      const totalQ = avgQ.q1 + avgQ.q2 + avgQ.q3 + avgQ.q4;
+      if (totalQ > 0) {
+        const q1 = Math.round((avgQ.q1 / totalQ) * oppPpg * 10) / 10;
+        const q2 = Math.round((avgQ.q2 / totalQ) * oppPpg * 10) / 10;
+        const q3 = Math.round((avgQ.q3 / totalQ) * oppPpg * 10) / 10;
+        const q4 = Math.round(oppPpg - q1 - q2 - q3);
+        return { q1, q2, q3, q4, firstHalf: q1 + q2, secondHalf: q3 + q4 };
+      }
+      // Fallback: equal distribution across quarters
+      const qAvg = Math.round(oppPpg / 4 * 10) / 10;
+      return { q1: qAvg, q2: qAvg, q3: qAvg, q4: qAvg, firstHalf: qAvg * 2, secondHalf: qAvg * 2 };
+    })(),
   };
 }
 
@@ -442,11 +458,11 @@ export async function fetchTeamRotation(teamAbbr: string, games: GameContext[]):
   }
 }
 
-// Calculate team advanced stats (estimated without full play-by-play data)
-function calculateAdvancedStats(basicStats: TeamBasicStats): TeamAdvancedStats {
-  // Estimate pace and ratings
-  const pace = 100; // League average
-  const possessions = pace * basicStats.gamesPlayed;
+// Calculate team advanced stats fallback when DB has no data for this team.
+// Uses pace=100 as a league-average proxy — produces reasonable relative rankings
+// but is less accurate than real per-100-possession efficiency ratings.
+function calculateAdvancedStatsFallback(basicStats: TeamBasicStats): TeamAdvancedStats {
+  const pace = 100; // League average placeholder
 
   const offRating = basicStats.ppg / pace * 100;
   const defRating = basicStats.oppPpg / pace * 100;
@@ -454,14 +470,14 @@ function calculateAdvancedStats(basicStats: TeamBasicStats): TeamAdvancedStats {
   return {
     offRating,
     pace,
-    efgPct: basicStats.fgPct * 1.1, // Rough estimate
-    tsPct: basicStats.fgPct * 1.15, // Rough estimate
+    efgPct: basicStats.fgPct * 1.1, // rough estimate: real eFG% ≈ fgPct * 1.06-1.15
+    tsPct: basicStats.fgPct * 1.15,
     tovPct: basicStats.tpg / pace * 100,
-    orbPct: 0.25, // League average
-    ftRate: 0.25, // League average
+    orbPct: 0.25,
+    ftRate: 0.25,
     defRating,
-    oppEfgPct: 0.52, // League average
-    drbPct: 0.75, // Complement of opponent ORB%
+    oppEfgPct: 0.52,
+    drbPct: 0.75,
     stlPct: basicStats.spg / pace * 100,
     blkPct: basicStats.bpg / pace * 100,
     netRating: offRating - defRating,
@@ -478,6 +494,66 @@ function calculateAdvancedStats(basicStats: TeamBasicStats): TeamAdvancedStats {
       ftRate: 0.25,
     },
   };
+}
+
+// Fetch real advanced stats from the team_stats DB table (populated by populate_team_stats.py).
+// Returns null if no row exists for this team, triggering the PPG-based fallback.
+async function fetchAdvancedStatsFromDb(teamAbbr: string, basicStats: TeamBasicStats): Promise<TeamAdvancedStats | null> {
+  if (!pool) return null;
+  try {
+    const result = await pool.query(
+      `SELECT off_rating, def_rating, pace, net_rating
+       FROM team_stats
+       WHERE team_id = $1
+       ORDER BY updated_at DESC
+       LIMIT 1`,
+      [teamAbbr]
+    );
+    if (result.rows.length === 0) return null;
+
+    const row = result.rows[0];
+    const offRating = parseFloat(row.off_rating);
+    const defRating = parseFloat(row.def_rating);
+    const pace = parseFloat(row.pace) || 100;
+    const netRating = parseFloat(row.net_rating) ?? (offRating - defRating);
+
+    return {
+      offRating,
+      defRating,
+      pace,
+      netRating,
+      // eFG% not stored in team_stats — compute from shooting data
+      efgPct: basicStats.fgPct * 1.1,
+      tsPct: basicStats.fgPct * 1.15,
+      tovPct: basicStats.tpg / pace * 100,
+      orbPct: 0.25,
+      ftRate: 0.25,
+      oppEfgPct: 0.52,
+      drbPct: 0.75,
+      stlPct: basicStats.spg / pace * 100,
+      blkPct: basicStats.bpg / pace * 100,
+      fourFactorsOff: {
+        efgPct: basicStats.fgPct * 1.1,
+        tovPct: basicStats.tpg / pace * 100,
+        orbPct: 0.25,
+        ftRate: 0.25,
+      },
+      fourFactorsDef: {
+        efgPct: 0.52,
+        tovPct: 0.12,
+        drbPct: 0.75,
+        ftRate: 0.25,
+      },
+    };
+  } catch (err: any) {
+    apiLogger.warn(`[TeamStats] DB advanced stats query failed for ${teamAbbr}: ${err.message}`);
+    return null;
+  }
+}
+
+// Keep the old name as a pass-through so compareTeams() callers still compile
+function calculateAdvancedStats(basicStats: TeamBasicStats): TeamAdvancedStats {
+  return calculateAdvancedStatsFallback(basicStats);
 }
 
 // Main function to fetch complete team stats
@@ -511,7 +587,10 @@ export async function fetchTeamStats(teamAbbr: string): Promise<TeamStats | null
       basicStats.awayRecord = realRecord.awayRecord;
     }
 
-    const advancedStats = calculateAdvancedStats(basicStats);
+    // Fix 1: try real ratings from DB first; fall back to PPG-based estimate only if missing.
+    const advancedStats =
+      (await fetchAdvancedStatsFromDb(teamAbbr, basicStats)) ??
+      calculateAdvancedStatsFallback(basicStats);
 
     // Fetch rotation
     const rotation = await fetchTeamRotation(teamAbbr, recentGames);

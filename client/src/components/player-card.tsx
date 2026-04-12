@@ -20,14 +20,14 @@ const positionColors: Record<string, string> = {
 };
 
 export function PlayerCard({ player, isSelected, isFavorite, onToggleFavorite, onClick }: PlayerCardProps) {
-  const recentPts = player.recent_games.map((g) => g.PTS).reverse();
+  const recentPts = (player.recent_games || []).map((g) => g.PTS).reverse();
 
   const avgs = player.season_averages as any;
   const avgPts = avgs.pts ?? avgs.PTS ?? 0;
   const avgReb = avgs.reb ?? avgs.REB ?? 0;
   const avgAst = avgs.ast ?? avgs.AST ?? 0;
 
-  const lastPts = player.recent_games[0]?.PTS ?? 0;
+  const lastPts = (player.recent_games || [])[0]?.PTS ?? 0;
   const ptsTrend = lastPts - avgPts;
 
   // Determine position color (simple heuristic based on stats)
@@ -83,7 +83,7 @@ export function PlayerCard({ player, isSelected, isFavorite, onToggleFavorite, o
           <div className="flex items-center gap-3 mt-2">
             <div className="flex items-center gap-1">
               <span className="text-[10px] text-muted-foreground uppercase">PTS</span>
-              <span className="font-mono font-bold text-sm">{avgPts.toFixed(1)}</span>
+              <span className="font-mono font-bold text-sm">{Number(avgPts).toFixed(1)}</span>
               {ptsTrend !== 0 && (
                 <span className={`flex items-center text-[10px] ${ptsTrend > 0 ? "text-emerald-400" : "text-red-400"}`}>
                   {ptsTrend > 0 ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
@@ -92,11 +92,11 @@ export function PlayerCard({ player, isSelected, isFavorite, onToggleFavorite, o
             </div>
             <div className="flex items-center gap-1">
               <span className="text-[10px] text-muted-foreground uppercase">REB</span>
-              <span className="font-mono font-bold text-sm">{(avgReb || 0).toFixed(1)}</span>
+              <span className="font-mono font-bold text-sm">{Number(avgReb || 0).toFixed(1)}</span>
             </div>
             <div className="flex items-center gap-1">
               <span className="text-[10px] text-muted-foreground uppercase">AST</span>
-              <span className="font-mono font-bold text-sm">{(avgAst || 0).toFixed(1)}</span>
+              <span className="font-mono font-bold text-sm">{Number(avgAst || 0).toFixed(1)}</span>
             </div>
           </div>
         </div>

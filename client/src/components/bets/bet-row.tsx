@@ -1,11 +1,12 @@
 /**
- * BetRow component - displays a single bet recommendation
+ * BetRow component - displays a single bet recommendation with SHAP explanations
  */
 
 import type { PotentialBet } from "@shared/schema";
 import { Badge } from "@/components/ui/badge";
 import { TrendingUp, TrendingDown, Flame, AlertCircle } from "lucide-react";
 import { getStatLabel, getEdgeBadgeColor, getEdgeLabel } from "./utils";
+import { ShapExplainer } from "@/components/shap-explainer";
 
 interface BetRowProps {
   bet: PotentialBet;
@@ -15,6 +16,7 @@ export function BetRow({ bet }: BetRowProps) {
   const isOver = bet.recommendation === "OVER";
   const hasEdge = bet.edge_score && bet.edge_score > 0;
   const isInjuryEdge = bet.edge_type === "STAR_OUT" || bet.edge_type === "STAR_OUT_POTENTIAL";
+  const hasML = bet.ml_explanation && bet.ml_explanation.shap_drivers && bet.ml_explanation.shap_drivers.length > 0;
 
   return (
     <div className={`p-3 rounded-lg transition-all ${hasEdge ? isInjuryEdge ? 'bg-gradient-to-r from-purple-500/15 to-transparent border border-purple-500/40' : 'bg-gradient-to-r from-primary/10 to-transparent border border-primary/30' : 'bg-muted/30'} hover:bg-muted/50`}>
@@ -37,12 +39,22 @@ export function BetRow({ bet }: BetRowProps) {
               {bet.edge_description}
             </div>
           )}
+          {/* SHAP AI Prediction Breakdown */}
+          {hasML && (
+            <ShapExplainer
+              drivers={bet.ml_explanation!.shap_drivers}
+              calibration={bet.ml_explanation!.calibration}
+              calibrationShift={bet.ml_explanation!.calibration_shift}
+              rawProbOver={bet.ml_explanation!.raw_prob_over}
+              probOver={bet.xgb_prob_over}
+            />
+          )}
         </div>
 
         <div className="flex flex-col items-end gap-1">
           <div className="flex items-center gap-2">
             <div className={`font-mono text-sm font-bold ${bet.hit_rate >= 70 ? 'text-emerald-400' : bet.hit_rate >= 50 ? 'text-foreground' : 'text-rose-400'}`}>
-              {bet.hit_rate.toFixed(0)}%
+              {Number(bet.hit_rate).toFixed(0)}%
             </div>
 
             {hasEdge && bet.edge_type && (
@@ -54,6 +66,12 @@ export function BetRow({ bet }: BetRowProps) {
             {bet.confidence === "HIGH" && (
               <Badge className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30 text-xs px-1.5">
                 <Flame className="w-3 h-3" />
+              </Badge>
+            )}
+
+            {bet.xgb_prob_over != null && (
+              <Badge className="bg-blue-500/15 text-blue-400 border-blue-500/30 text-[10px] px-1 font-mono">
+                ML {Number(Number(bet.xgb_prob_over || 0) * 100).toFixed(0)}%
               </Badge>
             )}
 

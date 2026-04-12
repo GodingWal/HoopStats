@@ -192,8 +192,10 @@ class LineMovementSignal(BaseSignal):
         try:
             # Sort by timestamp
             sorted_history = sorted(line_history, key=lambda x: x.get('timestamp', ''))
-            first_line = sorted_history[0].get('line', 0)
-            last_line = sorted_history[-1].get('line', 0)
+            first_line = sorted_history[0].get('line')
+            if first_line is None:
+                return 1.0
+            last_line = sorted_history[-1].get('line', first_line)
             total_move = abs(last_line - first_line)
 
             if total_move < self.MIN_MOVE:

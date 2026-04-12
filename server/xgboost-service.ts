@@ -10,16 +10,15 @@ import path from "path";
 import fs from "fs";
 import { fileURLToPath } from "url";
 import type { Player } from "@shared/schema";
+import { pool } from "./db";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const MODEL_DIR = path.join(
-  __dirname,
-  "nba-prop-model",
-  "models",
-  "xgboost"
-);
+// Hardcoded paths - avoids esbuild __dirname resolving to dist/
+const NBA_PROP_DIR = "/var/www/courtsideedge/server/nba-prop-model";
+const MODEL_DIR = "/var/www/courtsideedge/server/nba-prop-model/models/xgboost";
+const VENV_PYTHON = "/var/www/courtsideedge/server/nba-prop-model/venv/bin/python";
 
 // Map frontend stat types to XGBoost model names
 const STAT_TYPE_MAP: Record<string, string> = {
@@ -43,6 +42,133 @@ const STAT_KEY_MAP: Record<string, string> = {
   Turnovers: "tov",
 };
 
+// Mapping from normalized position to team_stats defensive column
+const POSITION_DEF_COL: Record<string, string> = {
+  PG: "def_vs_pg",
+  SG: "def_vs_sg",
+  SF: "def_vs_sf",
+  PF: "def_vs_pf",
+  C:  "def_vs_c",
+};
+
+// Normalize a raw position string (e.g. "PG-SG", "Forward", "C") to one key
+function normalizePosition(pos: string | undefined): string | null {
+  if (!pos) return null;
+  const p = pos.toUpperCase();
+  if (p.startsWith("PG") || p === "G") return "PG";
+  if (p.startsWith("SG")) return "SG";
+  if (p.startsWith("PF")) return "PF";
+  if (p.startsWith("SF") || p === "F") return "SF";
+  if (p.startsWith("C")) return "C";
+  return null;
+}
+
+interface OppDefenseStats {
+  opp_defensive_rating: number | null;
+  opp_pace: number | null;
+  opp_pts_allowed_to_position: number | null;
+}
+
+/**
+ * Query team_stats for the opponent's defensive rating, pace, and
+ * position-specific points allowed.  Returns nulls on any failure so
+ * the XGBoost pipeline always stays non-blocking.
+ *
+ * These features are captured in the training context so the model can
+ * learn from them on next retrain.  The current model truncates unknown
+ * features and is unaffected until retrained.
+ */
+async function getOpponentDefenseStats(
+  oppTeam: string | undefined,
+  position: string | undefined,
+): Promise<OppDefenseStats> {
+  const empty: OppDefenseStats = {
+    opp_defensive_rating: null,
+    opp_pace: null,
+    opp_pts_allowed_to_position: null,
+  };
+  if (!oppTeam || !pool) return empty;
+
+  try {
+    const season = "2024-25";
+    const normPos = normalizePosition(position);
+    const defCol = normPos ? POSITION_DEF_COL[normPos] : null;
+
+    const selectCols = defCol
+      ? `def_rating, pace, ${defCol} AS pos_def`
+      : `def_rating, pace`;
+    const rows = await pool.query(
+      `SELECT ${selectCols} FROM team_stats WHERE team_id = $1 AND season = $2 LIMIT 1`,
+      [oppTeam, season],
+    );
+    if (rows.rows.length === 0) return empty;
+    const row = rows.rows[0];
+    return {
+      opp_defensive_rating: row.def_rating != null ? parseFloat(row.def_rating) : null,
+      opp_pace: row.pace != null ? parseFloat(row.pace) : null,
+      opp_pts_allowed_to_position: row.pos_def != null ? parseFloat(row.pos_def) : null,
+    };
+  } catch {
+    // Non-fatal — XGBoost works without this data
+    return empty;
+  }
+}
+
+/**
+ * Preload opponent defense stats for a batch of requests.
+ * Single query for all unique opponent teams avoids N+1 DB calls.
+ */
+async function preloadOpponentDefense(
+  requests: Array<{ team: string | undefined; position: string | undefined }>,
+): Promise<Map<string, OppDefenseStats>> {
+  const cache = new Map<string, OppDefenseStats>();
+  if (!pool) return cache;
+
+  const uniqueTeams = [...new Set(requests.map((r) => r.team).filter(Boolean))] as string[];
+  if (uniqueTeams.length === 0) return cache;
+
+  try {
+    const season = "2024-25";
+    const rows = await pool.query(
+      `SELECT team_id, def_rating, pace, def_vs_pg, def_vs_sg, def_vs_sf, def_vs_pf, def_vs_c
+       FROM team_stats WHERE team_id = ANY($1) AND season = $2`,
+      [uniqueTeams, season],
+    );
+    for (const row of rows.rows) {
+      cache.set(row.team_id, {
+        opp_defensive_rating: row.def_rating != null ? parseFloat(row.def_rating) : null,
+        opp_pace: row.pace != null ? parseFloat(row.pace) : null,
+        // position-specific column resolved per-request below
+        opp_pts_allowed_to_position: null,
+      });
+      // Store raw positional columns so callers can pick the right one
+      (cache.get(row.team_id) as any)._raw = row;
+    }
+  } catch {
+    // Non-fatal
+  }
+  return cache;
+}
+
+function resolvePositionalDef(cached: OppDefenseStats, position: string | undefined): OppDefenseStats {
+  const raw = (cached as any)._raw;
+  if (!raw) return cached;
+  const normPos = normalizePosition(position);
+  const defCol = normPos ? POSITION_DEF_COL[normPos] : null;
+  return {
+    opp_defensive_rating: cached.opp_defensive_rating,
+    opp_pace: cached.opp_pace,
+    opp_pts_allowed_to_position: defCol && raw[defCol] != null ? parseFloat(raw[defCol]) : null,
+  };
+}
+
+export interface ShapDriver {
+  feature: string;
+  shap_value: number;
+  feature_value: number;
+  direction: string; // "OVER" | "UNDER"
+}
+
 export interface XGBoostPrediction {
   prob_over: number;
   prob_under: number;
@@ -50,6 +176,13 @@ export interface XGBoostPrediction {
   predicted_hit: boolean;
   model_type: string;
   top_features: Array<[string, number]>;
+  // Calibration metadata
+  calibration_method: string; // "isotonic" | "none"
+  raw_prob_over: number; // Pre-calibration probability
+  calibration_shift: number; // calibrated - raw
+  // SHAP explanation (top drivers for this specific prediction)
+  shap_top_drivers: ShapDriver[];
+  shap_base_value: number | null;
 }
 
 /**
@@ -84,6 +217,10 @@ export async function getXGBoostPrediction(
 
   const statKey = STAT_KEY_MAP[modelName] || "pts";
 
+  // Fetch opponent defensive context so it's captured in the training log.
+  // The current model truncates unknown features; these become useful after retraining.
+  const oppDef = await getOpponentDefenseStats(player.next_opponent, player.position);
+
   // Build context for XGBoost feature builder
   const context = {
     line,
@@ -101,7 +238,12 @@ export async function getXGBoostPrediction(
     hit_rate: getHitRate(player, statType, line),
     is_home: player.next_game_location === "home",
     is_b2b: isBackToBack(player),
-    days_rest: 1,
+    days_rest: getDaysRest(player),
+    // Opponent defense features — also forwarded as opp_def_rating for signal engine
+    opp_defensive_rating: oppDef.opp_defensive_rating,
+    opp_def_rating: oppDef.opp_defensive_rating,      // signal engine alias
+    opp_pace: oppDef.opp_pace,
+    opp_pts_allowed_to_position: oppDef.opp_pts_allowed_to_position,
   };
 
   return runPythonInference(modelName, context);
@@ -120,6 +262,11 @@ export async function batchXGBoostPredict(
     context: Record<string, unknown>;
   }> = [];
 
+  // Preload all opponent defense stats in one DB query
+  const oppDefCache = await preloadOpponentDefense(
+    requests.map((r) => ({ team: r.player.next_opponent, position: r.player.position })),
+  );
+
   for (const { player, statType, line } of requests) {
     const modelName = STAT_TYPE_MAP[statType];
     if (!modelName) continue;
@@ -129,6 +276,11 @@ export async function batchXGBoostPredict(
 
     const statKey = STAT_KEY_MAP[modelName] || "pts";
     const key = `${player.player_name}_${statType}_${line}`;
+
+    const cachedDef = oppDefCache.get(player.next_opponent || "");
+    const oppDef = cachedDef
+      ? resolvePositionalDef(cachedDef, player.position)
+      : { opp_defensive_rating: null, opp_pace: null, opp_pts_allowed_to_position: null };
 
     contexts.push({
       key,
@@ -148,7 +300,12 @@ export async function batchXGBoostPredict(
         hit_rate: getHitRate(player, statType, line),
         is_home: player.next_game_location === "home",
         is_b2b: isBackToBack(player),
-        days_rest: 1,
+        days_rest: getDaysRest(player),
+        // Opponent defense features — captured in training log for next model retraining
+        opp_defensive_rating: oppDef.opp_defensive_rating,
+        opp_def_rating: oppDef.opp_defensive_rating,  // signal engine alias
+        opp_pace: oppDef.opp_pace,
+        opp_pts_allowed_to_position: oppDef.opp_pts_allowed_to_position,
       },
     });
   }
@@ -176,29 +333,60 @@ function runPythonInference(
   return new Promise((resolve) => {
     const script = `
 import sys, json, os
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath("${MODEL_DIR}")), '..'))
-os.chdir(os.path.join("${path.join(__dirname, "nba-prop-model")}"))
+import numpy as np
+class NpEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, (np.integer,)): return int(obj)
+        if isinstance(obj, (np.floating,)): return float(obj)
+        if isinstance(obj, np.ndarray): return obj.tolist()
+        return super().default(obj)
+sys.path.insert(0, "/var/www/courtsideedge/server")
+os.chdir("/var/www/courtsideedge/server/nba-prop-model")
 
 from src.models.xgboost_model import XGBoostPropModel
-model = XGBoostPropModel(model_dir="${MODEL_DIR}")
+model = XGBoostPropModel(model_dir="/var/www/courtsideedge/server/nba-prop-model/models/xgboost")
 model.load("${modelName}")
 context = json.loads(sys.stdin.read())
 pred = model.predict(context, "${modelName}")
 importances = sorted(pred.feature_importances.items(), key=lambda x: x[1], reverse=True)[:5]
+
+# Calibration: get raw (uncalibrated) probability for comparison
+cal = model.calibrators.pop("${modelName}", None)
+raw_uncal = model.predict_proba(context, "${modelName}")
+if cal is not None:
+    model.calibrators["${modelName}"] = cal
+cal_method = "isotonic" if cal is not None else "none"
+cal_shift = round(pred.prob_over - raw_uncal, 4)
+
+# SHAP explanation
+shap_data = []
+shap_base = None
+if pred.shap_explanation:
+    shap_data = [
+        {"feature": f, "shap_value": round(sv, 4), "feature_value": round(fv, 4),
+         "direction": "OVER" if sv > 0 else "UNDER"}
+        for f, sv, fv in pred.shap_explanation.top_drivers[:8]
+    ]
+    shap_base = float(pred.shap_explanation.base_value) if pred.shap_explanation.base_value is not None else None
+
 print(json.dumps({
     "prob_over": pred.prob_over,
     "prob_under": pred.prob_under,
     "confidence": pred.confidence,
     "predicted_hit": pred.predicted_hit,
     "model_type": pred.model_type,
-    "top_features": importances
-}))
+    "top_features": importances,
+    "calibration_method": cal_method,
+    "raw_prob_over": round(raw_uncal, 4),
+    "calibration_shift": cal_shift,
+    "shap_top_drivers": shap_data,
+    "shap_base_value": shap_base
+}, cls=NpEncoder))
 `;
 
-    const pythonCmd =
-      process.platform === "win32" ? "python" : "python3";
+    const pythonCmd = VENV_PYTHON;
     const proc = spawn(pythonCmd, ["-c", script], {
-      cwd: path.join(__dirname, "nba-prop-model"),
+      cwd: "/var/www/courtsideedge/server/nba-prop-model",
     });
 
     let stdout = "";
@@ -241,11 +429,18 @@ function runPythonBatchInference(
   return new Promise((resolve) => {
     const script = `
 import sys, json, os
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath("${MODEL_DIR}")), '..'))
-os.chdir("${path.join(__dirname, "nba-prop-model")}")
+import numpy as np
+class NpEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, (np.integer,)): return int(obj)
+        if isinstance(obj, (np.floating,)): return float(obj)
+        if isinstance(obj, np.ndarray): return obj.tolist()
+        return super().default(obj)
+sys.path.insert(0, "/var/www/courtsideedge/server")
+os.chdir("/var/www/courtsideedge/server/nba-prop-model")
 
 from src.models.xgboost_model import XGBoostPropModel
-model = XGBoostPropModel(model_dir="${MODEL_DIR}")
+model = XGBoostPropModel(model_dir="/var/www/courtsideedge/server/nba-prop-model/models/xgboost")
 
 # Load all available models
 for stat in ['Points', 'Rebounds', 'Assists', '3-Pointers Made', 'Steals', 'Blocks', 'Turnovers']:
@@ -260,24 +455,48 @@ for item in batch:
     try:
         pred = model.predict(context, model_name)
         importances = sorted(pred.feature_importances.items(), key=lambda x: x[1], reverse=True)[:5]
+
+        # Calibration: get raw (uncalibrated) probability
+        cal = model.calibrators.pop(model_name, None)
+        raw_uncal = model.predict_proba(context, model_name)
+        if cal is not None:
+            model.calibrators[model_name] = cal
+        cal_method = "isotonic" if cal is not None else "none"
+        cal_shift = round(pred.prob_over - raw_uncal, 4)
+
+        # SHAP explanation
+        shap_data = []
+        shap_base = None
+        if pred.shap_explanation:
+            shap_data = [
+                {"feature": f, "shap_value": round(sv, 4), "feature_value": round(fv, 4),
+                 "direction": "OVER" if sv > 0 else "UNDER"}
+                for f, sv, fv in pred.shap_explanation.top_drivers[:8]
+            ]
+            shap_base = float(pred.shap_explanation.base_value) if pred.shap_explanation.base_value is not None else None
+
         results[key] = {
             "prob_over": pred.prob_over,
             "prob_under": pred.prob_under,
             "confidence": pred.confidence,
             "predicted_hit": pred.predicted_hit,
             "model_type": pred.model_type,
-            "top_features": importances
+            "top_features": importances,
+            "calibration_method": cal_method,
+            "raw_prob_over": round(raw_uncal, 4),
+            "calibration_shift": cal_shift,
+            "shap_top_drivers": shap_data,
+            "shap_base_value": shap_base
         }
     except Exception as e:
         pass
 
-print(json.dumps(results))
+print(json.dumps(results, cls=NpEncoder))
 `;
 
-    const pythonCmd =
-      process.platform === "win32" ? "python" : "python3";
+    const pythonCmd = VENV_PYTHON;
     const proc = spawn(pythonCmd, ["-c", script], {
-      cwd: path.join(__dirname, "nba-prop-model"),
+      cwd: "/var/www/courtsideedge/server/nba-prop-model",
     });
 
     let stdout = "";
@@ -352,5 +571,27 @@ function isBackToBack(player: Player): boolean {
     return diff <= 2;
   } catch {
     return false;
+  }
+}
+
+/**
+ * Calculate actual rest days since the player's most recent game.
+ * Returns days between last game date and today (capped at 7 to avoid outliers).
+ */
+function getDaysRest(player: Player): number {
+  const games = player.recent_games;
+  if (!games || games.length === 0) return 2; // default assumption
+
+  try {
+    const lastGameDate = new Date(games[0]?.GAME_DATE || "");
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const diff = Math.round(
+      (today.getTime() - lastGameDate.getTime()) / (1000 * 60 * 60 * 24)
+    );
+    // Clamp to [0, 7] — beyond 7 days rest is effectively the same
+    return Math.max(0, Math.min(diff, 7));
+  } catch {
+    return 2;
   }
 }

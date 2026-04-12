@@ -23,10 +23,10 @@ function StatComparison({
       <span className="text-muted-foreground w-12">{label}</span>
       <div className="flex items-center gap-6">
         <span className={`font-mono font-semibold w-10 text-right ${homeHigher ? "text-emerald-400" : ""}`}>
-          {home.toFixed(1)}
+          {Number(home).toFixed(1)}
         </span>
         <span className={`font-mono font-semibold w-10 text-right ${!homeHigher ? "text-emerald-400" : ""}`}>
-          {away.toFixed(1)}
+          {Number(away).toFixed(1)}
         </span>
       </div>
     </div>

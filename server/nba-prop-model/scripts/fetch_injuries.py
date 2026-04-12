@@ -3,9 +3,11 @@
 import os,sys,json,logging
 from datetime import datetime,date
 import psycopg2,requests
+import sys
+sys.path.insert(0, '/var/www/courtsideedge/server/nba-prop-model')
+from config.db_config import get_connection as _shared_get_connection, DATABASE_URL
 logging.basicConfig(level=logging.INFO,format='%(asctime)s %(levelname)s %(message)s')
 logger=logging.getLogger(__name__)
-DATABASE_URL=os.environ.get('DATABASE_URL','postgres://courtsideedge_user:CourtSideEdge2026Secure!@localhost:5432/courtsideedge')
 
 def get_db():
     try: return psycopg2.connect(DATABASE_URL)

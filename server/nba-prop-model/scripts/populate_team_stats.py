@@ -10,6 +10,7 @@ logger = logging.getLogger(__name__)
 
 # Add project root
 sys.path.insert(0, '/var/www/courtsideedge/server/nba-prop-model')
+from config.db_config import get_connection as _shared_get_connection, DATABASE_URL
 
 try:
     import psycopg2
@@ -20,7 +21,6 @@ except ImportError as e:
     logger.error(f"Missing dependency: {e}")
     sys.exit(1)
 
-DB_URL = os.environ.get("DATABASE_URL", "postgres://courtsideedge_user:CourtSideEdge2026Secure!@localhost:5432/courtsideedge")
 
 def get_team_stats():
     """Fetch team stats from NBA API."""
@@ -99,7 +99,7 @@ def get_fallback_stats():
 
 def save_to_db(teams):
     """Upsert team stats into database."""
-    conn = psycopg2.connect(DB_URL)
+    conn = psycopg2.connect(DATABASE_URL)
     cur = conn.cursor()
     
     for team_id, stats in teams.items():

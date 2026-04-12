@@ -22,7 +22,7 @@ class RefereeImpactSignal(BaseSignal):
     default_confidence = 0.6
     
     # League average fouls per game (approximate, should be dynamic ideally)
-    LEAGUE_AVG_FOULS = 19.5
+    LEAGUE_AVG_FOULS = 42.0
     
     # Thresholds
     HIGH_FOUL_THRESHOLD = 1.5  # Crew needs to be +1.5 fouls above avg

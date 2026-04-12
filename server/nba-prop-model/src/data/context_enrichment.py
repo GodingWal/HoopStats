@@ -100,7 +100,9 @@ def enrich_context(conn, context: Dict[str, Any], player_data: Dict[str, Any]) -
     _safe_enrich(conn, cursor, "line_movement", _enrich_line_movement, context, player_name, game_date, stat_type)
     _safe_enrich(conn, cursor, "injuries", _enrich_injuries, context, team, player_name, game_date)
     _enrich_matchup_from_vs_team(context, opponent)  # No DB needed
+    _safe_enrich(conn, cursor, "referee", _enrich_referee_data, context, team, opponent, game_date)
     _safe_enrich(conn, cursor, "defense_vs_pos", _enrich_defense_vs_position, context, opponent, position)
+    _safe_enrich(conn, cursor, "team_win_data", _enrich_team_win_data, context, team, opponent)
     
     # Clean up internal fields
     context.pop('_game_logs', None)
@@ -361,3 +363,74 @@ def _enrich_defense_vs_position(cursor, context, opponent, position):
             'ast_allowed': float(row[2] or 0), 'fg_pct_allowed': float(row[3] or 0),
             'defensive_rating': 110.0, 'sample_size': 20,
         }
+
+
+def _enrich_referee_data(cursor, context, team, opponent, game_date):
+    """Load referee assignments for this game and add to context."""
+    if not game_date:
+        return
+    if not team and not opponent:
+        return
+    teams = [t for t in [team, opponent] if t]
+    placeholders = ' OR '.join(['home_team = %s OR away_team = %s'] * len(teams))
+    params = [game_date]
+    for t in teams:
+        params.extend([t, t])
+    cursor.execute(f"""
+        SELECT DISTINCT referee_name, avg_fouls_per_game
+        FROM referee_assignments
+        WHERE game_date = %s::date AND ({placeholders})
+        LIMIT 5
+    """, params)
+    rows = cursor.fetchall()
+    if rows:
+        referee_names = [r[0] for r in rows if r[0] and r[0] != 'TBD']
+        game_referees = [
+            {'name': r[0], 'avg_fouls_per_game': float(r[1]) if r[1] else 42.0}
+            for r in rows if r[0] and r[0] != 'TBD'
+        ]
+        if referee_names:
+            context['referee_names'] = referee_names
+            context['game_referees'] = game_referees
+            context['referee_crew'] = referee_names
+
+
+def _enrich_team_win_data(cursor, context, team, opponent):
+    """Enrich context with team net ratings and win% for win_probability signal."""
+    if not team:
+        return
+    cursor.execute(
+        """SELECT net_rating, off_rating, def_rating, wins, losses
+        FROM team_stats WHERE UPPER(team_id) = UPPER(%s) LIMIT 1""",
+        (team,)
+    )
+    row = cursor.fetchone()
+    if row:
+        net_r, off_r, def_r, wins, losses = row
+        context['team_net_rating'] = float(net_r or 0)
+        context['team_stats'] = {
+            'net_rating': float(net_r or 0),
+            'off_rating': float(off_r or 110),
+            'def_rating': float(def_r or 110),
+        }
+        total_games = (wins or 0) + (losses or 0)
+        if total_games > 0:
+            context['team_win_pct'] = float(wins or 0) / total_games
+        else:
+            context['team_win_pct'] = 0.5
+
+    if not context.get('opp_net_rating'):
+        cursor.execute(
+            """SELECT net_rating, wins, losses
+            FROM team_stats WHERE UPPER(team_id) = UPPER(%s) LIMIT 1""",
+            (opponent,)
+        )
+        row = cursor.fetchone()
+        if row:
+            context['opp_net_rating'] = float(row[0] or 0)
+            total_games = (row[1] or 0) + (row[2] or 0)
+            if total_games > 0:
+                context['opp_win_pct'] = float(row[1] or 0) / total_games
+            else:
+                context['opp_win_pct'] = 0.5
+

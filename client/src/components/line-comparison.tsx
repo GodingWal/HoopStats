@@ -45,10 +45,10 @@ export function LineComparison(props: LineComparisonProps) {
         </CardTitle>
         <div className="flex gap-4 text-sm text-muted-foreground mt-2">
           <div>
-            Consensus: <span className="font-semibold text-foreground">{consensus.line.toFixed(1)}</span>
+            Consensus: <span className="font-semibold text-foreground">{Number(consensus.line).toFixed(1)}</span>
           </div>
           <div>
-            Spread: <span className="font-semibold text-foreground">{consensus.spread.toFixed(1)}</span>
+            Spread: <span className="font-semibold text-foreground">{Number(consensus.spread).toFixed(1)}</span>
           </div>
         </div>
       </CardHeader>
@@ -99,18 +99,18 @@ export function LineComparison(props: LineComparisonProps) {
                     <td className={`text-center p-2 ${isBestOver ? 'bg-green-500/10 font-bold' : ''}`}>
                       {formatOdds(line.overOdds)}
                       <div className="text-xs text-muted-foreground">
-                        {(line.overImpliedProb * 100).toFixed(1)}%
+                        {Number(line.overImpliedProb * 100).toFixed(1)}%
                       </div>
                     </td>
                     <td className={`text-center p-2 ${isBestUnder ? 'bg-blue-500/10 font-bold' : ''}`}>
                       {formatOdds(line.underOdds)}
                       <div className="text-xs text-muted-foreground">
-                        {(line.underImpliedProb * 100).toFixed(1)}%
+                        {Number(line.underImpliedProb * 100).toFixed(1)}%
                       </div>
                     </td>
                     <td className="text-center p-2">
                       <Badge variant={line.vig < 0.03 ? 'default' : 'secondary'}>
-                        {(line.vig * 100).toFixed(1)}%
+                        {Number(line.vig * 100).toFixed(1)}%
                       </Badge>
                     </td>
                   </tr>
@@ -123,7 +123,7 @@ export function LineComparison(props: LineComparisonProps) {
         {/* Value Indicator */}
         {consensus.spread > 0.5 && (
           <div className="text-sm text-amber-600 dark:text-amber-500 border border-amber-500/20 bg-amber-500/5 rounded p-2">
-            <strong>Line Shopping Opportunity:</strong> {consensus.spread.toFixed(1)} point spread between books
+            <strong>Line Shopping Opportunity:</strong> {Number(consensus.spread).toFixed(1)} point spread between books
           </div>
         )}
       </CardContent>
@@ -198,7 +198,7 @@ export function LineMovementHistory(props: LineMovementHistoryProps) {
                     {movement.oldLine} → {movement.newLine}
                   </div>
                   <div className="text-xs text-muted-foreground">
-                    {movement.lineChange > 0 ? '+' : ''}{movement.lineChange.toFixed(1)}
+                    {movement.lineChange > 0 ? '+' : ''}{Number(movement.lineChange).toFixed(1)}
                   </div>
                 </div>
               </div>

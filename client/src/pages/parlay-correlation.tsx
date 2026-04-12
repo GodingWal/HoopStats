@@ -388,10 +388,18 @@ export default function ParlayCorrelationPage() {
   });
 
   const generateMutation = useMutation({
-    mutationFn: () =>
-      apiRequest("POST", "/api/parlays/generate", { date, parlay_size: parlaySize }),
+    mutationFn: async () => {
+      const resp = await apiRequest("POST", "/api/parlays/generate", { date, parlay_size: parlaySize });
+      return resp.json();
+    },
     onSuccess: () => {
+      // Immediately show any existing data
       queryClient.invalidateQueries({ queryKey: ["/api/correlated-parlays"] });
+      // Auto-refetch after delays to pick up background-generated results
+      setTimeout(() => queryClient.invalidateQueries({ queryKey: ["/api/correlated-parlays"] }), 15000);
+      setTimeout(() => queryClient.invalidateQueries({ queryKey: ["/api/correlated-parlays"] }), 30000);
+      setTimeout(() => queryClient.invalidateQueries({ queryKey: ["/api/correlated-parlays"] }), 60000);
+      setTimeout(() => queryClient.invalidateQueries({ queryKey: ["/api/correlated-parlays"] }), 90000);
     },
   });
 
@@ -445,7 +453,7 @@ export default function ParlayCorrelationPage() {
 
         {/* Leg count selector */}
         <div className="flex gap-1">
-          {[2, 3, 4, 5].map((n) => (
+          {[2, 3, 4, 5, 6].map((n) => (
             <button
               key={n}
               onClick={() => setParlaySize(n)}
@@ -516,6 +524,13 @@ export default function ParlayCorrelationPage() {
         <div className="mb-4 text-xs text-rose-400 bg-rose-500/10 border border-rose-500/20 rounded px-3 py-2 font-mono">
           Generation failed:{" "}
           {(generateMutation.error as any)?.message || "Unknown error"}
+        </div>
+      )}
+
+      {/* Background generation notice */}
+      {generateMutation.isSuccess && (
+        <div className="mb-4 text-xs text-[#00ffc8] bg-[#00ffc8]/5 border border-[#00ffc8]/20 rounded px-3 py-2 font-mono">
+          Parlay generation running in background. Results will auto-refresh over the next 90 seconds.
         </div>
       )}
 

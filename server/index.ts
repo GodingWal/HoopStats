@@ -159,8 +159,8 @@ app.use((req, res, next) => {
 
       // Start PrizePicks line tracking (polls every 5 minutes by default)
       prizePicksLineTracker.setStorage(prizePicksStorage);
-      prizePicksLineTracker.start(300000); // 5 minutes
-      serverLogger.info("PrizePicks line tracker started - capturing historical line data");
+      prizePicksLineTracker.start(900000); // 15 minutes
+      serverLogger.info("PrizePicks line tracker started (15-min interval) - capturing historical line data");
 
       // Log significant line movements
       prizePicksLineTracker.on('significant-movement', (movement) => {
@@ -169,6 +169,24 @@ app.use((req, res, next) => {
 
       // Start auto-settlement service (checks every 5 minutes)
       autoSettlementService.start(5 * 60 * 1000);
+
+      // Auto-refresh bets every 15 minutes during active hours (7AM-midnight ET)
+      setInterval(async () => {
+        try {
+          const now = new Date();
+          const etHour = parseInt(new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour: "numeric", hour12: false }).format(now));
+          if (etHour >= 7 && etHour <= 23) {
+            serverLogger.info("[Auto-Refresh] Triggering periodic bets refresh...");
+            const resp = await fetch("http://127.0.0.1:" + port + "/api/bets/refresh", { method: "POST" });
+            const data = await resp.json() as any;
+            serverLogger.info("[Auto-Refresh] Refreshed " + (data.betsCount || 0) + " bets");
+          }
+        } catch (err: any) {
+          serverLogger.error("[Auto-Refresh] Failed: " + err.message);
+        }
+      }, 15 * 60 * 1000); // Every 15 minutes
+      serverLogger.info("Auto-refresh timer started (every 15 min, 7AM-midnight ET)");
+
       serverLogger.info("Auto-settlement service started - settling picks every 5 minutes");
 
       // Start backtest data scheduler (capture, actuals, validation on cron)

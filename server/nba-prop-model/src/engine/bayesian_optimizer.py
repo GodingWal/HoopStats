@@ -16,6 +16,7 @@ from typing import Dict, Any, List, Optional, Tuple
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
+from config.db_config import get_connection as _shared_get_connection, DATABASE_URL
 
 # Minimum samples required before adjusting weight meaningfully
 MIN_SAMPLE_SIZE = 20
@@ -26,23 +27,11 @@ THOMPSON_PRIOR = 10
 
 
 def _get_db_connection():
-    """Get a psycopg2 database connection."""
     try:
-        import psycopg2
-        db_url = os.environ.get("DATABASE_URL")
-        if db_url:
-            return psycopg2.connect(db_url)
-        return psycopg2.connect(
-            host=os.environ.get("DB_HOST", "localhost"),
-            port=int(os.environ.get("DB_PORT", 5432)),
-            database=os.environ.get("DB_NAME", "courtsideedge"),
-            user=os.environ.get("DB_USER", "postgres"),
-            password=os.environ.get("DB_PASSWORD", ""),
-        )
+        return _shared_get_connection()
     except Exception as e:
         logger.error(f"DB connection failed: {e}")
         return None
-
 
 def _thompson_dampen(raw_rate: float, sample_size: int, prior: float = PRIOR_WEIGHT) -> float:
     """

@@ -14,6 +14,7 @@ from datetime import datetime
 from .base import BaseSignal, SignalResult, registry
 
 logger = logging.getLogger(__name__)
+from config.db_config import get_connection as _shared_get_connection, DATABASE_URL
 
 # Position normalization map
 POSITION_MAP = {
@@ -38,23 +39,11 @@ POSITIONAL_DEF_STAT_TYPES = [
 
 
 def _get_db_connection():
-    """Get a psycopg2 database connection from DATABASE_URL env var."""
     try:
-        import psycopg2
-        db_url = os.environ.get("DATABASE_URL")
-        if db_url:
-            return psycopg2.connect(db_url)
-        return psycopg2.connect(
-            host=os.environ.get("DB_HOST", "localhost"),
-            port=int(os.environ.get("DB_PORT", 5432)),
-            database=os.environ.get("DB_NAME", "courtsideedge"),
-            user=os.environ.get("DB_USER", "postgres"),
-            password=os.environ.get("DB_PASSWORD", ""),
-        )
+        return _shared_get_connection()
     except Exception as e:
         logger.error(f"DB connection failed: {e}")
         return None
-
 
 def update_positional_defense(season: Optional[str] = None) -> int:
     """

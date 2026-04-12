@@ -14,6 +14,7 @@ Cron target: daily 10:30 AM (after projection_engine.run_daily())
 """
 
 import decimal
+import heapq
 import itertools
 import json
 import logging
@@ -47,9 +48,9 @@ ELIGIBLE_TIERS = ("SMASH", "STRONG", "LEAN")
 
 # ── Recommendation thresholds ────────────────────────────────────────────────
 RECOMMENDATION_THRESHOLDS = [
-    ("SMASH",  0.25),
-    ("STRONG", 0.15),
-    ("LEAN",   0.05),
+    ("SMASH",  0.15),   # 15%+ EV
+    ("STRONG", 0.08),   # 8-15% EV
+    ("LEAN",   0.02),   # 2-8% EV
     ("AVOID",  float("-inf")),  # negative EV — flag but record
 ]
 
@@ -153,6 +154,19 @@ class CorrelatedParlayBuilder:
         props = self._fetch_eligible_props(game_date, conn)
         self._release_conn(conn)
 
+        # Deduplicate by player_id — keep the highest-confidence prop per player
+        # so that no player can appear twice in any generated combination.
+        seen_player_ids: dict = {}
+        for prop in sorted(props, key=lambda p: float(p.get("edge_pct", 0) or 0), reverse=True):
+            pid = str(prop.get("player_id", ""))
+            if pid and pid not in seen_player_ids:
+                seen_player_ids[pid] = prop
+        props = list(seen_player_ids.values())
+        logger.info(
+            f"find_optimal_parlays: {len(props)} unique-player props available "
+            f"for {game_date} (after player dedup)"
+        )
+
         if len(props) < parlay_size:
             logger.info(
                 f"find_optimal_parlays: only {len(props)} eligible props on "
@@ -160,25 +174,69 @@ class CorrelatedParlayBuilder:
             )
             return []
 
+        # Cap eligible props by parlay size to prevent combinatorial explosion
+        # C(40,3)=9880, C(25,4)=12650, C(18,5)=8568, C(15,6)=5005
+        MAX_PROPS_BY_SIZE = {2: 150, 3: 40, 4: 25, 5: 18, 6: 15}
+        max_eligible = MAX_PROPS_BY_SIZE.get(parlay_size, 15)
+        if len(props) > max_eligible:
+            props.sort(key=lambda p: float(p.get("edge_pct", 0) or 0), reverse=True)
+            props = props[:max_eligible]
+            logger.info(f"find_optimal_parlays: capped to top {max_eligible} props by edge (size={parlay_size})")
+
+        from math import comb
+        total_combos = comb(len(props), parlay_size)
         logger.info(
             f"find_optimal_parlays: scoring C({len(props)},{parlay_size}) = "
-            f"{len(list(itertools.combinations(range(len(props)), parlay_size)))} combos"
+            f"{total_combos} combos"
         )
 
-        scored: List[Dict[str, Any]] = []
-        for combo in itertools.combinations(props, parlay_size):
-            result = self._score_parlay(combo, game_date)
-            if result is not None:
-                scored.append(result)
+        # Use a heap to keep only top max_results in memory
+        TOP_N = max_results * 2  # keep extra for filtering
+        top_heap = []  # min-heap of (combined_ev, counter, result)
+        counter = 0
+        processed = 0
 
-        # Sort by EV and keep top results above min threshold
-        scored.sort(key=lambda x: x["combined_ev"], reverse=True)
+        # Reuse a single DB connection for all correlation lookups
+        import time as _time
+        scoring_conn = self._get_conn()
+        scoring_engine = CorrelationEngine(conn=scoring_conn)
+        _start = _time.time()
+        _TIMEOUT_SECS = 90  # hard cap to prevent zombie processes
+
+        for combo in itertools.combinations(props, parlay_size):
+            if processed % 1000 == 0 and _time.time() - _start > _TIMEOUT_SECS:
+                logger.warning(
+                    f"find_optimal_parlays: timeout after {processed}/{total_combos} "
+                    f"combos ({_TIMEOUT_SECS}s), returning partial results"
+                )
+                break
+            result = self._score_parlay(combo, game_date, engine=scoring_engine)
+            if result is not None:
+                counter += 1
+                ev = result["combined_ev"]
+                if len(top_heap) < TOP_N:
+                    heapq.heappush(top_heap, (ev, counter, result))
+                elif ev > top_heap[0][0]:
+                    heapq.heapreplace(top_heap, (ev, counter, result))
+            processed += 1
+            if processed % 10000 == 0:
+                elapsed = _time.time() - _start
+                logger.info(f"  processed {processed}/{total_combos} combos ({elapsed:.1f}s)")
+
+        # Release the shared scoring connection
+        try:
+            scoring_conn.close()
+        except Exception:
+            pass
+
+        # Extract results sorted by EV descending
+        scored = [item[2] for item in sorted(top_heap, key=lambda x: x[0], reverse=True)]
         top = [p for p in scored if p["combined_ev"] > min_ev][:max_results]
 
         # Write all scored parlays (including below threshold) so avoid reasons
         # are available for analysis
         all_to_write = scored[:max_results * 3]  # write up to 3x for coverage
-        self._write_parlay_results(all_to_write, game_date)
+        self._write_parlay_results(all_to_write, game_date, leg_count=parlay_size)
 
         logger.info(
             f"find_optimal_parlays: {len(top)} parlays above EV>{min_ev:.0%} "
@@ -189,7 +247,8 @@ class CorrelatedParlayBuilder:
     # ── Scoring ────────────────────────────────────────────────────────────
 
     def _score_parlay(
-        self, props_tuple: Tuple[Dict, ...], game_date: str
+        self, props_tuple: Tuple[Dict, ...], game_date: str,
+        engine=None,
     ) -> Optional[Dict[str, Any]]:
         """
         Score a single parlay combination.
@@ -217,7 +276,8 @@ class CorrelatedParlayBuilder:
                         leg_a.get("stat_type", "pts"),
                         leg_b.get("stat_type", "pts"),
                     )
-                    corr = self._engine.get_correlation(
+                    _eng = engine or self._engine
+                    corr = _eng.get_correlation(
                         str(leg_a["player_id"]),
                         str(leg_b["player_id"]),
                         stat,
@@ -428,13 +488,23 @@ class CorrelatedParlayBuilder:
 
     def _fetch_eligible_props(self, game_date: str, conn) -> List[Dict[str, Any]]:
         """
-        Pull eligible props from projection_outputs joined with prizepicks_daily_lines.
+        Pull eligible props for the given game_date.
+
+        Primary source: projection_outputs JOIN prizepicks_daily_lines
+        (populated by the 10 AM projection cron).
+
+        Fallback: potential_bets table (live PrizePicks lines refreshed via
+        /api/bets/refresh).  Used when projection_outputs has no rows for
+        game_date so that parlays reflect today's current lines even if the
+        projection engine hasn't run yet.
 
         Filters to confidence_tier IN ('SMASH', 'STRONG', 'LEAN').
         Computes hit_prob from edge_pct (edge_pct → probability over 50%).
         """
         if conn is None:
             return []
+
+        import math
 
         try:
             cursor = conn.cursor()
@@ -472,14 +542,73 @@ class CorrelatedParlayBuilder:
             cols = [desc[0] for desc in cursor.description]
             cursor.close()
 
+            if rows:
+                props = []
+                for row in rows:
+                    prop = dict(zip(cols, row))
+                    edge = float(prop.get("edge_pct") or 0.0)
+                    prop["hit_prob"] = max(0.01, min(0.99, 1.0 / (1.0 + math.exp(-edge / 50.0))))
+                    props.append(prop)
+                logger.info(
+                    f"_fetch_eligible_props: {len(props)} props from projection_outputs "
+                    f"for {game_date}"
+                )
+                return props
+
+            # ── Fallback: read live potential_bets (today's PrizePicks lines) ──
+            logger.info(
+                f"_fetch_eligible_props: no projection_outputs rows for {game_date}, "
+                "falling back to potential_bets"
+            )
+            cursor2 = conn.cursor()
+            cursor2.execute(
+                """
+                SELECT
+                    pb.player_id,
+                    pb.player_name,
+                    pb.stat_type,
+                    pb.season_avg       AS final_projection,
+                    pb.line,
+                    COALESCE(pb.edge_score, 0)  AS edge_pct,
+                    COALESCE(pb.confidence_tier,
+                        CASE pb.confidence
+                            WHEN 'HIGH'   THEN 'STRONG'
+                            WHEN 'MEDIUM' THEN 'LEAN'
+                            ELSE               'LEAN'
+                        END
+                    )                   AS confidence_tier,
+                    pb.recommendation   AS direction,
+                    COALESCE(pb.kelly_size, 0) AS kelly_stake,
+                    pb.team,
+                    NULL::text          AS opponent,
+                    pb.team             AS game_id
+                FROM potential_bets pb
+                WHERE COALESCE(pb.confidence_tier,
+                        CASE pb.confidence
+                            WHEN 'HIGH'   THEN 'STRONG'
+                            WHEN 'MEDIUM' THEN 'LEAN'
+                            ELSE               'LEAN'
+                        END
+                      ) = ANY(%s)
+                  AND pb.line IS NOT NULL
+                ORDER BY COALESCE(pb.edge_score, 0) DESC
+                """,
+                (list(ELIGIBLE_TIERS),),
+            )
+            rows2 = cursor2.fetchall()
+            cols2 = [desc[0] for desc in cursor2.description]
+            cursor2.close()
+
             props = []
-            for row in rows:
-                prop = dict(zip(cols, row))
-                # Derive hit_prob from edge_pct
+            for row in rows2:
+                prop = dict(zip(cols2, row))
                 edge = float(prop.get("edge_pct") or 0.0)
-                prop["hit_prob"] = max(0.01, min(0.99, 0.5 + edge / 200.0))
+                prop["hit_prob"] = max(0.01, min(0.99, 1.0 / (1.0 + math.exp(-edge / 50.0))))
                 props.append(prop)
 
+            logger.info(
+                f"_fetch_eligible_props: {len(props)} props from potential_bets fallback"
+            )
             return props
 
         except Exception as e:
@@ -492,7 +621,7 @@ class CorrelatedParlayBuilder:
 
         Preference: pts > reb > ast > 3pm > pra
         """
-        priority = {"pts": 0, "reb": 1, "ast": 2, "3pm": 3, "pra": 4}
+        priority = {"pts": 0, "reb": 1, "ast": 2, "3pm": 3, "pra": 4, "ptsrebs": 5, "ptsasts": 6, "rebsasts": 7, "blksstls": 8}
         a = stat_a.lower().replace("-", "").replace("+", "").replace(" ", "")
         b = stat_b.lower().replace("-", "").replace("+", "").replace(" ", "")
         # Normalise common aliases
@@ -500,6 +629,8 @@ class CorrelatedParlayBuilder:
             "points": "pts", "rebounds": "reb", "assists": "ast",
             "3pointersm": "3pm", "3pointersmade": "3pm",
             "ptsrebsasts": "pra", "pra": "pra",
+            "ptsrebs": "ptsrebs", "ptsasts": "ptsasts",
+            "rebsasts": "rebsasts", "blksstls": "blksstls",
         }
         a = alias.get(a, a)
         b = alias.get(b, b)
@@ -527,7 +658,8 @@ class CorrelatedParlayBuilder:
         return "SKIP"
 
     def _write_parlay_results(
-        self, parlays: List[Dict[str, Any]], game_date: str
+        self, parlays: List[Dict[str, Any]], game_date: str,
+        leg_count: int = 0,
     ) -> int:
         """Upsert parlay results into parlay_results table. Returns rows written."""
         if not parlays:
@@ -542,10 +674,16 @@ class CorrelatedParlayBuilder:
         try:
             cursor = conn.cursor()
             # Clear existing results for this date to avoid duplicates on re-run
-            cursor.execute(
-                "DELETE FROM parlay_results WHERE game_date = %s AND outcome IS NULL",
-                (game_date,),
-            )
+            if leg_count > 0:
+                cursor.execute(
+                    "DELETE FROM parlay_results WHERE game_date = %s AND leg_count = %s AND outcome IS NULL",
+                    (game_date, leg_count),
+                )
+            else:
+                cursor.execute(
+                    "DELETE FROM parlay_results WHERE game_date = %s AND outcome IS NULL",
+                    (game_date,),
+                )
             for p in parlays:
                 cursor.execute(
                     """

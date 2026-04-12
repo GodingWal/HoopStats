@@ -37,6 +37,7 @@ from .positional_defense import PositionalDefenseSignal
 from .rest_days import RestDaysSignal
 from .usage_redistribution import UsageRedistributionSignal
 from .minutes_projection import MinutesProjectionSignal
+from .win_probability import WinProbabilitySignal
 
 # Consistent list of ALL signal names matching signal_engine.py
 AVAILABLE_SIGNALS = [
@@ -58,6 +59,7 @@ AVAILABLE_SIGNALS = [
     "fatigue",              # Continuous fatigue model
     "rest_days",            # Rest days advantage
     "minutes_projection",   # Minutes-based projection adjustment (NEW)
+    "win_probability",       # Game-level win probability model (NEW)
 ]
 
 # Default weights reflecting signal accuracy data
@@ -66,6 +68,7 @@ DEFAULT_WEIGHTS = {
     "fatigue": 0.80,
     "recent_form": 0.75,
     "minutes_projection": 0.75,
+    "win_probability": 0.70,
     "injury_alpha": 0.70,
     "usage_redistribution": 0.70,
     "pace": 0.65,
@@ -145,6 +148,7 @@ __all__ = [
     'RefereeSignal', 'DefenderMatchupSignal', 'LineMovementSignal',
     'MatchupHistorySignal', 'FatigueSignal', 'PositionalDefenseSignal',
     'RestDaysSignal', 'UsageRedistributionSignal', 'MinutesProjectionSignal',
+    'WinProbabilitySignal',
     'AVAILABLE_SIGNALS', 'DEFAULT_WEIGHTS', 'SUPPORTED_STAT_TYPES',
     'get_default_weight', 'calculate_blended_adjustment',
     'calculate_direction_confidence',

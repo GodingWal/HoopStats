@@ -24,16 +24,20 @@ ALL_STAT_TYPES = [
 ]
 
 
-def _rest_days_from_context(game_date: str, last_game_date: Optional[str]) -> int:
-    """Calculate rest days given a game date and previous game date string."""
+def _rest_days_from_context(game_date: str, last_game_date: Optional[str]) -> Optional[int]:
+    """Calculate rest days given a game date and previous game date string.
+
+    Returns None when last_game_date is missing — callers must treat None as
+    'no data available' and NOT fire the signal with a default value.
+    """
     if not last_game_date:
-        return 3  # Assume well-rested if no prior game info
+        return None  # No prior game info — do not guess
     try:
         gd = datetime.strptime(game_date, "%Y-%m-%d").date()
         lgd = datetime.strptime(last_game_date, "%Y-%m-%d").date()
         return max(0, (gd - lgd).days - 1)
     except Exception:
-        return 3
+        return None
 
 
 def calculate_rest_adjustment(
@@ -112,12 +116,21 @@ class RestDaysSignal(BaseSignal):
         stat_type: str,
         context: Dict[str, Any],
     ) -> SignalResult:
-        # Prefer pre-calculated rest days; fall back to date arithmetic
+        # Prefer pre-calculated rest days; fall back to date arithmetic.
+        # If NEITHER source provides real data, do NOT fire with a default value —
+        # that would inject a fabricated +3% OVER signal on every bet with no game data.
         rest = context.get("rest_days")
         if rest is None:
             rest = _rest_days_from_context(
                 game_date, context.get("last_game_date")
             )
+
+        if rest is None:
+            logger.debug(
+                "rest_days signal: no rest data (rest_days and last_game_date both missing) "
+                "— returning neutral to avoid default fabrication"
+            )
+            return self._create_neutral_result()
 
         opp_rest = context.get("opp_rest_days")
         if opp_rest is None and context.get("opp_last_game_date"):

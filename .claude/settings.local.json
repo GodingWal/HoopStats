@@ -3,7 +3,9 @@
     "allow": [
       "Bash(dir:*)",
       "Bash(cat:*)",
-      "Bash(npm run db:push:*)"
+      "Bash(npm run db:push:*)",
+      "Bash(npm run:*)",
+      "Bash(grep -n \"saveParlay\\\\|getParlays\\\\|updateParlayResult\\\\|updateParlayPickResult\" /c/Temp/CourtSideEdge/.claude/worktrees/tender-aryabhata/server/storage* -r)"
     ]
   }
 }

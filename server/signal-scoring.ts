@@ -34,6 +34,10 @@ const EDGE_TO_SIGNAL_MAP: Record<string, string> = {
     'LINE_MOVEMENT': 'line_movement',
     'MATCHUP_HISTORY': 'matchup_history',
     'DEFENDER': 'defender_matchup',
+    'REST_DAYS': 'rest_days',
+    'MINUTES_PROJECTION': 'minutes_projection',
+    'USAGE_REDISTRIBUTION': 'usage_redistribution',
+    'POSITIONAL_DEFENSE': 'positional_defense',
 };
 
 /**
@@ -41,9 +45,10 @@ const EDGE_TO_SIGNAL_MAP: Record<string, string> = {
  * Prevents inflated scores from redundant signals measuring similar factors.
  */
 const CORRELATED_SIGNALS: string[][] = [
-    ['pace', 'defense'],           // Fast pace teams allow more stats
-    ['b2b', 'fatigue', 'blowout'], // Fatigue-related signals
-    ['injury_alpha', 'fatigue'],   // Injuries affect minutes/fatigue
+    ['pace', 'defense', 'positional_defense'],  // Defensive matchup signals
+    ['b2b', 'fatigue', 'blowout', 'rest_days'], // Fatigue-related signals
+    ['injury_alpha', 'usage_redistribution'],    // Injury-driven signals
+    ['fatigue', 'minutes_projection'],           // Minutes/fatigue overlap
 ];
 
 const CORRELATION_DISCOUNT = 0.6; // Weaker correlated signal contributes 60%
@@ -138,12 +143,18 @@ function getDefaultWeights(): Record<string, { weight: number; accuracy: number;
         referee: { weight: 0.04, accuracy: 0.52, sample_size: 0 },
         home_away: { weight: 0.03, accuracy: 0.54, sample_size: 0 },
         recent_form: { weight: 0.02, accuracy: 0.54, sample_size: 0 },
+        rest_days: { weight: 0.05, accuracy: 0.56, sample_size: 0 },
+        minutes_projection: { weight: 0.07, accuracy: 0.57, sample_size: 0 },
+        usage_redistribution: { weight: 0.09, accuracy: 0.58, sample_size: 0 },
+        positional_defense: { weight: 0.06, accuracy: 0.55, sample_size: 0 },
     };
 }
 
 export interface SignalScore {
     /** Total weighted signal score (0-1) */
     signalScore: number;
+    /** Confidence-weighted vote total (0-10 scale) */
+    weightedScore: number;
     /** Number of active signals */
     activeSignals: number;
     /** Total weight of agreeing signals */
@@ -268,6 +279,7 @@ export function calculateSignalScore(
 
     return {
         signalScore,
+        weightedScore: totalWeight * 10,
         activeSignals: activeCount,
         agreeingWeight: totalWeight,
         avgAccuracy,
@@ -317,6 +329,10 @@ export function getSignalDescription(signalScore: SignalScore): string {
             matchup_history: 'Matchup History',
             defender_matchup: 'Defender',
             fatigue: 'Fatigue',
+            rest_days: 'Rest Days',
+            minutes_projection: 'Minutes Trend',
+            usage_redistribution: 'Usage Redistribution',
+            positional_defense: 'Positional Defense',
         };
         return labels[s] || s;
     });

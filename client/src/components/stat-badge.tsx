@@ -58,7 +58,7 @@ export function StatBadge({ label, value, hitRate, trend, size = "md" }: StatBad
         {label}
       </div>
       <div className={`font-mono font-semibold ${valueSizes[size]} flex items-center justify-center gap-1`}>
-        <span>{typeof value === "number" ? value.toFixed(1) : value}</span>
+        <span>{typeof value === "number" ? Number(value).toFixed(1) : value}</span>
         {trend !== undefined && (
           <span className="inline-flex">
             {trend > 0 && <TrendingUp className="w-3 h-3 text-emerald-400" />}
@@ -69,7 +69,7 @@ export function StatBadge({ label, value, hitRate, trend, size = "md" }: StatBad
       </div>
       {hitRate !== undefined && (
         <div className={`text-[10px] mt-0.5 ${getHitRateColor(hitRate)}`}>
-          {hitRate.toFixed(0)}% hit
+          {Number(hitRate).toFixed(0)}% hit
         </div>
       )}
     </div>
