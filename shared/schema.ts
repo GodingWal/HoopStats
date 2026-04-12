@@ -270,6 +270,8 @@ export const potentialBetSchema = z.object({
   edge_description: z.string().optional(),
   expected_value: z.number().optional(),
   kelly_size: z.number().optional(),
+  signal_score: z.number().optional(),
+  signal_confidence: z.string().optional(),
   xgb_prob_over: z.number().optional(),
   xgb_confidence: z.number().optional(),
   xgb_model_type: z.string().optional(),
