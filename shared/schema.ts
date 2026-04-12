@@ -268,6 +268,8 @@ export const potentialBetSchema = z.object({
   edge_description: z.string().optional(),
   expected_value: z.number().optional(),
   kelly_size: z.number().optional(),
+  signal_score: z.number().optional(),
+  signal_confidence: z.enum(["HIGH", "MEDIUM", "LOW"]).optional(),
 });
 
 export type PotentialBet = z.infer<typeof potentialBetSchema>;
@@ -292,6 +294,8 @@ export const potentialBets = pgTable("potential_bets", {
   edge_description: text("edge_description"),
   expected_value: real("expected_value"),
   kelly_size: real("kelly_size"),
+  signal_score: real("signal_score"),
+  signal_confidence: text("signal_confidence"),
 });
 
 export const insertPotentialBetSchema = createInsertSchema(potentialBets).omit({ id: true });

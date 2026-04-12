@@ -17,6 +17,7 @@ import type { Player, HitRateEntry } from "@shared/schema";
 import { adjustedHitRate } from "../utils/statistics";
 import { evaluateBetValue } from "../utils/ev-calculator";
 import { logXGBoostPrediction } from "../services/xgboost-logger";
+import { calculateSignalScore } from "../signal-scoring";
 
 const router = Router();
 
@@ -85,6 +86,8 @@ function generatePotentialBets(players: Player[]) {
     edge_description: string | null;
     expected_value: number | null;
     kelly_size: number | null;
+    signal_score: number | null;
+    signal_confidence: string | null;
   }> = [];
 
   const statTypes = ["PTS", "REB", "AST", "PRA", "FG3M"];
@@ -109,6 +112,11 @@ function generatePotentialBets(players: Player[]) {
 
         if (confidence !== "LOW") {
           const edgeAnalysis = analyzeEdges(player, statType, recommendation, rate);
+
+          // Calculate signal-weighted score from learned backtest weights
+          const signalResult = calculateSignalScore(
+            player, statType, recommendation, rate, edgeAnalysis.edges
+          );
 
           // Calculate Expected Value using adjusted probability
           const estimatedProb = adjustedRate / 100;
@@ -136,6 +144,8 @@ function generatePotentialBets(players: Player[]) {
             edge_description: edgeAnalysis.bestEdge?.description || null,
             expected_value: evResult.ev,
             kelly_size: evResult.quarterKelly,
+            signal_score: Math.round(signalResult.signalScore * 1000) / 1000,
+            signal_confidence: signalResult.signalConfidence,
           });
 
           // Log prediction to XGBoost training table (fire-and-forget)
@@ -154,20 +164,35 @@ function generatePotentialBets(players: Player[]) {
     const aEV = a.expected_value ?? -1;
     const bEV = b.expected_value ?? -1;
     if (aEV !== bEV) return bEV - aEV;
-    // Secondary: edge score
+    // Secondary: signal score (learned weights)
+    const aSig = a.signal_score ?? 0;
+    const bSig = b.signal_score ?? 0;
+    if (aSig !== bSig) return bSig - aSig;
+    // Tertiary: edge score
     if (a.edge_score && !b.edge_score) return -1;
     if (!a.edge_score && b.edge_score) return 1;
     if (a.edge_score && b.edge_score && a.edge_score !== b.edge_score) return b.edge_score - a.edge_score;
-    // Tertiary: confidence
+    // Quaternary: confidence
     if (a.confidence === "HIGH" && b.confidence !== "HIGH") return -1;
     if (b.confidence === "HIGH" && a.confidence !== "HIGH") return 1;
-    return b.hit_rate - a.hit_rate;
+    // Final: hit rate deviation from 50 (works for both OVER and UNDER)
+    const aDeviation = Math.abs(a.hit_rate - 50);
+    const bDeviation = Math.abs(b.hit_rate - 50);
+    return bDeviation - aDeviation;
   });
 }
 
 /**
  * Generate potential bets from PrizePicks projections
  */
+/** Maximum distance between PrizePicks line and closest available hit rate line */
+const MAX_LINE_DISTANCE: Record<string, number> = {
+  PTS: 3.5, PRA: 4.5, PR: 3.0, PA: 3.0, FPTS: 5.0, FGA: 2.5, MIN: 2.5,
+  REB: 1.5, AST: 1.5, RA: 2.0,
+  FG3M: 1.0, STL: 0.5, BLK: 0.5, TO: 0.5, TOV: 0.5, PF: 0.5,
+};
+const DEFAULT_MAX_LINE_DISTANCE = 2.5;
+
 async function generateBetsFromPrizePicks(players: Player[]) {
   const bets: Array<{
     player_id: number;
@@ -187,6 +212,8 @@ async function generateBetsFromPrizePicks(players: Player[]) {
     edge_description: string | null;
     expected_value: number | null;
     kelly_size: number | null;
+    signal_score: number | null;
+    signal_confidence: string | null;
   }> = [];
 
   try {
@@ -218,6 +245,9 @@ async function generateBetsFromPrizePicks(players: Player[]) {
         const closestLine = lines.reduce((prev, curr) =>
           Math.abs(curr - line) < Math.abs(prev - line) ? curr : prev
         );
+        // Reject if closest line is too far from the PrizePicks line
+        const maxDist = MAX_LINE_DISTANCE[statType] ?? DEFAULT_MAX_LINE_DISTANCE;
+        if (Math.abs(closestLine - line) > maxDist) continue;
         hitRateEntry = hitRates[closestLine.toString()] as HitRateEntry | undefined;
       }
 
@@ -236,6 +266,11 @@ async function generateBetsFromPrizePicks(players: Player[]) {
 
       if (confidence !== "LOW") {
         const edgeAnalysis = analyzeEdges(player, statType, recommendation, rate);
+
+        // Calculate signal-weighted score from learned backtest weights
+        const signalResult = calculateSignalScore(
+          player, statType, recommendation, rate, edgeAnalysis.edges
+        );
 
         // Calculate Expected Value
         const estimatedProb = adjustedRate / 100;
@@ -263,6 +298,8 @@ async function generateBetsFromPrizePicks(players: Player[]) {
           edge_description: edgeAnalysis.bestEdge?.description || null,
           expected_value: evResult.ev,
           kelly_size: evResult.quarterKelly,
+          signal_score: Math.round(signalResult.signalScore * 1000) / 1000,
+          signal_confidence: signalResult.signalConfidence,
         });
 
         // Log prediction to XGBoost training table (fire-and-forget)
@@ -275,15 +312,25 @@ async function generateBetsFromPrizePicks(players: Player[]) {
     }
 
     return bets.sort((a, b) => {
+      // Primary: EV (higher is better)
       const aEV = a.expected_value ?? -1;
       const bEV = b.expected_value ?? -1;
       if (aEV !== bEV) return bEV - aEV;
+      // Secondary: signal score (learned weights)
+      const aSig = a.signal_score ?? 0;
+      const bSig = b.signal_score ?? 0;
+      if (aSig !== bSig) return bSig - aSig;
+      // Tertiary: edge score
       if (a.edge_score && !b.edge_score) return -1;
       if (!a.edge_score && b.edge_score) return 1;
       if (a.edge_score && b.edge_score && a.edge_score !== b.edge_score) return b.edge_score - a.edge_score;
+      // Quaternary: confidence
       if (a.confidence === "HIGH" && b.confidence !== "HIGH") return -1;
       if (b.confidence === "HIGH" && a.confidence !== "HIGH") return 1;
-      return b.hit_rate - a.hit_rate;
+      // Final: hit rate deviation from 50 (works for both OVER and UNDER)
+      const aDeviation = Math.abs(a.hit_rate - 50);
+      const bDeviation = Math.abs(b.hit_rate - 50);
+      return bDeviation - aDeviation;
     });
   } catch (error) {
     apiLogger.error("Error generating bets from PrizePicks", error);
@@ -417,7 +464,15 @@ router.get("/top-picks", async (req, res) => {
       bets = await storage.getPotentialBets();
     }
 
-    const betsWithEdges = bets.filter(b => b.edge_score && b.edge_score > 0);
+    const betsWithEdges = bets.filter(b => {
+      // Require positive edge score
+      if (!b.edge_score || b.edge_score <= 0) return false;
+      // Filter out negative EV bets (same logic as GET /api/bets)
+      if (b.expected_value !== null && b.expected_value !== undefined) {
+        if (b.expected_value < BETTING_CONFIG.MIN_EV_THRESHOLD) return false;
+      }
+      return true;
+    });
     const topPicks = betsWithEdges.slice(0, 10);
 
     res.json(topPicks);

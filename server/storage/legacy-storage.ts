@@ -1066,6 +1066,8 @@ export class MemStorage implements IStorage {
       edge_description: bet.edge_description ?? undefined,
       expected_value: bet.expected_value ?? undefined,
       kelly_size: bet.kelly_size ?? undefined,
+      signal_score: bet.signal_score ?? undefined,
+      signal_confidence: (bet.signal_confidence as "HIGH" | "MEDIUM" | "LOW") ?? undefined,
       recommendation: bet.recommendation as "OVER" | "UNDER",
       confidence: bet.confidence as "HIGH" | "MEDIUM" | "LOW"
     };
@@ -1090,6 +1092,8 @@ export class MemStorage implements IStorage {
       edge_description: (updates.edge_description ?? existingBet.edge_description) ?? undefined,
       expected_value: (updates.expected_value ?? existingBet.expected_value) ?? undefined,
       kelly_size: (updates.kelly_size ?? existingBet.kelly_size) ?? undefined,
+      signal_score: (updates.signal_score ?? existingBet.signal_score) ?? undefined,
+      signal_confidence: ((updates.signal_confidence ?? existingBet.signal_confidence) as "HIGH" | "MEDIUM" | "LOW") ?? undefined,
       recommendation: (updates.recommendation as "OVER" | "UNDER") ?? existingBet.recommendation,
       confidence: (updates.confidence as "HIGH" | "MEDIUM" | "LOW") ?? existingBet.confidence,
     };
