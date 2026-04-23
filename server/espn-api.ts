@@ -85,20 +85,22 @@ export interface LiveGame {
 
 // dateStr format: YYYYMMDD (e.g., "20260103")
 export async function fetchLiveGames(dateStr?: string): Promise<LiveGame[]> {
-    const cacheKey = `live-games-${dateStr || "today"}`;
+    // Default to today's date so the scoreboard always includes pre-game, live, and completed
+    // games for the full day — not just whatever happens to be live at query time.
+    const todayStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+    const effectiveDateStr = dateStr || todayStr;
+    const cacheKey = `live-games-${effectiveDateStr}`;
 
     // Use short cache (1 min) for live game data
     const cached = shortCache.get<LiveGame[]>(cacheKey);
     if (cached) {
-        apiLogger.debug("Cache hit for live games", { dateStr });
+        apiLogger.debug("Cache hit for live games", { dateStr: effectiveDateStr });
         return cached;
     }
 
     try {
-        let url = "https://site.web.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard";
-        if (dateStr) {
-            url += `?dates=${dateStr}`;
-        }
+        // site.api.espn.com with a dates param reliably returns all games for the day
+        const url = `https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard?dates=${effectiveDateStr}`;
         const response = await fetch(url);
         if (!response.ok) {
             throw new Error(`ESPN API error: ${response.status} ${response.statusText}`);
@@ -126,12 +128,12 @@ export async function fetchLiveGames(dateStr?: string): Promise<LiveGame[]> {
 
         // Cache the result
         shortCache.set(cacheKey, games);
-        apiLogger.info("Fetched live games", { count: games.length, dateStr });
+        apiLogger.info("Fetched live games", { count: games.length, dateStr: effectiveDateStr });
 
         return games;
 
     } catch (error) {
-        apiLogger.error("Error fetching live games", error, { dateStr });
+        apiLogger.error("Error fetching live games", error, { dateStr: effectiveDateStr });
         return [];
     }
 }
